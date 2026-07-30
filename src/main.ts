@@ -29,10 +29,15 @@ import {
 } from "./game-logic";
 import {
   BOSS_CAMPAIGN_ENCOUNTERS,
+  campaignClearScoreRequirement,
   campaignDifficultyForLevel,
+  campaignEncounterAttackScale,
+  campaignEncounterPowerScale,
   campaignEnemyRoster,
+  campaignFinalBossStatScale,
   chaseRemainingHpRatio,
-  remainingStoreUnlockCost,
+  finalCampaignReward,
+  INCOMPLETE_TRINITY_STAT_SCALE,
   rollCampaignElite,
   rollCampaignMutation,
   type CampaignBossKind
@@ -371,6 +376,43 @@ const BOSS_NAMES: Record<BossKind, string> = {
   shadow: "力量掠夺者 · 黑影",
   dark_deity: "黑暗魔神飞机"
 };
+
+const SHADOW_EVOLUTION_TEXTURES = [
+  "bossShadow",
+  "bossShadowStage1",
+  "bossShadowStage2",
+  "bossShadowStage3"
+] as const;
+
+const CAMPAIGN_MYSTERY_THRESHOLDS = [0.18, 0.42, 0.68, 0.9] as const;
+const CAMPAIGN_MYSTERY_MESSAGES = [
+  [
+    "雷达边缘掠过一道陌生回波",
+    "星图出现无法识别的短促脉冲",
+    "敌军频道里传来半秒杂音"
+  ],
+  [
+    "航道残骸中亮起未知星核",
+    "远方爆发一次无来源闪光",
+    "一枚异常能源体穿过干扰层"
+  ],
+  [
+    "战术残片正在回应你的火力",
+    "某种未知武装开始同步射击节奏",
+    "深空中传来第二组引擎回声"
+  ],
+  [
+    "所有敌军通讯突然中断",
+    "星空安静得不正常",
+    "前方航道出现短暂真空"
+  ]
+] as const;
+
+function shadowTextureForAbsorbedPowers(absorbedPowers: number): string {
+  return SHADOW_EVOLUTION_TEXTURES[
+    Phaser.Math.Clamp(Math.floor(absorbedPowers), 0, 3)
+  ];
+}
 
 const BOSS_POWER_OPTIONS: Array<{
   id: BossPowerId;
@@ -770,6 +812,10 @@ let selectedLevel = save.lastLevel;
 let playVariant: PlayVariant = save.lastVariant;
 let selectedShip2: ShipId = save.lastShip2;
 let game: Phaser.Game | null = null;
+
+function isNineBattleMode(): boolean {
+  return selectedMode === "campaign" || selectedMode === "boss";
+}
 let activeScene: BattleScene | null = null;
 let audioContext: AudioContext | null = null;
 let toastTimer = 0;
@@ -1135,8 +1181,8 @@ function showLevelSelect(): void {
         <button class="protocol-card ${selectedMode === "campaign" ? "selected" : ""}" data-protocol="campaign">
           <span>PROTOCOL 01</span><i>◆</i>
           <h3>普通战役</h3>
-          <p>清理敌群、击破两名阶段 Boss，最后挑战黑暗魔神。最终 Boss 被摧毁后本局结束。</p>
-          <div><b>小怪推进</b><b>阶段首领</b><b>最终结算</b></div>
+          <p>进入无法预测的深空航道。保持火力、回收异常掉落，未知威胁会在你最投入时突然现身。</p>
+          <div><b>未知航道</b><b>连续惊喜</b><b>最终结算</b></div>
         </button>
         <button class="protocol-card ${selectedMode === "endless" ? "selected" : ""}" data-protocol="endless">
           <span>PROTOCOL 02</span><i>∞</i>
@@ -1146,9 +1192,9 @@ function showLevelSelect(): void {
         </button>
         <button class="protocol-card danger ${selectedMode === "boss" ? "selected" : ""}" data-protocol="boss">
           <span>PROTOCOL 03</span><i>⚠</i>
-          <h3>无限 Boss 模式</h3>
-          <p>没有小怪、没有清兵间隔。Boss 被击破后完成强化选择，下一名 Boss 立即跃迁。</p>
-          <div><b>全是 BOSS</b><b>连续跃迁</b><b>强度递增</b></div>
+          <h3>九战 Boss 战役</h3>
+          <p>固定九场：三首领与三次黑影追逐、三不完全体同屏、黑影本体和最终真身。终战后本局结束。</p>
+          <div><b>固定九战</b><b>追逐黑影</b><b>终局结算</b></div>
         </button>
       </div>
       <div class="danger-select">
@@ -1171,17 +1217,17 @@ function showLevelSelect(): void {
         <span>当前配置</span>
         <strong>${SPECIALIZATIONS[save.selectedSpecialization].name} · ${
           selectedMode === "campaign"
-            ? "普通战役 · 三段首领航线"
+            ? "普通战役 · 未知深空航线"
             : selectedMode === "endless"
               ? "深空无尽模式 · 分段存币"
-              : "无限 Boss 模式 · 纯首领"
+              : "九战 Boss 战役 · 固定终局"
         }</strong>
         <small>${
           selectedMode === "campaign"
-            ? "打完最终 Boss 自动胜利结算。"
+            ? "持续推进并留意异常回波；完全体黑影和最终真身会在战斗中主动召唤小兵。"
             : selectedMode === "endless"
               ? "每次 Boss 击破立即保存本段代币，死亡或退出也会保护尚未入库的代币。"
-              : "本次飞行没有小怪，Boss 会无限重生并强化。"
+              : "没有额外清兵战；完成九场并击破最终真身后胜利结算。"
         }</small>
       </div>
       <button class="primary-button flow-next" id="launch-level">${
@@ -1189,7 +1235,7 @@ function showLevelSelect(): void {
           ? "点火 · 开始普通战役"
           : selectedMode === "endless"
             ? "点火 · 进入无尽空域"
-            : "点火 · 进入无限 Boss"
+            : "点火 · 开始九战 Boss 战役"
       }</button>
     </section>
   `;
@@ -1235,7 +1281,7 @@ function showAbout(): void {
       ${screenHeader("ABOUT / FLIGHT MANUAL", "关于与操作")}
       <div class="about-panel">
         <div class="about-logo">星际守护者 <small>v0.5.1</small></div>
-        <p>三类空域协议：普通战役最终通关、无尽模式分段存币、无限 Boss 连续首领。</p>
+        <p>三类空域协议：普通战役最终通关、无尽模式分段存币、九战 Boss 固定终局。</p>
         <div class="key-table">
           <div><kbd>WASD / 方向键</kbd><span>移动战机</span></div>
           <div><kbd>SPACE</kbd><span>按住持续开火</span></div>
@@ -1694,7 +1740,11 @@ function showDoctrineEvolution(scene: BattleScene, onComplete: () => void): void
   });
 }
 
-function showAirSupportSelection(scene: BattleScene, onComplete: () => void): void {
+function showAirSupportSelection(
+  scene: BattleScene,
+  onComplete: () => void,
+  stolenBossKind?: BossKind
+): void {
   scene.isModal = true;
   scene.physics.world.pause();
   const available = AIR_SUPPORT_SKILLS.filter(
@@ -1711,9 +1761,19 @@ function showAirSupportSelection(scene: BattleScene, onComplete: () => void): vo
   overlayRoot.innerHTML = `
     <div class="overlay air-support-overlay">
       <div class="overlay-panel air-support-panel">
-        <div class="eyebrow">BOTTOM-UP AIR SUPPORT</div>
-        <h2>逆航支援编队抵达</h2>
-        <p>选择一种由屏幕下方向上掠过的俯视支援技能。获得后会在战斗中自动循环发动。</p>
+        <div class="eyebrow">${
+          stolenBossKind ? "STOLEN BOSS ENHANCEMENT" : "BOTTOM-UP AIR SUPPORT"
+        }</div>
+        <h2>${
+          stolenBossKind
+            ? `${BOSS_NAMES[stolenBossKind]}强化碎片`
+            : "逆航支援编队抵达"
+        }</h2>
+        <p>${
+          stolenBossKind
+            ? "黑影夺走了刚才 Boss 的全部能力与强化，但向上隐退时被迫遗落了一枚强化碎片。选择一种支援协议完成回收。"
+            : "选择一种由屏幕下方向上掠过的俯视支援技能。获得后会在战斗中自动循环发动。"
+        }</p>
         <div class="air-support-grid">
           ${options
             .map((skill, index) => {
@@ -1739,7 +1799,11 @@ function showAirSupportSelection(scene: BattleScene, onComplete: () => void): vo
             })
             .join("")}
         </div>
-        <div class="evolution-note">支援机始终从座舱后方进入战场 · 每项最高 LV.5</div>
+        <div class="evolution-note">${
+          stolenBossKind
+            ? "此为黑影逃逸时掉落的 Boss 强化 · 每项最高 LV.5"
+            : "支援机始终从座舱后方进入战场 · 每项最高 LV.5"
+        }</div>
       </div>
     </div>
   `;
@@ -1801,41 +1865,6 @@ function showBossPowerSelection(scene: BattleScene, onComplete: () => void): voi
       sfx("upgrade");
       onComplete();
     });
-  });
-}
-
-function showCampaignStory(
-  scene: BattleScene,
-  eyebrow: string,
-  title: string,
-  copy: string,
-  action: string,
-  onComplete: () => void
-): void {
-  scene.isModal = true;
-  scene.physics.world.pause();
-  overlayRoot.innerHTML = `
-    <div class="overlay campaign-story-overlay">
-      <div class="overlay-panel campaign-story-panel">
-        <div class="eyebrow">${eyebrow}</div>
-        <div class="campaign-story-sigil">◈</div>
-        <h2>${title}</h2>
-        <p>${copy}</p>
-        <div class="campaign-progress-strip">
-          ${BOSS_CAMPAIGN_ENCOUNTERS.map(
-            (encounter, index) =>
-              `<i class="${index < scene.campaignEncounterIndex ? "done" : index === scene.campaignEncounterIndex ? "active" : ""}" title="${encounter.title}">${index + 1}</i>`
-          ).join("")}
-        </div>
-        <button class="primary-button" id="campaign-story-next">${action}</button>
-      </div>
-    </div>
-  `;
-  document.querySelector("#campaign-story-next")!.addEventListener("click", () => {
-    overlayRoot.innerHTML = "";
-    scene.isModal = false;
-    scene.physics.world.resume();
-    onComplete();
   });
 }
 
@@ -1918,16 +1947,16 @@ function finishRun(result: RunResult): void {
               ? result.mode === "campaign"
                 ? "普通战役完成"
                 : result.mode === "boss"
-                  ? "无限 Boss 序列已归档"
+                  ? "九战 Boss 战役完成"
                   : `关卡 ${result.missionLevel} 完成`
               : "本次无限航迹已封存"
         }</h2>
         <p>${
           result.victory
             ? result.mode === "campaign"
-              ? "阶段首领与最终黑暗魔神均已击破，本局获得的数据已经永久保存。"
+              ? "带有小怪增援的九场 Boss 战与最终真身均已击破，本局数据已经永久保存。"
               : result.mode === "boss"
-                ? "本轮纯 Boss 战斗数据已回收到机库。"
+                ? "九场战斗与最终真身均已击破，终局核心和全部战斗数据已永久回收到机库。"
                 : "泰坦核心已被摧毁，航道暂时安全。"
             : "星核数据已回收，调整构筑后再次出击。"
         }</p>
@@ -1938,7 +1967,9 @@ function finishRun(result: RunResult): void {
           <div class="result-stat"><span>LEVEL</span><strong>LV.${result.level}</strong></div>
           <div class="result-stat"><span>游戏代币</span><strong>◆ +${result.reward}</strong></div>
           <div class="result-stat"><span>战斗掉落</span><strong>${result.combatTokens}</strong></div>
-          <div class="result-stat"><span>击破泰坦</span><strong>${result.bosses}</strong></div>
+          <div class="result-stat"><span>${
+            result.mode === "boss" || result.mode === "campaign" ? "完成战斗" : "击破泰坦"
+          }</span><strong>${result.bosses}</strong></div>
           <div class="result-stat"><span>MODE</span><strong>${result.mode.toUpperCase()}</strong></div>
           ${
             playVariant === "single"
@@ -2028,6 +2059,7 @@ class BattleScene extends Phaser.Scene {
   bossActive = false;
   bossHp = 0;
   bossMaxHp = 18000;
+  bossMaxHpBeforeFinalBalance = 18000;
   bossPhase = 0;
   bossTier = 0;
   bossKind: BossKind = "titan";
@@ -2077,10 +2109,17 @@ class BattleScene extends Phaser.Scene {
   campaignInterludeActive = false;
   campaignInterludeKills = 0;
   campaignInterludeTarget = 0;
+  campaignInterludeStartScore = 0;
+  campaignInterludeNextEncounter = 0;
+  campaignInterludeWave = 0;
+  campaignMysteryStage = 0;
+  campaignMysteryVariant = 0;
+  lastBannerText = "";
   trinityAlive = 0;
   trinityDefeatedKinds: BossKind[] = [];
   nextTrinityAttack = 0;
   nextUsurperDisableAt = 0;
+  nextBossMinionSummon = 0;
   darkHealLockUntil = 0;
   darkHealingScale = 1;
   darkDotRemaining = 0;
@@ -2131,6 +2170,10 @@ class BattleScene extends Phaser.Scene {
     this.load.image("bossTitan", "/assets/enemies/boss_titan.png");
     this.load.image("bossUsurper", "/assets/enemies/boss_usurper.png");
     this.load.image("bossShadow", "/assets/enemies/boss_shadow.png");
+    this.load.image("bossShadowStage1", "/assets/enemies/boss_shadow_stage1.png");
+    this.load.image("bossShadowStage2", "/assets/enemies/boss_shadow_stage2.png");
+    this.load.image("bossShadowStage3", "/assets/enemies/boss_shadow_stage3.png");
+    this.load.image("bossShadowComplete", "/assets/enemies/boss_shadow_complete.png");
     this.load.image("bossDarkDeity", "/assets/enemies/boss_dark_deity.png");
     this.load.image("enemyScoutArt", "/assets/enemies/enemy_scout.png");
     this.load.image("enemyInterceptorArt", "/assets/enemies/enemy_interceptor.png");
@@ -2198,9 +2241,13 @@ class BattleScene extends Phaser.Scene {
             forceWheelchairRecovery: () => void;
             setCampaignEncounter: (index: number) => void;
             damageBossRatio: (ratio: number) => void;
+            damageBossToRemainingRatio: (ratio: number) => void;
+            defeatNextTrinityBoss: () => void;
             collisionFinishBoss: () => void;
             grantBossPower: (power: BossPowerId) => void;
             completeInterlude: () => void;
+            setInterludeProgressRatio: (ratio: number) => void;
+            healPlayer: (amount: number) => void;
             setRunTokens: (value: number) => void;
             bankTokens: () => number;
             spawnFlightToken: () => void;
@@ -2227,6 +2274,16 @@ class BattleScene extends Phaser.Scene {
           bossMutationKind: this.bossMutationKind,
           bossHp: this.bossHp,
           bossMaxHp: this.bossMaxHp,
+          bossMaxHpBeforeFinalBalance: this.bossMaxHpBeforeFinalBalance,
+          bossEncounterPowerScale:
+            isNineBattleMode()
+              ? campaignEncounterPowerScale(this.campaignEncounterIndex)
+              : 1,
+          bossEncounterAttackScale: this.currentBossEncounterAttackScale(),
+          bossFinalStatScale:
+            isNineBattleMode()
+              ? campaignFinalBossStatScale(this.campaignEncounterIndex)
+              : 1,
           skillsConfiscated: this.skillsConfiscated,
           skillsConfiscatedRemaining: Math.max(0, this.skillsConfiscatedUntil - this.time.now),
           campaignEncounterIndex: this.campaignEncounterIndex,
@@ -2236,6 +2293,16 @@ class BattleScene extends Phaser.Scene {
           campaignInterludeActive: this.campaignInterludeActive,
           campaignInterludeKills: this.campaignInterludeKills,
           campaignInterludeTarget: this.campaignInterludeTarget,
+          campaignInterludeScore: Math.max(
+            0,
+            this.score + this.score2 - this.campaignInterludeStartScore
+          ),
+          campaignInterludeStartScore: this.campaignInterludeStartScore,
+          campaignInterludeNextEncounter: this.campaignInterludeNextEncounter,
+          campaignInterludeWave: this.campaignInterludeWave,
+          campaignMysteryStage: this.campaignMysteryStage,
+          hudLevelText: this.hud.level.text,
+          lastBannerText: this.lastBannerText,
           trinityAlive: this.trinityAlive,
           bossPower: this.bossPower,
           bossPowerActiveRemaining: Math.max(0, this.bossPowerActiveUntil - this.time.now),
@@ -2243,9 +2310,27 @@ class BattleScene extends Phaser.Scene {
           darkHealLockRemaining: Math.max(0, this.darkHealLockUntil - this.time.now),
           darkHealingScale: this.darkHealingScale,
           darkDotRemaining: this.darkDotRemaining,
+          nextBossMinionSummonRemaining: Number.isFinite(this.nextBossMinionSummon)
+            ? Math.max(0, this.nextBossMinionSummon - this.time.now)
+            : null,
           strippedAbilities: [...this.strippedAbilities],
           finalBossBorrowedPower: this.finalBossBorrowedPower,
           worldWidth: WORLD_WIDTH,
+          arenaBoundsWidth: this.physics.world.bounds.width,
+          bossPartStates: (
+            this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]
+          )
+            .filter((part) => part.active)
+            .map((part) => ({
+              part: part.getData("part"),
+              raidKind: part.getData("raidKind") ?? null,
+              hp: part.getData("hp") ?? null,
+              maxHp: part.getData("maxHp") ?? null,
+              elite: Boolean(part.getData("elite")),
+              texture: part.texture.key,
+              x: part.x,
+              y: part.y
+            })),
           doctrineLevels: { ...this.doctrineLevels },
           airSupportLevels: { ...this.airSupportLevels },
           enemySlowRemaining: Math.max(0, this.enemySlowUntil - this.time.now),
@@ -2327,7 +2412,8 @@ class BattleScene extends Phaser.Scene {
               mutation: enemy.getData("mutation") ?? null,
               texture: enemy.texture.key,
               ramInjected: Boolean(enemy.getData("ramInjected")),
-              debugInjected: Boolean(enemy.getData("debugInjected"))
+              debugInjected: Boolean(enemy.getData("debugInjected")),
+              bossSummoned: Boolean(enemy.getData("bossSummoned"))
             })),
           pickupStates: (this.pickups.getChildren() as Phaser.Physics.Arcade.Image[])
             .filter((pickup) => pickup.active)
@@ -2382,8 +2468,14 @@ class BattleScene extends Phaser.Scene {
         },
         forceCampaignFinal: () => {
           this.clearBossEntities();
-          this.bossTier = 2;
-          this.spawnBoss("dark_deity");
+          if (isNineBattleMode()) {
+            this.campaignBossesDefeated = 3;
+            this.campaignEncounterIndex = 8;
+            this.startCampaignEncounter(8, true);
+          } else {
+            this.bossTier = 2;
+            this.spawnBoss("dark_deity");
+          }
         },
         grantEvolution: (id: string) => this.applyDoctrineEvolution(id),
         setMaxHp: (value: number) => {
@@ -2404,8 +2496,24 @@ class BattleScene extends Phaser.Scene {
         },
         defeatBoss: () => {
           if (!this.bossActive) return;
-          this.bossHp = 0;
-          this.defeatBoss();
+          const raidCores = (
+            this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]
+          ).filter(
+            (part) => part.active && part.getData("part") === "raid-core"
+          );
+          if (raidCores.length) {
+            raidCores.forEach((core) =>
+              core.active &&
+              this.damageBossPart(core, (core.getData("hp") ?? 1) + 1)
+            );
+            return;
+          }
+          const core = (
+            this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]
+          ).find((part) => part.active && part.getData("part") === "core");
+          if (!core) return;
+          const phaseMultiplier = this.bossPhase === 1 ? 0.65 : 1.25;
+          this.damageBossPart(core, this.bossHp / phaseMultiplier + 1);
         },
         primeRamKill: () => {
           const enemy = this.spawnEnemy(this.time.now, "scout");
@@ -2474,6 +2582,22 @@ class BattleScene extends Phaser.Scene {
           );
           if (core) this.damageBossPart(core, this.bossMaxHp * Math.max(0, ratio));
         },
+        damageBossToRemainingRatio: (ratio: number) => {
+          const core = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
+            (part) => part.active && part.getData("part") === "core"
+          );
+          if (!core) return;
+          const targetHp = this.bossMaxHp * Phaser.Math.Clamp(ratio, 0, 1);
+          const effectiveDamage = Math.max(0, this.bossHp - targetHp);
+          const phaseMultiplier = this.bossPhase === 1 ? 0.65 : 1.25;
+          this.damageBossPart(core, effectiveDamage / phaseMultiplier);
+        },
+        defeatNextTrinityBoss: () => {
+          const core = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
+            (part) => part.active && part.getData("part") === "raid-core"
+          );
+          if (core) this.damageBossPart(core, (core.getData("hp") ?? 1) + 1);
+        },
         collisionFinishBoss: () => {
           const core = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
             (part) => part.active && part.getData("part") === "core"
@@ -2485,9 +2609,25 @@ class BattleScene extends Phaser.Scene {
         },
         grantBossPower: (power: BossPowerId) => this.setBossPower(power),
         completeInterlude: () => {
-          this.campaignInterludeKills = this.campaignInterludeTarget;
+          const missingScore = Math.max(
+            0,
+            this.campaignInterludeTarget -
+              (this.score + this.score2 - this.campaignInterludeStartScore)
+          );
+          this.score += missingScore;
           this.completeCampaignInterlude();
         },
+        setInterludeProgressRatio: (ratio: number) => {
+          if (!this.campaignInterludeActive) return;
+          const progress = Math.round(
+            this.campaignInterludeTarget * Phaser.Math.Clamp(ratio, 0, 0.99)
+          );
+          this.score =
+            this.campaignInterludeStartScore + progress - this.score2;
+          this.updateCampaignMysteryFeedback();
+          this.updateHud();
+        },
+        healPlayer: (amount: number) => this.healPlayer(Math.max(0, amount)),
         setRunTokens: (value: number) => {
           this.runTokens = Math.max(0, Math.floor(value));
         },
@@ -2506,24 +2646,24 @@ class BattleScene extends Phaser.Scene {
     const levelConfig = LEVELS[selectedLevel - 1];
     this.campaignBossAt = levelConfig.duration;
     this.nextBossScore =
-      selectedMode === "campaign"
-        ? 18000 + selectedLevel * 2600
-        : selectedMode === "endless"
-          ? 26000 + selectedLevel * 3200
-          : 0;
+      selectedMode === "endless" ? 26000 + selectedLevel * 3200 : 0;
     this.nextFlightToken = this.time.now + 4500;
     this.nextSkillPickup = this.time.now + Phaser.Math.Between(11000, 16000);
     this.showBanner(
       selectedMode === "campaign"
-        ? `普通战役 · ${levelConfig.name} · 最终目标黑暗魔神`
+        ? `普通战役 · ${levelConfig.name} · 未知深空航线`
         : selectedMode === "endless"
           ? `深空无尽 · ${levelConfig.name} · 首轮阈值 ${this.nextBossScore}`
-          : `无限 Boss · ${campaignDifficultyForLevel(selectedLevel).name} · TIER 1`
+          : `九战 Boss 战役 · ${campaignDifficultyForLevel(selectedLevel).name} · 战斗 1/9`
     );
     if (selectedLevel === 5) this.unlockAchievement("level_five");
-    if (selectedMode === "boss") {
+    if (selectedMode === "campaign") {
       this.time.delayedCall(700, () => {
-        this.playBossArrivalCG();
+        this.startCampaignInterlude(0, 0);
+      });
+    } else if (selectedMode === "boss") {
+      this.time.delayedCall(700, () => {
+        this.startCampaignEncounter(0);
       });
     }
     this.time.delayedCall(900, () => {
@@ -2983,6 +3123,19 @@ class BattleScene extends Phaser.Scene {
     } else if (kind === "skill") {
       this.activateTemporarySkill(value as TemporarySkill);
       this.pickupEffect(collector.x, collector.y, true);
+    } else if (kind === "boss_upgrade") {
+      const onCollected = item.getData("onCollected") as (() => void) | undefined;
+      item.disableBody(true, true);
+      this.pickupEffect(collector.x, collector.y, true);
+      showAirSupportSelection(
+        this,
+        () => {
+          this.showBanner(`${BOSS_NAMES[value as BossKind]}强化回收完成`, 900);
+          onCollected?.();
+        },
+        value as BossKind
+      );
+      return;
     } else {
       this.collectXp(value);
       this.pickupEffect(collector.x, collector.y, false);
@@ -3228,6 +3381,14 @@ class BattleScene extends Phaser.Scene {
     this.updateProjectiles(time);
     this.updateEnemies(time, dt);
     this.updatePickups();
+    this.updateCampaignMysteryFeedback();
+    if (
+      this.campaignInterludeActive &&
+      this.score + this.score2 - this.campaignInterludeStartScore >=
+        this.campaignInterludeTarget
+    ) {
+      this.completeCampaignInterlude();
+    }
     this.updateBoss(time, dt);
     this.updateHud();
     this.updateDebug();
@@ -3239,7 +3400,10 @@ class BattleScene extends Phaser.Scene {
       this.spawnSkillPickup();
       this.nextSkillPickup = time + Phaser.Math.Between(17000, 28000);
     }
-    const scoreProgress = (this.score + this.score2) / Math.max(1, this.nextBossScore);
+    const scoreProgress = this.campaignInterludeActive
+      ? (this.score + this.score2 - this.campaignInterludeStartScore) /
+        Math.max(1, this.campaignInterludeTarget)
+      : (this.score + this.score2) / Math.max(1, this.nextBossScore);
     const intensityStage = this.bossActive
       ? 3
       : scoreProgress >= 0.72
@@ -3249,7 +3413,7 @@ class BattleScene extends Phaser.Scene {
           : 0;
     setAdaptiveMusic(intensityStage);
     if (
-      selectedMode !== "boss" &&
+      selectedMode === "endless" &&
       !this.bossActive &&
       !this.levelCompleteTriggered &&
       this.score + this.score2 >= this.nextBossScore
@@ -3259,9 +3423,58 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  updateCampaignMysteryFeedback(): void {
+    if (
+      !this.campaignInterludeActive ||
+      this.campaignMysteryStage >= CAMPAIGN_MYSTERY_THRESHOLDS.length
+    ) {
+      return;
+    }
+    const progressRatio =
+      (this.score + this.score2 - this.campaignInterludeStartScore) /
+      Math.max(1, this.campaignInterludeTarget);
+    const stage = this.campaignMysteryStage;
+    if (progressRatio < CAMPAIGN_MYSTERY_THRESHOLDS[stage]) return;
+    this.campaignMysteryStage += 1;
+    const messages = CAMPAIGN_MYSTERY_MESSAGES[stage];
+    const message = messages[(this.campaignMysteryVariant + stage) % messages.length];
+    if (stage === 0) {
+      this.ultimate = Math.min(100, this.ultimate + 6);
+      this.burst(this.player.x, this.player.y, 0x2df4ff, 1.35);
+    } else if (stage === 1) {
+      this.spawnFlightToken();
+      this.cameras.main.flash(90, 45, 244, 255);
+    } else if (stage === 2) {
+      this.spawnSkillPickup(
+        Phaser.Math.Clamp(
+          this.player.x + Phaser.Math.Between(-150, 150),
+          90,
+          WORLD_WIDTH - 90
+        ),
+        -55
+      );
+      this.ultimate = Math.min(100, this.ultimate + 10);
+    } else {
+      this.ultimate = Math.min(100, this.ultimate + 16);
+      this.healPlayer(this.stats.maxHp * 0.06, "未知共振");
+      this.cameras.main.flash(120, 90, 25, 145);
+    }
+    this.showBanner(message, stage === 3 ? 1250 : 950);
+    sfx("upgrade");
+  }
+
   updateStars(dt: number): void {
+    const encounter = BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex];
+    const pursuitScale =
+      isNineBattleMode() && encounter?.kind === "chase" && this.bossActive
+        ? 3.1
+        : 1;
     for (const star of this.stars) {
-      star.y += star.getData("speed") * dt * (this.bossPhase === 3 ? 1.7 : 1);
+      star.y +=
+        star.getData("speed") *
+        dt *
+        (this.bossPhase === 3 ? 1.7 : 1) *
+        pursuitScale;
       if (star.y > WORLD_HEIGHT + 8) {
         star.y = -8;
         star.x = Phaser.Math.Between(0, WORLD_WIDTH);
@@ -3328,6 +3541,7 @@ class BattleScene extends Phaser.Scene {
     token.enableBody(true, token.x, -50, true, true);
     token
       .setTexture("starCoreTokenArt")
+      .clearTint()
       .setDisplaySize(46, 46)
       .setDepth(7)
       .setData({ kind: "token", value })
@@ -3340,6 +3554,7 @@ class BattleScene extends Phaser.Scene {
     pickup.enableBody(true, x, y, true, true);
     pickup
       .setTexture("starCoreTokenArt")
+      .clearTint()
       .setDisplaySize(34, 34)
       .setDepth(6)
       .setData({ kind: "xp", value })
@@ -3354,11 +3569,42 @@ class BattleScene extends Phaser.Scene {
     pickup.enableBody(true, x, y, true, true);
     pickup
       .setTexture("skillPickup")
+      .clearTint()
       .setDisplaySize(54, 54)
       .setDepth(8)
       .setData({ kind: "skill", value: skill })
       .setVelocity(Phaser.Math.Between(-55, 55), Phaser.Math.Between(105, 145))
       .setAngularVelocity(150);
+  }
+
+  spawnBossUpgradePickup(
+    x: number,
+    y: number,
+    defeatedKind: BossKind,
+    onCollected: () => void
+  ): void {
+    const tint =
+      defeatedKind === "titan"
+        ? 0xff9a45
+        : defeatedKind === "mirror"
+          ? 0x54f4ff
+          : 0xc86cff;
+    const pickup = this.pickups.get(x, y, "skillPickup") as Phaser.Physics.Arcade.Image;
+    pickup.enableBody(true, x, y, true, true);
+    pickup
+      .setTexture("skillPickup")
+      .setDisplaySize(72, 72)
+      .setDepth(36)
+      .setTint(tint)
+      .setData({
+        kind: "boss_upgrade",
+        value: defeatedKind,
+        onCollected,
+        born: this.time.now
+      })
+      .setVelocity(0, 95)
+      .setAngularVelocity(110);
+    this.showBanner(`${BOSS_NAMES[defeatedKind]}强化掉落 · 正在回收`, 1200);
   }
 
   activateTemporarySkill(skill: TemporarySkill): void {
@@ -4056,7 +4302,7 @@ class BattleScene extends Phaser.Scene {
                   : roll > 0.17
                     ? "interceptor"
                     : "scout";
-    if (selectedMode === "boss" && !forcedType) {
+    if (isNineBattleMode() && !forcedType) {
       rolledType = Phaser.Utils.Array.GetRandom(
         campaignEnemyRoster(this.campaignBossesDefeated)
       ) as EnemyType;
@@ -4082,9 +4328,9 @@ class BattleScene extends Phaser.Scene {
     const eliteVariant =
       forcedElite ||
       (!forcedType &&
-        (selectedMode === "boss" ? rollCampaignElite(selectedLevel) : Math.random() < eliteChance));
+        (isNineBattleMode() ? rollCampaignElite(selectedLevel) : Math.random() < eliteChance));
     const mutated =
-      !forcedType && selectedMode === "boss" && rollCampaignMutation(selectedLevel);
+      !forcedType && isNineBattleMode() && rollCampaignMutation(selectedLevel);
     const mutation: EnemyMutation | null = mutated
       ? Phaser.Utils.Array.GetRandom(["homing", "mine_burst", "armor", "dash", "suppress"] as EnemyMutation[])
       : null;
@@ -4240,7 +4486,10 @@ class BattleScene extends Phaser.Scene {
   }
 
   updateEnemies(time: number, _dt: number): void {
-    if (selectedMode !== "boss" && !this.bossActive && time >= this.nextSpawn) {
+    const ambientEnemiesEnabled =
+      (selectedMode === "campaign" && this.campaignInterludeActive) ||
+      (selectedMode === "endless" && !this.bossActive);
+    if (ambientEnemiesEnabled && time >= this.nextSpawn) {
       this.spawnEnemy(time);
       const scorePressure = (this.score + this.score2) / 5000;
       const interval = Phaser.Math.Clamp(
@@ -4248,7 +4497,8 @@ class BattleScene extends Phaser.Scene {
         190,
         760
       );
-      this.nextSpawn = time + interval;
+      const campaignSpawnScale = selectedMode === "campaign" ? 1.1 : 1;
+      this.nextSpawn = time + interval * campaignSpawnScale;
     }
     this.enemies.children.each((child) => {
       const enemy = child as Phaser.Physics.Arcade.Image;
@@ -4617,17 +4867,7 @@ class BattleScene extends Phaser.Scene {
     if (reward) {
       this.kills += 1;
       if (this.campaignInterludeActive) {
-        this.campaignInterludeKills = Math.min(
-          this.campaignInterludeTarget,
-          this.campaignInterludeKills + 1
-        );
-        this.showBanner(
-          `终战整备 · 击破 ${this.campaignInterludeKills}/${this.campaignInterludeTarget}`,
-          520
-        );
-        if (this.campaignInterludeKills >= this.campaignInterludeTarget) {
-          this.time.delayedCall(0, () => this.completeCampaignInterlude());
-        }
+        this.campaignInterludeKills += 1;
       }
       const enemyType = enemy.getData("type") as string;
       const baseToken = (
@@ -4690,6 +4930,7 @@ class BattleScene extends Phaser.Scene {
       this.applyKillTrait();
       this.combo += 1;
       this.comboTimer = 2.5;
+      this.rewardCombatStreak();
       const earned = Math.round((enemy.getData("score") ?? 50) * (1 + Math.min(2, this.combo / 100)));
       if (playVariant === "score_duel" && enemy.getData("lastOwner") === 2) this.score2 += earned;
       else this.score += earned;
@@ -4706,6 +4947,22 @@ class BattleScene extends Phaser.Scene {
     enemy.disableBody(true, true);
   }
 
+  rewardCombatStreak(): void {
+    const milestones: Record<number, { title: string; tokens: number; ultimate: number }> = {
+      8: { title: "猎杀连锁", tokens: 3, ultimate: 5 },
+      20: { title: "火力狂潮", tokens: 7, ultimate: 10 },
+      40: { title: "王牌时刻", tokens: 14, ultimate: 18 }
+    };
+    const milestone = milestones[this.combo];
+    if (!milestone) return;
+    const reward = milestone.tokens + selectedLevel;
+    this.runTokens += reward;
+    this.ultimate = Math.min(100, this.ultimate + milestone.ultimate);
+    this.showBanner(`${milestone.title} · ${this.combo} COMBO · ◆ +${reward}`, 760);
+    this.burst(this.player.x, this.player.y, 0xffbd3e, 1.6);
+    sfx("upgrade");
+  }
+
   applyKillTrait(): void {
     if (save.selectedSpecialization === "defender") {
       this.healPlayer(
@@ -4716,10 +4973,8 @@ class BattleScene extends Phaser.Scene {
       );
     } else if (save.selectedSpecialization === "devour") {
       this.stats.maxHp = Math.ceil(this.stats.maxHp * 1.02);
-      this.stats.hp = roundHealth(
-        this.stats.hp +
-          this.stats.maxHp * 0.01 * SPECIALIZATION_BASE_STAT_BOOST,
-        this.stats.maxHp
+      this.healPlayer(
+        this.stats.maxHp * 0.01 * SPECIALIZATION_BASE_STAT_BOOST
       );
       if (this.kills % 4 === 0) {
         this.showBanner(`吞噬进化 · 最大生命 ${this.stats.maxHp}`, 600);
@@ -4762,7 +5017,7 @@ class BattleScene extends Phaser.Scene {
         0.03 *
         SPECIALIZATION_BASE_STAT_BOOST
     );
-    this.stats.hp = roundHealth(this.stats.hp + healed, this.stats.maxHp);
+    this.healPlayer(healed);
     if (Math.random() > 0.72) {
       const mote = this.add
         .circle(this.player.x + Phaser.Math.Between(-30, 30), this.player.y - 34, 5, 0xff3d7f, 0.85)
@@ -4817,6 +5072,12 @@ class BattleScene extends Phaser.Scene {
     if (label) this.floatText(this.player.x, this.player.y - 48, `${label} +${Math.round(healed)}`, true);
   }
 
+  currentBossEncounterAttackScale(): number {
+    return isNineBattleMode()
+      ? campaignEncounterAttackScale(this.campaignEncounterIndex)
+      : 1;
+  }
+
   damagePlayerDark(flatDamage: number, maxHpRatio: number, label: string): void {
     const now = this.time.now;
     if (now < this.invulnerableUntil || this.ultimateActive > 0 || this.ended) return;
@@ -4838,6 +5099,7 @@ class BattleScene extends Phaser.Scene {
       1,
       Math.ceil(
         (flatDamage + this.stats.maxHp * maxHpRatio) *
+          this.currentBossEncounterAttackScale() *
           damageReduction *
           collisionBossDamageScale(
             this.stats.maxHp,
@@ -4858,8 +5120,13 @@ class BattleScene extends Phaser.Scene {
   }
 
   applyDarkDot(totalDamage: number, duration: number, label: string): void {
-    this.darkDotRemaining += totalDamage;
-    this.darkDotPerSecond = Math.max(this.darkDotPerSecond, totalDamage / duration);
+    const scaledTotalDamage =
+      totalDamage * this.currentBossEncounterAttackScale();
+    this.darkDotRemaining += scaledTotalDamage;
+    this.darkDotPerSecond = Math.max(
+      this.darkDotPerSecond,
+      scaledTotalDamage / duration
+    );
     this.darkDotUntil = Math.max(this.darkDotUntil, this.time.now + duration * 1000);
     this.darkHealLockUntil = Math.max(this.darkHealLockUntil, this.darkDotUntil);
     this.nextDarkDotTick = Math.min(this.nextDarkDotTick || this.time.now, this.time.now);
@@ -5211,6 +5478,10 @@ class BattleScene extends Phaser.Scene {
     this.pickups.children.each((child) => {
       const pickup = child as Phaser.Physics.Arcade.Image;
       if (!pickup.active) return true;
+      if (pickup.getData("kind") === "boss_upgrade") {
+        this.physics.moveToObject(pickup, this.player, 430);
+        return true;
+      }
       const distance = Phaser.Math.Distance.Between(pickup.x, pickup.y, this.player.x, this.player.y);
       if (distance < radius) this.physics.moveToObject(pickup, this.player, 540);
       if (pickup.y > WORLD_HEIGHT + 60) pickup.disableBody(true, true);
@@ -5246,16 +5517,13 @@ class BattleScene extends Phaser.Scene {
     if (id === "armor") {
       const oldMax = this.stats.maxHp;
       this.stats.maxHp = Math.round(this.stats.maxHp * 1.12);
-      this.stats.hp = Math.min(this.stats.maxHp, this.stats.hp + (this.stats.maxHp - oldMax));
+      this.healPlayer(this.stats.maxHp - oldMax);
       this.recordAgileMaxHpGain(this.stats.maxHp - oldMax);
     }
     if (id === "ram_armor") {
       const oldMax = this.stats.maxHp;
       this.stats.maxHp = Math.round(this.stats.maxHp * 1.1);
-      this.stats.hp = roundHealth(
-        this.stats.hp + this.stats.maxHp - oldMax,
-        this.stats.maxHp
-      );
+      this.healPlayer(this.stats.maxHp - oldMax);
     }
     if (id === "drone") this.updateDrones(this.time.now);
     if (id === "blade") this.updateBlades(this.time.now);
@@ -5272,7 +5540,7 @@ class BattleScene extends Phaser.Scene {
     if (id === "aegis_mastery") {
       const oldMax = this.stats.maxHp;
       this.stats.maxHp = Math.round(this.stats.maxHp * 1.12);
-      this.stats.hp = Math.min(this.stats.maxHp, this.stats.hp + this.stats.maxHp - oldMax);
+      this.healPlayer(this.stats.maxHp - oldMax);
       this.recordAgileMaxHpGain(this.stats.maxHp - oldMax);
       this.stats.damageTakenMultiplier *= 0.94;
     }
@@ -5546,13 +5814,11 @@ class BattleScene extends Phaser.Scene {
       explosionScale;
     const baseFinalDamage =
       damageSource === "boss" && this.stats.maxHp > 1000
-        ? Math.ceil(
-            this.stats.maxHp *
-              0.125 *
-              collisionBossDamageScale(
-                this.stats.maxHp,
-                save.selectedSpecialization === "wheelchair"
-              )
+        ? this.stats.maxHp *
+          0.125 *
+          collisionBossDamageScale(
+            this.stats.maxHp,
+            save.selectedSpecialization === "wheelchair"
           )
         : damageSource === "minion"
           ? Math.max(
@@ -5575,7 +5841,14 @@ class BattleScene extends Phaser.Scene {
         : 1;
     const finalDamage = Math.max(
       1,
-      Math.ceil(baseFinalDamage * overdriveReduction * ramArmorReduction)
+      Math.ceil(
+        baseFinalDamage *
+          (damageSource === "boss"
+            ? this.currentBossEncounterAttackScale()
+            : 1) *
+          overdriveReduction *
+          ramArmorReduction
+      )
     );
     this.playerWasHit = true;
     this.stats.hp = Math.max(0, this.stats.hp - finalDamage);
@@ -5586,8 +5859,10 @@ class BattleScene extends Phaser.Scene {
       this.stats.hp / this.stats.maxHp <= 0.2
     ) {
       this.emergencyUsed = true;
-      this.stats.hp = Math.min(this.stats.maxHp, this.stats.hp + 8 + save.permanentUpgrades.emergency * 2);
-      this.showBanner("紧急修复协议", 700);
+      this.healPlayer(
+        8 + save.permanentUpgrades.emergency * 2,
+        "紧急修复协议"
+      );
     }
     this.invulnerableUntil =
       now + (save.selectedSpecialization === "wheelchair" ? 500 : 800);
@@ -5952,13 +6227,11 @@ class BattleScene extends Phaser.Scene {
       explosionReduction;
     const baseDamage =
       damageSource === "boss" && this.player2MaxHp > 1000
-        ? Math.ceil(
-            this.player2MaxHp *
-              0.125 *
-              collisionBossDamageScale(
-                this.player2MaxHp,
-                save.selectedSpecialization === "wheelchair"
-              )
+        ? this.player2MaxHp *
+          0.125 *
+          collisionBossDamageScale(
+            this.player2MaxHp,
+            save.selectedSpecialization === "wheelchair"
           )
         : damageSource === "minion"
           ? Math.max(
@@ -5971,7 +6244,16 @@ class BattleScene extends Phaser.Scene {
               )
             )
           : Math.max(1, Math.ceil(normalDamage));
-    const finalDamage = Math.max(1, Math.ceil(baseDamage * ramArmorReduction));
+    const finalDamage = Math.max(
+      1,
+      Math.ceil(
+        baseDamage *
+          (damageSource === "boss"
+            ? this.currentBossEncounterAttackScale()
+            : 1) *
+          ramArmorReduction
+      )
+    );
     this.player2Hp = Math.max(0, this.player2Hp - finalDamage);
     this.player2.setTintFill(0xff4d6d);
     this.time.delayedCall(
@@ -6073,7 +6355,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   completeShadowChase(): void {
-    if (!this.bossActive || selectedMode !== "boss") return;
+    if (!this.bossActive || !isNineBattleMode()) return;
     const encounter = BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex];
     if (encounter?.kind !== "chase") return;
     const escapedAfterDamage = Math.round((encounter.chaseDamageTarget ?? 0) * 100);
@@ -6086,49 +6368,64 @@ class BattleScene extends Phaser.Scene {
     this.runTokens += reward;
     this.score += 5200 + chaseNumber * 1800;
     this.nextSpawn = this.time.now + 999999;
+    const stolenBossKind = (["titan", "mirror", "usurper"] as BossKind[])[
+      chaseNumber - 1
+    ];
     const core = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
       (part) => part.active && part.getData("part") === "core"
     );
+    const escapeX = core?.x ?? WORLD_WIDTH / 2;
+    const escapeY = core?.y ?? 230;
+    let afterimage: Phaser.GameObjects.Image | null = null;
     if (core) {
-      this.burst(core.x, core.y, 0x9b5cff, 2.4);
-      const afterimage = this.add
-        .image(core.x, core.y, "bossShadow")
+      afterimage = this.add
+        .image(
+          core.x,
+          core.y,
+          shadowTextureForAbsorbedPowers(this.campaignBossesDefeated)
+        )
         .setDisplaySize(core.displayWidth, core.displayHeight)
         .setDepth(35)
-        .setTint(0xb77aff);
-      this.tweens.add({
-        targets: afterimage,
-        y: -420,
-        alpha: 0,
-        scale: 0.62,
-        duration: 760,
-        ease: "Cubic.In",
-        onComplete: () => afterimage.destroy()
-      });
+        .setAlpha(0.94);
     }
     this.clearBossEntities();
     this.campaignEncounterIndex += 1;
-    this.showBanner(`黑影受创 ${escapedAfterDamage}% · 逃逸时掉落强化与 ◆ ${reward}`, 1500);
-    if (save.settings.screenShake) this.cameras.main.shake(420, 0.012);
-    this.time.delayedCall(850, () => {
-      showCampaignStory(
-        this,
-        `PURSUIT ${chaseNumber}/3 COMPLETE`,
-        "它又逃进了裂隙",
-        `黑影承受了 ${escapedAfterDamage}% 的核心损伤，却在最后一刻切断航迹。它抢走的力量仍在增长，但逃逸时留下了一枚可解析强化。`,
-        "回收强化并追踪下一目标",
-        () =>
-          showAirSupportSelection(this, () =>
-            this.startCampaignEncounter(this.campaignEncounterIndex)
-          )
+    this.showBanner(`黑影受创 ${escapedAfterDamage}% · 正在向上隐退 · ◆ +${reward}`, 1500);
+    const continueAfterUpgrade = () => {
+      if (selectedMode === "campaign") {
+        this.startCampaignInterlude(this.campaignEncounterIndex, chaseNumber);
+      } else {
+        this.startCampaignEncounter(this.campaignEncounterIndex);
+      }
+    };
+    const dropUpgrade = () =>
+      this.spawnBossUpgradePickup(
+        escapeX,
+        Phaser.Math.Clamp(escapeY, 150, WORLD_HEIGHT - 260),
+        stolenBossKind,
+        continueAfterUpgrade
       );
-    });
+    if (afterimage) {
+      this.tweens.add({
+        targets: afterimage,
+        y: -430,
+        alpha: 0,
+        duration: 820,
+        ease: "Sine.In",
+        onComplete: () => {
+          afterimage?.destroy();
+          dropUpgrade();
+        }
+      });
+    } else {
+      this.time.delayedCall(820, dropUpgrade);
+    }
   }
 
   defeatTrinityRaid(): void {
     if (
       !this.bossActive ||
-      selectedMode !== "boss" ||
+      !isNineBattleMode() ||
       BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex]?.kind !== "trinity"
     ) {
       return;
@@ -6148,45 +6445,51 @@ class BattleScene extends Phaser.Scene {
     if (save.settings.screenShake) this.cameras.main.shake(900, 0.023);
     this.showBanner(`三神共斗终结 · ◆ +${reward} · 连续三级进化`, 1800);
     this.time.delayedCall(1200, () => {
-      showCampaignStory(
-        this,
-        "ACT 07 COMPLETE",
-        "三枚首领印记同时熄灭",
-        "不完全体已经全部击破。解析阵列允许连续进行三次跨流派进化，并从泰坦、镜像与篡夺者中永久截获一项本局权柄。",
-        "开始连续解析",
-        () =>
-          showDoctrineSequence(this, 3, () =>
-            showBossPowerSelection(this, () => this.startCampaignInterlude())
-          )
-      );
+      showDoctrineSequence(this, 3, () => {
+        if (selectedMode === "campaign") {
+          this.startCampaignInterlude(7, 4);
+        } else {
+          this.startCampaignEncounter(7);
+        }
+      });
     });
   }
 
-  startCampaignInterlude(): void {
-    if (this.ended) return;
+  startCampaignInterlude(nextEncounterIndex = 0, waveNumber = 0): void {
+    if (this.ended || selectedMode !== "campaign") return;
     this.clearBossEntities();
-    this.campaignEncounterIndex = 7;
+    this.campaignEncounterIndex = Phaser.Math.Clamp(
+      nextEncounterIndex,
+      0,
+      BOSS_CAMPAIGN_ENCOUNTERS.length - 1
+    );
+    this.campaignInterludeNextEncounter = this.campaignEncounterIndex;
+    this.campaignInterludeWave = Phaser.Math.Clamp(waveNumber, 0, 4);
     this.campaignInterludeKills = 0;
-    this.campaignInterludeTarget =
-      20 + (campaignDifficultyForLevel(selectedLevel).id === "nightmare" ? 12 : selectedLevel * 2);
-    this.campaignInterludeActive = false;
-    this.nextSpawn = this.time.now + 999999;
-    showCampaignStory(
-      this,
-      "REARM INTERLUDE",
-      "黑影藏进了深层裂隙",
-      `终战信号尚未锁定。击破 ${this.campaignInterludeTarget} 架逐步解锁的新兵种完成整备；途中掉落与流派成长全部保留。`,
-      "进入终战前整备空域",
-      () => {
-        this.campaignInterludeActive = true;
-        this.nextSpawn = 0;
-        this.showBanner(`终战整备 · 击破目标 0/${this.campaignInterludeTarget}`, 1300);
-      }
+    this.campaignMysteryStage = 0;
+    this.campaignMysteryVariant = Phaser.Math.Between(0, 2);
+    this.campaignInterludeStartScore = this.score + this.score2;
+    this.campaignInterludeTarget = campaignClearScoreRequirement(
+      this.campaignInterludeWave,
+      selectedLevel
+    );
+    this.campaignInterludeActive = true;
+    this.nextSpawn = 0;
+    const entryMessages = [
+      "未知航道开放 · 保持火力",
+      "深空回波失真 · 自由推进",
+      "星图暂时失去目标 · 注意异常掉落"
+    ];
+    this.showBanner(
+      entryMessages[(this.campaignMysteryVariant + this.campaignInterludeWave) % entryMessages.length],
+      1100
     );
   }
 
   completeCampaignInterlude(): void {
     if (!this.campaignInterludeActive || this.ended) return;
+    const nextEncounterIndex = this.campaignInterludeNextEncounter;
+    const completedWave = this.campaignInterludeWave;
     this.campaignInterludeActive = false;
     this.nextSpawn = this.time.now + 999999;
     this.enemies.children.each((child) => {
@@ -6199,25 +6502,18 @@ class BattleScene extends Phaser.Scene {
       if (bullet.active) bullet.disableBody(true, true);
       return true;
     });
-    this.score += 6000;
-    this.healPlayer(this.stats.maxHp * 0.3, "终战整备完成");
-    this.showBanner("黑影坐标锁定 · 终战航道开启", 1500);
+    this.score += 3500 + completedWave * 1200;
+    this.healPlayer(this.stats.maxHp * 0.18, "清兵整备完成");
+    this.cameras.main.flash(90, 4, 9, 18);
     this.time.delayedCall(700, () => {
-      showCampaignStory(
-        this,
-        "FINAL VECTOR ACQUIRED",
-        "被盗走的三股力量正在汇聚",
-        "雷达已锁定力量掠夺者。接下来不再是追逐战：把它压至八分之一生命，逼出隐藏在黑影之下的真正形态。",
-        "进入第 8 场战斗",
-        () => this.startCampaignEncounter(7)
-      );
+      this.startCampaignEncounter(nextEncounterIndex);
     });
   }
 
   triggerShadowRupture(): void {
     if (
       !this.bossActive ||
-      selectedMode !== "boss" ||
+      !isNineBattleMode() ||
       this.shadowRuptureTriggered ||
       BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex]?.kind !== "shadow_final"
     ) {
@@ -6251,41 +6547,38 @@ class BattleScene extends Phaser.Scene {
     });
     this.cameras.main.flash(280, 80, 0, 110);
     if (save.settings.screenShake) this.cameras.main.shake(1200, 0.028);
+    this.enemies.children.each((child) => {
+      const enemy = child as Phaser.Physics.Arcade.Image;
+      if (enemy.active) {
+        this.burst(enemy.x, enemy.y, 0x6d0b8f, 1.25);
+        enemy.disableBody(true, true);
+      }
+      return true;
+    });
     this.clearBossEntities();
     this.stats.maxHp = Math.min(this.stats.maxHp, 3000);
     this.stats.hp = roundHealth(this.stats.hp, this.stats.maxHp);
     this.darkHealingScale = 0.5;
+    this.darkHealLockUntil = 0;
+    this.darkDotRemaining = 0;
+    this.darkDotPerSecond = 0;
+    this.darkDotUntil = 0;
     this.campaignEncounterIndex = 8;
     this.showBanner(`黑暗爆炸 · 生命上限封锁至 3000 · 回血效率 -50% · ◆ +${reward}`, 2200);
     this.time.delayedCall(1500, () => {
-      showCampaignStory(
-        this,
-        "TRUE FORM REVEALED",
-        "黑影只是它的外壳",
-        "全场爆炸让机体沾满黑暗能量：最大生命至多 3000，所有回血减半。三枚被盗首领印记在残骸中点亮——黑暗魔神飞机正式显形。",
-        "迎战第 9 场 · 黑暗魔神",
-        () => this.startCampaignEncounter(8)
-      );
+      this.startCampaignEncounter(8);
     });
   }
 
   finishFinalCampaignVictory(): void {
-    const unlockBudget = remainingStoreUnlockCost(
+    const completionBonus = finalCampaignReward(
       save.permanentUpgrades,
       save.unlockedSkins
     );
-    const completionBonus = unlockBudget + 1888;
     this.runTokens += completionBonus;
-    this.bossTier = Math.max(this.bossTier, 6);
+    this.bossTier = Math.max(this.bossTier, 9);
     this.showBanner(`终局核心回收 · 商店全解锁预算 ◆ +${completionBonus}`, 2200);
-    showCampaignStory(
-      this,
-      "ALL NINE ENCOUNTERS CLEARED",
-      "黑暗魔神已从航道抹除",
-      `九场战斗全部完成。终局核心包含当前商店所有未购升级与涂装所需的完整预算，并额外回收 1888 星核币。`,
-      "观看最终返航结算",
-      () => this.endRun(true)
-    );
+    this.time.delayedCall(1100, () => this.endRun(true));
   }
 
   startCampaignEncounter(index: number, skipStory = false): void {
@@ -6294,6 +6587,9 @@ class BattleScene extends Phaser.Scene {
     const encounter = BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex];
     this.clearBossEntities();
     this.campaignInterludeActive = false;
+    if (selectedMode === "campaign") {
+      this.nextSpawn = this.time.now + 999999;
+    }
     this.bossKind = encounter.bossKind;
     this.bossElite = rollCampaignElite(selectedLevel);
     this.bossMutated =
@@ -6307,7 +6603,9 @@ class BattleScene extends Phaser.Scene {
       this.bossMutationKind = null;
     }
     this.showBanner(
-      `终局战役 ${this.campaignEncounterIndex + 1}/9 · ${encounter.title}`,
+      selectedMode === "campaign"
+        ? `⚠ 未知威胁现身 · ${encounter.title}`
+        : `终局战役 ${this.campaignEncounterIndex + 1}/9 · ${encounter.title}`,
       1200
     );
     if (skipStory) {
@@ -6320,14 +6618,22 @@ class BattleScene extends Phaser.Scene {
 
   playBossArrivalCG(): void {
     if (this.bossActive || this.ended) return;
-    const incomingKind =
-      selectedMode === "campaign" && this.bossTier >= 2
+    const campaignEncounter =
+      isNineBattleMode()
+        ? BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex]
+        : null;
+    const incomingKind = campaignEncounter
+      ? campaignEncounter.bossKind
+      : selectedMode === "campaign" && this.bossTier >= 2
         ? "dark_deity"
         : (["titan", "mirror", "usurper"] as BossKind[])[this.bossTier % 3];
     const incomingElite =
-      selectedMode === "boss"
-        ? selectedLevel >= 5 || this.bossTier >= 3
-        : this.bossTier >= 3;
+      campaignEncounter?.kind === "trinity"
+        ? false
+        : campaignEncounter
+          ? this.bossElite
+          : this.bossTier >= 3;
+    const incomingTitle = campaignEncounter?.title ?? BOSS_NAMES[incomingKind];
     this.isModal = true;
     this.physics.world.pause();
     setAdaptiveMusic(3);
@@ -6339,9 +6645,11 @@ class BattleScene extends Phaser.Scene {
       .text(
         WORLD_WIDTH / 2,
         WORLD_HEIGHT / 2,
-        `⚠ ${incomingElite ? "ELITE " : ""}${BOSS_NAMES[incomingKind]} // ${
-          selectedMode === "campaign"
-            ? `CAMPAIGN ${Math.min(3, this.bossTier + 1)}/3`
+        `⚠ ${incomingElite ? "ELITE " : ""}${incomingTitle} // ${
+          campaignEncounter
+            ? selectedMode === "campaign"
+              ? "SIGNAL IDENTIFIED"
+              : `ENCOUNTER ${this.campaignEncounterIndex + 1}/9`
             : `BOSS TIER ${this.bossTier + 1}`
         }`,
         {
@@ -6359,7 +6667,11 @@ class BattleScene extends Phaser.Scene {
       .text(
         WORLD_WIDTH / 2,
         WORLD_HEIGHT / 2 + 62,
-        incomingKind === "dark_deity"
+        campaignEncounter?.kind === "trinity"
+          ? "扩展战区已开启 · 三个不完全体将在同一水平线同步降临"
+          : campaignEncounter?.kind === "chase"
+            ? `黑影携带已盗取的 ${this.campaignBossesDefeated} 股首领力量向上逃逸`
+          : incomingKind === "dark_deity"
             ? "三枚首领印记已全部点亮 · 黑暗魔神真身降临"
           : incomingKind === "shadow"
             ? "它已吸收三首领核心 · 这一次不能再让它逃走"
@@ -6367,11 +6679,11 @@ class BattleScene extends Phaser.Scene {
           ? `${incomingElite ? "精英超频：" : "镜像协议："}它读取了你的机体与开火习惯`
           : incomingKind === "usurper"
             ? `${incomingElite ? "精英篡夺：" : "篡夺协议："}战术技能即将被敌方接管`
-            : selectedMode === "boss"
+            : isNineBattleMode()
               ? `${incomingElite ? "精英炼狱：" : "炼狱协议："}从基础形态迎战`
               : incomingElite
                 ? "精英裂隙开启 · 全武装泰坦跃迁"
-                : "分数阈值突破 · 裂渊泰坦跃迁",
+                : "未知信号撕开航道 · 裂渊泰坦跃迁",
         {
         fontFamily: '"Microsoft YaHei", sans-serif',
         fontSize: "18px",
@@ -6387,7 +6699,8 @@ class BattleScene extends Phaser.Scene {
       [topBar, bottomBar, warning, subtitle].forEach((item) => item.destroy());
       this.isModal = false;
       this.physics.world.resume();
-      this.spawnBoss(incomingKind);
+      if (campaignEncounter?.kind === "trinity") this.spawnTrinityBosses();
+      else this.spawnBoss(incomingKind);
     });
   }
 
@@ -6396,22 +6709,10 @@ class BattleScene extends Phaser.Scene {
     this.bossKind =
       kindOverride ??
       (["titan", "mirror", "usurper"] as BossKind[])[this.bossTier % 3];
-    if (selectedMode !== "boss") {
+    if (!isNineBattleMode()) {
       this.bossElite = this.bossTier >= 3;
       this.bossMutated = false;
       this.bossMutationKind = null;
-    } else {
-      this.bossElite = rollCampaignElite(selectedLevel) || this.bossTier >= 3;
-      this.bossMutated = rollCampaignMutation(selectedLevel);
-      if (this.bossMutated) {
-        this.bossMutationKind = Phaser.Utils.Array.GetRandom(
-          (["titan", "mirror", "usurper"] as BossKind[]).filter(
-            (kind) => kind !== this.bossKind
-          )
-        );
-      } else {
-        this.bossMutationKind = null;
-      }
     }
     this.bossAttackIndex = -1;
     this.bossKilledByCollision = false;
@@ -6420,8 +6721,8 @@ class BattleScene extends Phaser.Scene {
     this.bossActive = true;
     this.bossPhase = 1;
     const threatScale = 1 + Math.max(0, selectedLevel - 3) * 0.18;
-    const endlessScale = 1 + this.bossTier * (selectedMode === "boss" ? 0.7 : 0.52);
-    const modeScale = selectedMode === "boss" ? 1.45 : 1;
+    const endlessScale = 1 + this.bossTier * 0.52;
+    const modeScale = isNineBattleMode() ? 1.45 : 1;
     const kindScale =
       this.bossKind === "mirror"
         ? 1.48
@@ -6435,41 +6736,62 @@ class BattleScene extends Phaser.Scene {
               ? 5
               : 1;
     const campaignScale =
-      selectedMode === "boss"
+      isNineBattleMode()
         ? campaignDifficultyForLevel(selectedLevel).id === "nightmare"
           ? 1.5
           : campaignDifficultyForLevel(selectedLevel).id === "hard"
             ? 1.22
             : 1
         : 1;
-    this.bossMaxHp =
-      (selectedMode === "boss" ? 10500 : 7600 + selectedLevel * 950) *
+    const openingEncounterScale =
+      isNineBattleMode() && this.campaignEncounterIndex <= 5
+        ? campaignEncounterPowerScale(this.campaignEncounterIndex)
+        : kindScale;
+    const campaignProgressionScale =
+      isNineBattleMode() && this.campaignEncounterIndex <= 5
+        ? 1
+        : 1 + this.campaignBossesDefeated * 0.16;
+    this.bossMaxHpBeforeFinalBalance =
+      (isNineBattleMode() ? 10500 : 7600 + selectedLevel * 950) *
       threatScale *
-      (selectedMode === "boss" ? 1 + this.campaignBossesDefeated * 0.16 : endlessScale) *
+      (isNineBattleMode() ? campaignProgressionScale : endlessScale) *
       modeScale *
-      kindScale *
+      openingEncounterScale *
       1.22 *
       (this.bossElite ? 1.7 : 1) *
       (this.bossMutated ? 1.25 : 1) *
       campaignScale *
       enemyUpgradeScale();
+    this.bossMaxHp =
+      this.bossMaxHpBeforeFinalBalance *
+      (isNineBattleMode()
+        ? campaignFinalBossStatScale(this.campaignEncounterIndex)
+        : 1);
     this.bossHp = this.bossMaxHp;
-    this.enemies.children.each((child) => {
-      const enemy = child as Phaser.Physics.Arcade.Image;
-      if (enemy.active) enemy.disableBody(true, true);
-      return true;
-    });
-    this.enemyBullets.children.each((child) => {
-      const bullet = child as Phaser.Physics.Arcade.Image;
-      if (bullet.active) bullet.disableBody(true, true);
-      return true;
-    });
+    if (selectedMode !== "campaign") {
+      this.enemies.children.each((child) => {
+        const enemy = child as Phaser.Physics.Arcade.Image;
+        if (enemy.active) enemy.disableBody(true, true);
+        return true;
+      });
+      this.enemyBullets.children.each((child) => {
+        const bullet = child as Phaser.Physics.Arcade.Image;
+        if (bullet.active) bullet.disableBody(true, true);
+        return true;
+      });
+    }
     this.showBanner(
       this.skillsConfiscated
         ? `⚠ ${this.bossElite ? "精英 " : ""}${BOSS_NAMES[this.bossKind]} · 技能已被暂时篡夺`
         : `⚠ ${this.bossElite ? "精英 " : ""}${this.bossMutated ? "突变 " : ""}${
             BOSS_NAMES[this.bossKind]
-          } · ${selectedMode === "boss" ? `无限首领阶 ${this.bossTier + 1}` : `战役阶 ${this.bossTier + 1}`}`,
+          } · ${
+            selectedMode === "campaign"
+              ? "信号已识别"
+              : isNineBattleMode()
+                ? `九战 ${this.campaignEncounterIndex + 1}/9`
+              : `战役阶 ${this.bossTier + 1}`
+          }`,
       1900
     );
     sfx("boss");
@@ -6478,7 +6800,11 @@ class BattleScene extends Phaser.Scene {
       this.bossKind === "mirror"
         ? SHIPS[save.selectedShip].asset
         : this.bossKind === "shadow"
-          ? "bossShadow"
+          ? isNineBattleMode()
+            ? this.campaignEncounterIndex === 7
+              ? "bossShadowComplete"
+              : shadowTextureForAbsorbedPowers(this.campaignBossesDefeated)
+            : "bossShadow"
           : this.bossKind === "dark_deity"
             ? "bossDarkDeity"
         : this.bossKind === "usurper"
@@ -6496,7 +6822,7 @@ class BattleScene extends Phaser.Scene {
               ? { width: 510, height: 765 }
               : { width: 350, height: 525 }
             : this.bossKind === "dark_deity"
-              ? { width: 760, height: 760 }
+              ? { width: 720, height: 720 }
           : { width: 570, height: 570 };
     core
       .setTexture(this.textures.exists(coreTexture) ? coreTexture : "bossCore")
@@ -6510,7 +6836,7 @@ class BattleScene extends Phaser.Scene {
               ? 0xffffff
             : 0xffffff
       )
-      .setData({ part: "core", hp: this.bossMaxHp })
+      .setData({ part: "core", hp: this.bossMaxHp, maxHp: this.bossMaxHp })
       .setDepth(14);
     this.bossEliteAura?.destroy();
     this.bossEliteAura = undefined;
@@ -6550,14 +6876,24 @@ class BattleScene extends Phaser.Scene {
       .setAlpha(0)
       .setData({ part: "right", hp: this.bossMaxHp * 0.16 })
       .setDepth(15);
+    const bossEntryY =
+      this.bossKind === "dark_deity"
+        ? 370
+        : this.bossKind === "shadow" && this.campaignEncounterIndex === 7
+          ? 390
+          : 190;
     this.tweens.add({
       targets: this.bossEliteAura ? [core, this.bossEliteAura] : [core],
-      y: 190,
+      y: bossEntryY,
       duration: 1400,
       ease: "Cubic.Out"
     });
     this.tweens.add({ targets: [left, right], y: 220, duration: 1400, ease: "Cubic.Out" });
     this.nextBossAttack = this.time.now + 2300;
+    this.nextBossMinionSummon =
+      this.bossKind === "shadow" || this.bossKind === "dark_deity"
+        ? this.time.now + 3200
+        : Number.POSITIVE_INFINITY;
     if (this.bossKind === "usurper") this.nextUsurperDisableAt = this.time.now + 2500;
     if (this.bossKind === "shadow") this.shadowRuptureTriggered = false;
   }
@@ -6576,7 +6912,7 @@ class BattleScene extends Phaser.Scene {
       .setStrokeStyle(3, 0x6c2fff, 0.28)
       .setDepth(0);
     this.physics.world.setBounds(-180, 0, 1440, WORLD_HEIGHT);
-    this.cameras.main.setZoom(0.9);
+    this.cameras.main.setZoom(0.75);
     const configs: Array<{
       kind: BossKind;
       texture: string;
@@ -6597,23 +6933,35 @@ class BattleScene extends Phaser.Scene {
       { kind: "usurper", texture: "bossUsurper", x: WORLD_WIDTH - 155, width: 260, height: 260, tint: 0xffffff }
     ];
     const difficulty = campaignDifficultyForLevel(selectedLevel);
+    const threatScale = 1 + Math.max(0, selectedLevel - 3) * 0.18;
+    const campaignScale =
+      difficulty.id === "nightmare" ? 1.5 : difficulty.id === "hard" ? 1.22 : 1;
     let totalHp = 0;
+    let totalHpBeforeIncompleteBalance = 0;
+    let anyElite = false;
     configs.forEach((config, index) => {
       const elite = rollCampaignElite(selectedLevel);
       const mutated = rollCampaignMutation(selectedLevel);
+      anyElite ||= elite;
       const mutationKinds = (["titan", "mirror", "usurper"] as BossKind[]).filter(
         (kind) => kind !== config.kind
       );
       const mutationKind = mutated ? Phaser.Utils.Array.GetRandom(mutationKinds) : null;
-      const kindScale = config.kind === "mirror" ? 1.2 : config.kind === "usurper" ? 1.05 : 1;
-      const maxHp =
+      const originalEncounterIndex =
+        config.kind === "mirror" ? 2 : config.kind === "usurper" ? 4 : 0;
+      const maxHpBeforeIncompleteBalance =
         10500 *
-        1.1 *
-        kindScale *
-        (elite ? 1.35 : 1) *
-        (mutated ? 1.18 : 1) *
-        (difficulty.id === "nightmare" ? 1.32 : difficulty.id === "hard" ? 1.16 : 1) *
+        threatScale *
+        1.45 *
+        campaignEncounterPowerScale(originalEncounterIndex) *
+        1.22 *
+        (elite ? 1.7 : 1) *
+        (mutated ? 1.25 : 1) *
+        campaignScale *
         enemyUpgradeScale();
+      const maxHp =
+        maxHpBeforeIncompleteBalance * INCOMPLETE_TRINITY_STAT_SCALE;
+      totalHpBeforeIncompleteBalance += maxHpBeforeIncompleteBalance;
       totalHp += maxHp;
       const core = this.bossParts.get(config.x, -180, config.texture) as Phaser.Physics.Arcade.Image;
       core.enableBody(true, config.x, -180, true, true);
@@ -6634,7 +6982,7 @@ class BattleScene extends Phaser.Scene {
         });
       this.tweens.add({
         targets: core,
-        y: 190 + (index === 1 ? 38 : 0),
+        y: 190,
         duration: 1350 + index * 100,
         ease: "Cubic.Out"
       });
@@ -6654,11 +7002,13 @@ class BattleScene extends Phaser.Scene {
         core.setData("raidAura", aura);
       }
     });
+    this.bossElite = anyElite;
+    this.bossMaxHpBeforeFinalBalance = totalHpBeforeIncompleteBalance;
     this.bossMaxHp = totalHp;
     this.bossHp = totalHp;
     this.nextTrinityAttack = this.time.now + 2300;
     this.nextUsurperDisableAt = this.time.now + 2800;
-    this.showBanner("三神共斗 · 单体 110% 属性 · 全部击破才算胜利", 1800);
+    this.showBanner("三神共斗 · 各模板 66.7% 属性 · 全部击破后连续升三级", 1800);
     if (save.settings.screenShake) this.cameras.main.shake(650, 0.012);
   }
 
@@ -6707,6 +7057,29 @@ class BattleScene extends Phaser.Scene {
       part.setTintFill(0xffc9ec);
       this.time.delayedCall(40, () => part.active && part.clearTint());
       this.checkBossPhase();
+      const encounter =
+        isNineBattleMode()
+          ? BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex]
+          : null;
+      const remainingRatio = this.bossHp / Math.max(1, this.bossMaxHp);
+      const chaseThreshold = encounter?.kind === "chase"
+        ? chaseRemainingHpRatio(this.campaignEncounterIndex)
+        : null;
+      if (
+        encounter?.kind === "chase" &&
+        chaseThreshold !== null &&
+        remainingRatio <= chaseThreshold + 0.000001
+      ) {
+        this.completeShadowChase();
+        return;
+      }
+      if (
+        encounter?.kind === "shadow_final" &&
+        remainingRatio <= 0.125 + 0.000001
+      ) {
+        this.triggerShadowRupture();
+        return;
+      }
       if (this.bossHp <= 0) {
         if (collisionFinisher) this.grantCollisionBossKillGrowth();
         this.defeatBoss();
@@ -6751,8 +7124,16 @@ class BattleScene extends Phaser.Scene {
   updateBoss(time: number, _dt: number): void {
     if (!this.bossActive) return;
     if (time < this.enemyFreezeUntil) return;
+    const campaignEncounter =
+      isNineBattleMode()
+        ? BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex]
+        : null;
+    if (campaignEncounter?.kind === "trinity") {
+      this.updateTrinityBosses(time);
+      return;
+    }
     if (this.bossKind === "shadow") {
-      this.updateShadowBoss(time, false);
+      this.updateShadowBoss(time, campaignEncounter?.kind === "chase");
       return;
     }
     if (this.bossKind === "dark_deity") {
@@ -6860,7 +7241,7 @@ class BattleScene extends Phaser.Scene {
         ? 1580
         : this.bossKind === "usurper"
           ? 1750
-          : selectedMode === "boss"
+          : isNineBattleMode()
             ? 1580
             : 1820;
     this.nextBossAttack =
@@ -6938,8 +7319,8 @@ class BattleScene extends Phaser.Scene {
       (part) => part.active && part.getData("part") === "core"
     );
     if (!core) return;
-    const targetY = pursuit ? 116 + Math.sin(time * 0.0017) * 32 : 190;
-    core.y = Phaser.Math.Linear(core.y, targetY, pursuit ? 0.035 : 0.018);
+    const targetY = pursuit ? 82 + Math.sin(time * 0.0017) * 22 : 390;
+    core.y = Phaser.Math.Linear(core.y, targetY, pursuit ? 0.05 : 0.018);
     core.x =
       WORLD_WIDTH / 2 +
       Math.sin(time * (pursuit ? 0.00155 : 0.00092)) * (pursuit ? 270 : 185);
@@ -6949,14 +7330,36 @@ class BattleScene extends Phaser.Scene {
     if (left) left.setPosition(core.x - 205, core.y + 30);
     if (right) right.setPosition(core.x + 205, core.y + 30);
     this.bossEliteAura?.setPosition(core.x, core.y);
+    if (!pursuit && time >= this.nextBossMinionSummon) {
+      this.shadowPortalAttack(core);
+      this.nextBossMinionSummon = time + (this.bossElite ? 6800 : 8200);
+      this.showBanner("完全体黑影 · 召唤裂隙增援", 900);
+    }
     if (time < this.nextBossAttack) return;
     const attacks: Array<() => void> = [
       () => this.shadowBulletBarrage(core, pursuit),
       () => this.shadowDelayedExplosion(pursuit),
       () => this.shadowClawAttack(pursuit),
-      () => this.shadowPortalAttack(core),
       () => this.shadowChargeAttack(core)
     ];
+    if (pursuit && this.campaignBossesDefeated >= 1) {
+      attacks.push(() => {
+        this.floatText(core.x, core.y + 90, "盗取 · 裂渊泰坦", true);
+        this.executeBossKindAttack(core, "titan");
+      });
+    }
+    if (pursuit && this.campaignBossesDefeated >= 2) {
+      attacks.push(() => {
+        this.floatText(core.x, core.y + 90, "盗取 · 镜像猎手", true);
+        this.executeBossKindAttack(core, "mirror");
+      });
+    }
+    if (pursuit && this.campaignBossesDefeated >= 3) {
+      attacks.push(() => {
+        this.floatText(core.x, core.y + 90, "盗取 · 技能篡夺者", true);
+        this.executeBossKindAttack(core, "usurper");
+      });
+    }
     let attackIndex = Phaser.Math.Between(0, attacks.length - 1);
     if (attackIndex === this.bossAttackIndex) attackIndex = (attackIndex + 1) % attacks.length;
     this.bossAttackIndex = attackIndex;
@@ -6965,7 +7368,11 @@ class BattleScene extends Phaser.Scene {
   }
 
   shadowBulletBarrage(core: Phaser.Physics.Arcade.Image, pursuit: boolean): void {
-    const count = pursuit ? 15 : 23;
+    const finalScale =
+      pursuit || !isNineBattleMode()
+        ? 1
+        : campaignFinalBossStatScale(this.campaignEncounterIndex);
+    const count = pursuit ? 15 : Math.max(7, Math.round(23 * finalScale));
     const safeGap = Phaser.Math.Between(2, count - 3);
     for (let index = 0; index < count; index += 1) {
       if (Math.abs(index - safeGap) <= (pursuit ? 1 : 2)) continue;
@@ -6974,7 +7381,7 @@ class BattleScene extends Phaser.Scene {
         core.x,
         core.y + 45,
         angle,
-        pursuit ? 255 : 285,
+        pursuit ? 255 : 285 * finalScale,
         pursuit ? 18 : 24,
         "projectile",
         "boss"
@@ -7048,22 +7455,32 @@ class BattleScene extends Phaser.Scene {
         portal.destroy();
         if (!this.bossActive) return;
         const roster = campaignEnemyRoster(Math.max(1, this.campaignBossesDefeated));
-        const count = 3 + this.campaignBossesDefeated * 2;
+        const finalScale =
+          isNineBattleMode()
+            ? campaignFinalBossStatScale(this.campaignEncounterIndex)
+            : 1;
+        const count = Math.max(
+          2,
+          Math.round((3 + this.campaignBossesDefeated * 2) * finalScale)
+        );
         for (let index = 0; index < count; index += 1) {
           const type = Phaser.Utils.Array.GetRandom(roster) as EnemyType;
           const enemy = this.spawnEnemy(this.time.now, this.bossElite ? `elite_${type}` : type);
-          enemy.setPosition(
-            Phaser.Math.Clamp(core.x + (index - (count - 1) / 2) * 78, 65, WORLD_WIDTH - 65),
-            core.y + 110 + Math.abs(index - count / 2) * 15
-          );
+          enemy
+            .setPosition(
+              Phaser.Math.Clamp(core.x + (index - (count - 1) / 2) * 78, 65, WORLD_WIDTH - 65),
+              core.y + 110 + Math.abs(index - count / 2) * 15
+            )
+            .setData("bossSummoned", true);
         }
         if (this.bossElite) {
           const echo = this.spawnEnemy(this.time.now, "elite_bomber");
           echo
             .setPosition(core.x, core.y + 165)
             .setDisplaySize(230, 230)
-            .setData("hp", (echo.getData("hp") ?? 1) * 4)
-            .setData("maxHp", (echo.getData("maxHp") ?? 1) * 4)
+            .setData("hp", (echo.getData("hp") ?? 1) * 4 * finalScale)
+            .setData("maxHp", (echo.getData("maxHp") ?? 1) * 4 * finalScale)
+            .setData("bossSummoned", true)
             .setData("portalBoss", true);
           this.floatText(echo.x, echo.y, "ELITE BOSS ECHO", true);
         }
@@ -7116,14 +7533,18 @@ class BattleScene extends Phaser.Scene {
     );
     if (!core) return;
     core.x = WORLD_WIDTH / 2 + Math.sin(time * 0.00072) * 135;
-    core.y = Phaser.Math.Linear(core.y, 205, 0.02);
+    core.y = Phaser.Math.Linear(core.y, 370, 0.02);
     this.bossEliteAura?.setPosition(core.x, core.y);
+    if (time >= this.nextBossMinionSummon) {
+      this.shadowPortalAttack(core);
+      this.nextBossMinionSummon = time + (this.bossElite ? 5600 : 7000);
+      this.showBanner("黑暗魔神 · 召唤首领印记增援", 900);
+    }
     if (time < this.nextBossAttack) return;
     const attacks: Array<() => void> = [
       () => this.darkDeityBarrage(core),
       () => this.darkDeityStorm(core),
       () => this.shadowDelayedExplosion(false),
-      () => this.shadowPortalAttack(core),
       () => this.shadowChargeAttack(core)
     ];
     let index = Phaser.Math.Between(0, attacks.length - 1);
@@ -7134,12 +7555,24 @@ class BattleScene extends Phaser.Scene {
   }
 
   darkDeityBarrage(core: Phaser.Physics.Arcade.Image): void {
-    const count = 19;
+    const finalScale =
+      isNineBattleMode()
+        ? campaignFinalBossStatScale(this.campaignEncounterIndex)
+        : 1;
+    const count = Math.max(7, Math.round(19 * finalScale));
     const safeGap = Phaser.Math.Between(2, count - 3);
     for (let index = 0; index < count; index += 1) {
       if (Math.abs(index - safeGap) <= 2) continue;
       const angle = 0.08 + ((Math.PI - 0.16) * index) / (count - 1);
-      this.fireEnemyAngle(core.x, core.y + 65, angle, 310, 1, "projectile", "boss")
+      this.fireEnemyAngle(
+        core.x,
+        core.y + 65,
+        angle,
+        310 * finalScale,
+        1,
+        "projectile",
+        "boss"
+      )
         .setTint(index % 3 === 0 ? 0xff7a22 : index % 2 ? 0x4cdfff : 0xc018ff)
         .setScale(1.3)
         .setData("darkFlat", 200)
@@ -7539,17 +7972,84 @@ class BattleScene extends Phaser.Scene {
     return this.bankPendingTokens(false);
   }
 
+  playShadowPowerTheft(
+    defeatedKind: BossKind,
+    x: number,
+    y: number,
+    tokenReward: number
+  ): void {
+    const shadow = this.add
+      .image(
+        WORLD_WIDTH / 2,
+        -340,
+        shadowTextureForAbsorbedPowers(this.campaignBossesDefeated)
+      )
+      .setDisplaySize(260, 390)
+      .setTint(0x9b5cff)
+      .setAlpha(0.9)
+      .setDepth(72);
+    const stolenCore = this.add
+      .circle(x, y, 28, 0xffbd3e, 0.9)
+      .setStrokeStyle(9, 0xff3dbb, 0.86)
+      .setDepth(73);
+    this.tweens.add({
+      targets: stolenCore,
+      scale: { from: 0.7, to: 1.35 },
+      alpha: { from: 0.9, to: 0.45 },
+      yoyo: true,
+      repeat: 3,
+      duration: 130
+    });
+    this.tweens.add({
+      targets: shadow,
+      x,
+      y: Math.max(80, y - 55),
+      duration: 620,
+      ease: "Cubic.Out",
+      onComplete: () => {
+        this.burst(x, y, 0x9b5cff, 2.5);
+        this.cameras.main.flash(110, 95, 0, 130);
+        stolenCore.destroy();
+        this.tweens.add({
+          targets: shadow,
+          y: -430,
+          alpha: 0,
+          scale: 0.68,
+          duration: 720,
+          ease: "Cubic.In",
+          onComplete: () => {
+            shadow.destroy();
+            this.showBanner(
+              `黑影夺走${BOSS_NAMES[defeatedKind]}全部能力与强化 · ◆ ${tokenReward} 已回收`,
+              1500
+            );
+            this.startCampaignEncounter(this.campaignEncounterIndex);
+          }
+        });
+      }
+    });
+  }
+
   defeatBoss(): void {
     if (!this.bossActive) return;
+    const campaignEncounter =
+      isNineBattleMode()
+        ? BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex]
+        : null;
     const defeatedKind = this.bossKind;
     const defeatedElite = this.bossElite;
+    const defeatedCore = (
+      this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]
+    ).find((part) => part.active && part.getData("part") === "core");
+    const defeatedX = defeatedCore?.x ?? WORLD_WIDTH / 2;
+    const defeatedY = defeatedCore?.y ?? 190;
     this.bossActive = false;
     this.skillsConfiscated = false;
     const defeatedTier = this.bossTier + 1;
     const bossScore = Math.round((9000 + defeatedTier * 4200) * (defeatedElite ? 1.5 : 1));
     this.score += bossScore;
     const baseBossTokens =
-      selectedMode === "boss"
+      isNineBattleMode()
         ? 95 + defeatedTier * 65 + selectedLevel * 15
         : 32 + defeatedTier * 20 + selectedLevel * 9;
     const bossTokens = Math.round(baseBossTokens * (defeatedElite ? 1.5 : 1));
@@ -7594,19 +8094,36 @@ class BattleScene extends Phaser.Scene {
     this.nextBossScore =
       selectedMode === "endless"
         ? totalScore + 30000 + this.bossTier * 14000 + selectedLevel * 1800
-        : selectedMode === "campaign"
-          ? totalScore + 23000 + this.bossTier * 9000 + selectedLevel * 1500
-          : 0;
+        : 0;
     this.ultimate = Math.min(100, this.ultimate + 36);
-    this.healPlayer(this.stats.maxHp * (selectedMode === "boss" ? 0.22 : 0.12), "首领能量回收");
+    this.healPlayer(this.stats.maxHp * (isNineBattleMode() ? 0.22 : 0.12), "首领能量回收");
     this.showBanner(
       `${defeatedElite ? "精英 " : ""}${BOSS_NAMES[defeatedKind]}击破 · 技能权限恢复`,
       1500
     );
-    if (selectedMode === "campaign" && defeatedKind === "dark_deity") {
+    if (campaignEncounter?.kind === "boss") {
       this.nextSpawn = this.time.now + 999999;
-      this.showBanner("普通战役完成 · 最终 Boss 已击破", 1800);
-      this.time.delayedCall(1800, () => this.endRun(true));
+      this.campaignBossesDefeated = Math.min(
+        3,
+        this.campaignBossesDefeated + 1
+      );
+      this.campaignEncounterIndex = Math.min(
+        BOSS_CAMPAIGN_ENCOUNTERS.length - 1,
+        this.campaignEncounterIndex + 1
+      );
+      this.time.delayedCall(620, () =>
+        this.playShadowPowerTheft(
+          defeatedKind,
+          defeatedX,
+          defeatedY,
+          bossTokens
+        )
+      );
+      return;
+    }
+    if (campaignEncounter?.kind === "dark_deity") {
+      this.nextSpawn = this.time.now + 999999;
+      this.time.delayedCall(1200, () => this.finishFinalCampaignVictory());
       return;
     }
     if (selectedMode === "endless") {
@@ -7620,17 +8137,12 @@ class BattleScene extends Phaser.Scene {
       showAirSupportSelection(this, () => {
         showDoctrineEvolution(this, () => {
           this.bossPhase = 0;
-          if (selectedMode === "boss") {
-            this.showBanner(`下一名 Boss 跃迁 · TIER ${this.bossTier + 1}`, 900);
-            this.time.delayedCall(850, () => this.playBossArrivalCG());
-          } else {
-            this.showBanner(
-              `${
-                selectedMode === "campaign" ? "普通战役推进" : "无尽航线继续"
-              } · 下一阈值 ${this.nextBossScore}`,
-              1100
-            );
-          }
+          this.showBanner(
+            `${
+              selectedMode === "campaign" ? "普通战役推进" : "无尽航线继续"
+            } · 下一阈值 ${this.nextBossScore}`,
+            1100
+          );
         });
       });
     });
@@ -7781,7 +8293,13 @@ class BattleScene extends Phaser.Scene {
       this.hud.bossName.setText(
         `${this.bossElite ? "ELITE // " : ""}${this.bossMutated ? "MUTATED // " : ""}${
           BOSS_NAMES[this.bossKind]
-        } // TIER ${this.bossTier + 1} // PHASE ${this.bossPhase}${
+        } // ${
+          selectedMode === "campaign"
+            ? "HOSTILE SIGNAL"
+            : isNineBattleMode()
+              ? `ENCOUNTER ${this.campaignEncounterIndex + 1}/9`
+            : `TIER ${this.bossTier + 1}`
+        } // PHASE ${this.bossPhase}${
           this.skillsConfiscated ? " // SKILLS STOLEN" : ""
         }`
       );
@@ -7796,10 +8314,12 @@ class BattleScene extends Phaser.Scene {
     );
     this.hud.time.setText(formatTime(this.elapsedSeconds));
     const campaignStatus =
-      selectedMode === "boss"
-        ? `BOSS TIER ${this.bossTier + (this.bossActive ? 1 : 0)}`
-        : selectedMode === "campaign"
-          ? `CAMPAIGN ${Math.min(3, this.bossTier + (this.bossActive ? 1 : 0))}/3`
+      selectedMode === "campaign"
+        ? this.campaignInterludeActive
+          ? "DEEP SPACE // SIGNAL UNKNOWN"
+          : "HOSTILE SIGNAL"
+        : isNineBattleMode()
+          ? `BOSS ENCOUNTER ${this.campaignEncounterIndex + 1}/9`
           : `NEXT BOSS ${Math.max(0, this.nextBossScore - this.score - this.score2)}`;
     this.hud.level.setText(
       `${SPECIALIZATIONS[save.selectedSpecialization].code} · LV.${this.level}/100  //  ◆ ${
@@ -7903,6 +8423,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   showBanner(text: string, duration = 1200): void {
+    this.lastBannerText = text;
     const banner = this.add
       .text(WORLD_WIDTH / 2, WORLD_HEIGHT * 0.4, text, {
         fontFamily: '"Microsoft YaHei", sans-serif',

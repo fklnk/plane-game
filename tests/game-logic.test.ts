@@ -18,13 +18,24 @@ import {
   minionPercentDamageFloor,
   roundHealth,
   rewardForRun,
+  UPGRADE_EXPERIENCE_SCALE,
   xpToNextLevel
 } from "../src/game-logic";
 import {
   BOSS_CAMPAIGN_ENCOUNTERS,
+  BOSS_CAMPAIGN_POWER_SCALES,
+  CAMPAIGN_CLEAR_SCORE_SCALE,
+  FINAL_BOSS_STAT_SCALE,
+  FINAL_CAMPAIGN_CLEAR_BONUS,
+  INCOMPLETE_TRINITY_STAT_SCALE,
   campaignDifficultyForLevel,
+  campaignClearScoreRequirement,
+  campaignEncounterAttackScale,
+  campaignEncounterPowerScale,
+  campaignFinalBossStatScale,
   campaignEnemyRoster,
   chaseRemainingHpRatio,
+  finalCampaignReward,
   remainingStoreUnlockCost,
   rollCampaignElite,
   rollCampaignMutation
@@ -32,9 +43,18 @@ import {
 
 describe("progression", () => {
   it("experience requirements increase monotonically", () => {
+    expect(UPGRADE_EXPERIENCE_SCALE).toBe(1.1);
+    expect(xpToNextLevel(1)).toBe(57);
     for (let level = 1; level < 40; level += 1) {
       expect(xpToNextLevel(level + 1)).toBeGreaterThan(xpToNextLevel(level));
     }
+  });
+
+  it("uses 25000 for the opening score gate and keeps later gates one quarter longer", () => {
+    expect(CAMPAIGN_CLEAR_SCORE_SCALE).toBe(1.25);
+    expect(
+      Array.from({ length: 5 }, (_, wave) => campaignClearScoreRequirement(wave, 3))
+    ).toEqual([25000, 45625, 56875, 68125, 79375]);
   });
 
   it("draws unique options", () => {
@@ -184,18 +204,48 @@ describe("progression", () => {
 describe("nine battle boss campaign", () => {
   it("contains the requested nine encounters in order", () => {
     expect(BOSS_CAMPAIGN_ENCOUNTERS).toHaveLength(9);
-    expect(BOSS_CAMPAIGN_ENCOUNTERS.map((encounter) => encounter.kind)).toEqual([
-      "boss",
-      "chase",
-      "boss",
-      "chase",
-      "boss",
-      "chase",
-      "trinity",
-      "shadow_final",
-      "dark_deity"
+    expect(BOSS_CAMPAIGN_ENCOUNTERS.map(({ kind, bossKind }) => [kind, bossKind])).toEqual([
+      ["boss", "titan"],
+      ["chase", "shadow"],
+      ["boss", "mirror"],
+      ["chase", "shadow"],
+      ["boss", "usurper"],
+      ["chase", "shadow"],
+      ["trinity", "titan"],
+      ["shadow_final", "shadow"],
+      ["dark_deity", "dark_deity"]
     ]);
     expect([1, 3, 5].map(chaseRemainingHpRatio)).toEqual([0.5, 0.25, 0.125]);
+  });
+
+  it("uses the exact boss and pursuit strength progression", () => {
+    expect(BOSS_CAMPAIGN_POWER_SCALES).toEqual([
+      1,
+      7 / 6,
+      4 / 3,
+      17 / 12,
+      3 / 2,
+      19 / 12
+    ]);
+    expect([0, 1, 2, 3, 4, 5].map(campaignEncounterPowerScale)).toEqual([
+      1,
+      7 / 6,
+      4 / 3,
+      17 / 12,
+      3 / 2,
+      19 / 12
+    ]);
+  });
+
+  it("reduces the incomplete trinity and both final bosses by one third", () => {
+    expect(INCOMPLETE_TRINITY_STAT_SCALE).toBe(2 / 3);
+    expect(FINAL_BOSS_STAT_SCALE).toBe(2 / 3);
+    expect(campaignEncounterAttackScale(6)).toBe(2 / 3);
+    expect(campaignEncounterAttackScale(7)).toBe(2 / 3);
+    expect(campaignEncounterAttackScale(8)).toBe(2 / 3);
+    expect(campaignFinalBossStatScale(6)).toBe(1);
+    expect(campaignFinalBossStatScale(7)).toBe(2 / 3);
+    expect(campaignFinalBossStatScale(8)).toBe(2 / 3);
   });
 
   it("maps normal, hard and nightmare elite/mutation rules", () => {
@@ -227,12 +277,18 @@ describe("nine battle boss campaign", () => {
   });
 
   it("final reward can cover every remaining shop purchase", () => {
-    expect(
-      remainingStoreUnlockCost(
-        { hull: 0, firepower: 0, engine: 0, armor: 0, recovery: 0, emergency: 0, reroll: 0 },
-        ["standard"]
-      )
-    ).toBeGreaterThan(10000);
+    const emptyUpgrades = {
+      hull: 0,
+      firepower: 0,
+      engine: 0,
+      armor: 0,
+      recovery: 0,
+      emergency: 0,
+      reroll: 0
+    };
+    expect(remainingStoreUnlockCost(emptyUpgrades, ["standard"])).toBe(10764);
+    expect(FINAL_CAMPAIGN_CLEAR_BONUS).toBe(1888);
+    expect(finalCampaignReward(emptyUpgrades, ["standard"])).toBe(12652);
     expect(
       remainingStoreUnlockCost(
         { hull: 12, firepower: 12, engine: 10, armor: 10, recovery: 8, emergency: 5, reroll: 3 },

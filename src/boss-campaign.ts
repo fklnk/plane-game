@@ -96,6 +96,60 @@ export const BOSS_CAMPAIGN_ENCOUNTERS: BossCampaignEncounter[] = [
   }
 ];
 
+/**
+ * The opening six encounters are three boss-and-pursuit pairs. Each pursuit
+ * sits halfway between the boss whose power the Shadow stole and the next tier;
+ * the third pursuit continues that half-step beyond Boss 3.
+ */
+export const BOSS_CAMPAIGN_POWER_SCALES = [
+  1,
+  7 / 6,
+  4 / 3,
+  17 / 12,
+  3 / 2,
+  19 / 12
+] as const;
+
+export const INCOMPLETE_TRINITY_STAT_SCALE = 2 / 3;
+export const FINAL_BOSS_STAT_SCALE = 2 / 3;
+export const FINAL_CAMPAIGN_CLEAR_BONUS = 1888;
+export const CAMPAIGN_CLEAR_SCORE_SCALE = 1.25;
+
+/**
+ * Ordinary campaign clearing phases use the score pacing from the previous
+ * campaign flow, with the requested 25% extension. Boss Rush skips these
+ * phases entirely.
+ */
+export function campaignClearScoreRequirement(waveNumber: number, level: number): number {
+  const wave = Math.max(0, Math.min(4, Math.floor(waveNumber)));
+  const threatLevel = Math.max(1, Math.min(5, Math.floor(level)));
+  const originalRequirement =
+    wave === 0
+      ? 20000
+      : 23000 + wave * 9000 + threatLevel * 1500;
+  return Math.round(originalRequirement * CAMPAIGN_CLEAR_SCORE_SCALE);
+}
+
+export function campaignEncounterPowerScale(encounterIndex: number): number {
+  return BOSS_CAMPAIGN_POWER_SCALES[encounterIndex] ?? 1;
+}
+
+export function campaignFinalBossStatScale(encounterIndex: number): number {
+  const kind = BOSS_CAMPAIGN_ENCOUNTERS[encounterIndex]?.kind;
+  return kind === "shadow_final" || kind === "dark_deity" ? FINAL_BOSS_STAT_SCALE : 1;
+}
+
+/**
+ * Central multiplier for campaign damage paths. The incomplete trinity and the
+ * last two bosses retain two thirds of their pre-balance combat values.
+ */
+export function campaignEncounterAttackScale(encounterIndex: number): number {
+  const kind = BOSS_CAMPAIGN_ENCOUNTERS[encounterIndex]?.kind;
+  if (kind === "trinity") return INCOMPLETE_TRINITY_STAT_SCALE;
+  if (kind === "shadow_final" || kind === "dark_deity") return FINAL_BOSS_STAT_SCALE;
+  return campaignEncounterPowerScale(encounterIndex);
+}
+
 export const BOSS_CAMPAIGN_DIFFICULTIES: Record<
   BossCampaignDifficultyId,
   BossCampaignDifficulty
@@ -185,4 +239,14 @@ export function remainingStoreUnlockCost(
     if (!unlockedSkins.includes(skin)) cost += skinCost;
   }
   return cost;
+}
+
+export function finalCampaignReward(
+  permanentUpgrades: Record<string, number>,
+  unlockedSkins: string[]
+): number {
+  return (
+    remainingStoreUnlockCost(permanentUpgrades, unlockedSkins) +
+    FINAL_CAMPAIGN_CLEAR_BONUS
+  );
 }

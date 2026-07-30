@@ -92,8 +92,11 @@ export const DEFAULT_SAVE: SaveData = {
   }
 };
 
+export const UPGRADE_EXPERIENCE_SCALE = 1.1;
+
 export function xpToNextLevel(level: number): number {
-  return Math.floor(30 + level * 18 + Math.pow(level, 1.35) * 4);
+  const originalRequirement = 30 + level * 18 + Math.pow(level, 1.35) * 4;
+  return Math.round(originalRequirement * UPGRADE_EXPERIENCE_SCALE);
 }
 
 export function loadSave(raw: string | null): SaveData {
