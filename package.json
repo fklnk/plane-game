@@ -1,13 +1,16 @@
 {
   "name": "starfall-airstrike",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/prepare-hosting.mjs",
+    "build": "node scripts/package-release.mjs clean && tsc -b && vite build --configLoader runner && node scripts/prepare-hosting.mjs && node scripts/package-release.mjs pack",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run --configLoader runner",
+    "package:release": "node scripts/package-release.mjs pack",
+    "verify:release": "node scripts/verify-release.mjs",
+    "serve:dist": "node scripts/serve-static.mjs dist 4173"
   },
   "dependencies": {
     "phaser": "3.90.0"

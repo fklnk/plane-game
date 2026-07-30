@@ -8,6 +8,13 @@ export type SpecializationId =
   | "devour"
   | "wheelchair";
 export type SkinId = "standard" | "aurora" | "inferno" | "void";
+export type PlayVariantId = "single" | "coop" | "score_duel";
+
+export interface DailyLoginData {
+  lastClaimDay: number | null;
+  streak: number;
+  totalClaims: number;
+}
 
 export interface SaveData {
   version: 1;
@@ -34,6 +41,11 @@ export interface SaveData {
   };
   achievements: Record<string, string>;
   seenTutorial: boolean;
+  lastMode: GameMode;
+  lastLevel: number;
+  lastVariant: PlayVariantId;
+  lastShip2: ShipId;
+  dailyLogin: DailyLoginData;
 }
 
 export const DEFAULT_SAVE: SaveData = {
@@ -58,7 +70,7 @@ export const DEFAULT_SAVE: SaveData = {
     sfxVolume: 0.65,
     screenShake: true,
     damageNumbers: true,
-    quality: "high"
+    quality: "low"
   },
   records: {
     campaignWins: 0,
@@ -68,7 +80,16 @@ export const DEFAULT_SAVE: SaveData = {
     bossRushBestMs: null
   },
   achievements: {},
-  seenTutorial: false
+  seenTutorial: false,
+  lastMode: "campaign",
+  lastLevel: 3,
+  lastVariant: "single",
+  lastShip2: "guardian",
+  dailyLogin: {
+    lastClaimDay: null,
+    streak: 0,
+    totalClaims: 0
+  }
 };
 
 export function xpToNextLevel(level: number): number {
@@ -90,6 +111,8 @@ export function loadSave(raw: string | null): SaveData {
       "wheelchair"
     ];
     const validSkins: SkinId[] = ["standard", "aurora", "inferno", "void"];
+    const validModes: GameMode[] = ["campaign", "endless", "boss"];
+    const validVariants: PlayVariantId[] = ["single", "coop", "score_duel"];
     const selectedShip = validShips.includes(parsed.selectedShip as ShipId)
       ? (parsed.selectedShip as ShipId)
       : "balanced";
@@ -123,11 +146,53 @@ export function loadSave(raw: string | null): SaveData {
       unlockedSkins,
       equippedSkin,
       unlockedShips: validShips,
-      achievements: { ...(parsed.achievements ?? {}) }
+      achievements: { ...(parsed.achievements ?? {}) },
+      lastMode: validModes.includes(parsed.lastMode as GameMode)
+        ? (parsed.lastMode as GameMode)
+        : DEFAULT_SAVE.lastMode,
+      lastLevel: Math.min(5, Math.max(3, Math.floor(parsed.lastLevel ?? DEFAULT_SAVE.lastLevel))),
+      lastVariant: validVariants.includes(parsed.lastVariant as PlayVariantId)
+        ? (parsed.lastVariant as PlayVariantId)
+        : DEFAULT_SAVE.lastVariant,
+      lastShip2: validShips.includes(parsed.lastShip2 as ShipId)
+        ? (parsed.lastShip2 as ShipId)
+        : DEFAULT_SAVE.lastShip2,
+      dailyLogin: {
+        ...DEFAULT_SAVE.dailyLogin,
+        ...(parsed.dailyLogin ?? {})
+      }
     };
   } catch {
     return structuredClone(DEFAULT_SAVE);
   }
+}
+
+export function localDayIndex(date = new Date()): number {
+  return Math.floor(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000
+  );
+}
+
+export function dailyLoginOffer(
+  data: DailyLoginData,
+  today = localDayIndex()
+): { available: boolean; streak: number; reward: number } {
+  if (data.lastClaimDay === today) {
+    return {
+      available: false,
+      streak: Math.max(1, data.streak),
+      reward: 0
+    };
+  }
+  const streak =
+    data.lastClaimDay === today - 1
+      ? Math.min(7, Math.max(1, data.streak + 1))
+      : 1;
+  return {
+    available: true,
+    streak,
+    reward: 80 + (streak - 1) * 30
+  };
 }
 
 export function formatTime(seconds: number): string {
@@ -135,6 +200,56 @@ export function formatTime(seconds: number): string {
   return `${Math.floor(whole / 60).toString().padStart(2, "0")}:${(whole % 60)
     .toString()
     .padStart(2, "0")}`;
+}
+
+export function roundHealth(value: number, maximum = Number.POSITIVE_INFINITY): number {
+  return Math.max(0, Math.min(Math.round(maximum), Math.round(value)));
+}
+
+export function formatRoundedNumber(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  const rounded = Math.round((value + Number.EPSILON) * 10) / 10;
+  return Number.isInteger(rounded) ? rounded.toString() : rounded.toFixed(1);
+}
+
+export const SPECIALIZATION_BASE_STAT_BOOST = 7 / 6;
+export const SPECIALIZATION_BASE_REDUCTION = 5 / 6;
+
+export function boostedSpecializationStat(value: number): number {
+  return value * SPECIALIZATION_BASE_STAT_BOOST;
+}
+
+export function boostedSpecializationReduction(value: number): number {
+  return value * SPECIALIZATION_BASE_REDUCTION;
+}
+
+export function collisionHullAttackMultiplier(gainedMaxHp: number): number {
+  const tiers = Math.floor(Math.max(0, gainedMaxHp) / 500);
+  return 1 + tiers * 0.2;
+}
+
+export function agileCritRateAttackBonus(critChance: number): number {
+  return Math.max(0, critChance) * 2;
+}
+
+export function agileCritEffectSpeedMultiplier(critEffect: number): number {
+  return 1 + Math.max(0, critEffect);
+}
+
+export function collisionBossDamageScale(
+  maxHp: number,
+  collisionSpecialization: boolean
+): number {
+  return collisionSpecialization && maxHp > 1000 ? 0.75 : 1;
+}
+
+export function minionHealthDamageMultiplier(maxHp: number): number {
+  const tiers = Math.floor(Math.max(0, maxHp) / 1000);
+  return 1 + tiers * 0.2;
+}
+
+export function minionPercentDamageFloor(maxHp: number): number {
+  return Math.max(0, maxHp) * 0.05;
 }
 
 export function chooseUnique<T extends { id: string }>(
