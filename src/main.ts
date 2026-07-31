@@ -112,7 +112,7 @@ const SHIPS: Record<
     tag: "高速机动",
     description: "较快移动速度与短技能冷却,适合擦弹和走位。",
     hp: 78,
-    speed: 520,
+    speed: 470,
     damage: 0.92,
     passive: "闪电协议：主动技能冷却缩短 18%",
     asset: "fighter_lightning"
@@ -5742,7 +5742,8 @@ class BattleScene extends Phaser.Scene {
     )[type];
     const hp =
       baseHp *
-      (1 + this.elapsedSeconds * 0.0035 + scorePressure * 0.24 + levelConfig.danger * 0.06) *
+      1.25 *
+      (1 + this.elapsedSeconds * 0.0062 + scorePressure * 0.32 + levelConfig.danger * 0.085) *
       enemyUpgradeScale() *
       (eliteVariant ? 2.15 : 1) *
       (mutation === "armor" ? 1.55 : mutated ? 1.18 : 1);
@@ -5805,7 +5806,7 @@ class BattleScene extends Phaser.Scene {
     const cruiseVelocityY =
       baseSpeed *
       Math.min(1.45, intensity) *
-      0.72 *
+      0.666 *   // 0.72 × 0.925(慢 7.5%)
       (eliteVariant ? 0.92 : 1) *
       (mutation === "dash" ? 1.38 : 1);
     enemy
@@ -7601,26 +7602,62 @@ class BattleScene extends Phaser.Scene {
         this.shadowClones.splice(i, 1);
         continue;
       }
-      // 跟随玩家 + 抖动
-      const tx = this.player.x + Math.sin(time / 200 + i) * 80;
-      const ty = this.player.y + Math.cos(time / 240 + i) * 50;
+      // === 目标:优先攻击血量最高的敌人;无目标时围绕玩家站位 ===
+      const enemyArr = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
+      let target: Phaser.Physics.Arcade.Image | undefined;
+      let maxHp = -1;
+      // 搜索半径 360px 内血量最高的敌人
+      for (const e of enemyArr) {
+        if (!e.active) continue;
+        const dist = Phaser.Math.Distance.Between(clone.x, clone.y, e.x, e.y);
+        if (dist > 360) continue;
+        const hp = (e.getData("hp") as number) ?? 0;
+        if (hp > maxHp) { maxHp = hp; target = e; }
+      }
+      // 目标移动速度
+      const moveSpeed = 320;
+      let tx: number;
+      let ty: number;
+      if (target) {
+        // 朝目标移动,但保持 30-50px 的攻击距离
+        const dx = target.x - clone.x;
+        const dy = target.y - clone.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const desired = 40;
+        if (dist > desired) {
+          // 距离太远 → 朝目标走(减去 desired 距离保留攻击距离)
+          tx = clone.x + (dx / dist) * Math.min(moveSpeed / 60, dist - desired);
+          ty = clone.y + (dy / dist) * Math.min(moveSpeed / 60, dist - desired);
+        } else {
+          // 进入攻击距离 → 轻微左右晃(快速闪避)
+          const side = Math.sin(time / 100 + i * 1.7) * 28;
+          tx = clone.x + (dx / dist) * side;
+          ty = clone.y + (dy / dist) * side;
+        }
+      } else {
+        // 无目标 → 围绕玩家 60-100px 的环上占位(分身之间分散)
+        const slot = (i / Math.max(1, this.shadowClones.length)) * Math.PI * 2 + time / 1500;
+        tx = this.player.x + Math.cos(slot) * 100;
+        ty = this.player.y + Math.sin(slot) * 70;
+      }
+      // 平滑移动
       clone.setPosition(
-        Phaser.Math.Linear(clone.x, tx, 0.12),
-        Phaser.Math.Linear(clone.y, ty, 0.12)
+        Phaser.Math.Linear(clone.x, tx, 0.18),
+        Phaser.Math.Linear(clone.y, ty, 0.18)
       );
       // 1 血,碰到任何东西就死
-      const enemy = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).find(
-        (e) => e.active && Phaser.Math.Distance.Between(clone.x, clone.y, e.x, e.y) < 26
+      const collided = enemyArr.find(
+        (e) => e.active && Phaser.Math.Distance.Between(clone.x, clone.y, e.x, e.y) < 24
       );
-      if (enemy) {
+      if (collided) {
         const dmg = this.computePlayerDamage() * (clone.getData("shadowCloneDmgMul") as number ?? 1);
-        enemy.setData("lastOwner", 1);
-        const before = enemy.getData("hp") ?? 1;
+        collided.setData("lastOwner", 1);
+        const before = collided.getData("hp") ?? 1;
         if (before - dmg <= 0) {
-          enemy.setData("wheelchairRamKill", true);
-          this.destroyEnemy(enemy, true);
+          collided.setData("wheelchairRamKill", true);
+          this.destroyEnemy(collided, true);
         } else {
-          enemy.setData("hp", before - dmg);
+          collided.setData("hp", before - dmg);
         }
         clone.setData("hp", 0);
         clone.disableBody(true, true);
@@ -7628,7 +7665,7 @@ class BattleScene extends Phaser.Scene {
         this.burst(clone.x, clone.y, 0x9b5cff, 1.2);
         continue;
       }
-      // 周期射击(用玩家武器系统)
+      // 周期射击(只射向当前目标方向)
       const lastShot = clone.getData("lastShotAt") as number;
       if (time - lastShot > 400) {
         clone.setData("lastShotAt", time);
@@ -7638,7 +7675,15 @@ class BattleScene extends Phaser.Scene {
           b.setDisplaySize(10, 18);
           b.setTint(0x8c25ff);
           b.setData({ kind: "player-bullet", damage: this.computePlayerDamage() * (clone.getData("shadowCloneDmgMul") as number ?? 1), owner: 1 });
-          b.setVelocity(0, -660);
+          if (target) {
+            // 朝目标方向射
+            const dx = target.x - clone.x;
+            const dy = target.y - clone.y - 10;
+            const dist = Math.hypot(dx, dy) || 1;
+            b.setVelocity((dx / dist) * 660, (dy / dist) * 660);
+          } else {
+            b.setVelocity(0, -660);
+          }
         }
       }
     }
