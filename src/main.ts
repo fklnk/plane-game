@@ -1,4 +1,4 @@
-﻿import Phaser from "phaser";
+﻿﻿import Phaser from "phaser";
 import "./styles.css";
 import {
   DEFAULT_SAVE,
@@ -719,6 +719,60 @@ const BOSS_NAMES: Record<BossKind, string> = {
   usurper: "技能篡夺者",
   shadow: "力量掠夺者 · 黑影",
   dark_deity: "黑暗魔神飞机"
+};
+
+// === BOSS 被动护符:击破 boss 后,本局永久获得该 boss 的专属被动 ===
+type BossAmuletDef = {
+  name: string;
+  code: string;
+  description: string;
+  apply: (scene: BattleScene) => void;  // 击破时一次性应用
+};
+const BOSS_AMULETS: Record<BossKind, BossAmuletDef> = {
+  titan: {
+    name: "泰坦壁垒",
+    code: "TITAN BULWARK",
+    description: "HP 永久 +15%(本局)",
+    apply: (scene) => {
+      const gain = Math.round(scene.stats.maxHp * 0.15);
+      scene.stats.maxHp += gain;
+      scene.stats.hp += gain;  // 同时加满血
+      scene.recordAgileMaxHpGain(gain);
+    }
+  },
+  mirror: {
+    name: "镜像残响",
+    code: "MIRROR ECHO",
+    description: "血量 < 30% 时召唤 1 个镜像影分身(无敌,无伤害,1 次/本局)",
+    apply: (scene) => {
+      // 标记解锁;在 player HP < 30% 时触发
+      scene.mirrorEchoArmed = true;
+    }
+  },
+  usurper: {
+    name: "权柄污染",
+    code: "USURPER BLIGHT",
+    description: "对 Boss 伤害 +20%(本局)",
+    apply: (scene) => {
+      scene.usurperBlight = true;
+    }
+  },
+  shadow: {
+    name: "力量残响",
+    code: "SHADOW ECHO",
+    description: "暴击率 +8%(本局)",
+    apply: (scene) => {
+      scene.stats.critChance += 0.08;
+    }
+  },
+  dark_deity: {
+    name: "魔神契约",
+    code: "DEITY PACT",
+    description: "死亡时 25% 概率自动复活并保留 50% HP(本局 1 次)",
+    apply: (scene) => {
+      scene.deityPactArmed = true;
+    }
+  }
 };
 
 const SHADOW_EVOLUTION_TEXTURES = [
@@ -2559,6 +2613,12 @@ class BattleScene extends Phaser.Scene {
   // === 敏捷流派:影分身 ===
   nextShadowCloneAt = 0;
   shadowClones: Phaser.Physics.Arcade.Image[] = [];
+  // === BOSS 被动护符(本局) ===
+  mirrorEchoArmed = false;
+  mirrorEchoTriggered = false;
+  usurperBlight = false;
+  deityPactArmed = false;
+  deityPactTriggered = false;
   // === 吞噬流派:吞噬(动态体型) ===
   devourSizeMul = 1;          // 玩家当前体积倍数(从吞噬累加)
   devourSizeLossNextAt = 0;   // 下次缓慢损失(回归基础,避免无限膨胀)
@@ -3495,6 +3555,12 @@ class BattleScene extends Phaser.Scene {
     this.nextShadowCloneAt = this.time.now + 12000;
     this.devourKillCount = 0;
     this.rerolls = 1 + save.permanentUpgrades.reroll;
+    // === BOSS 护符:每局重置 ===
+    this.mirrorEchoArmed = false;
+    this.mirrorEchoTriggered = false;
+    this.usurperBlight = false;
+    this.deityPactArmed = false;
+    this.deityPactTriggered = false;
     // === 玩家战机贴图:皮肤系列中当前战机对应的 fighter_*.png > 战机默认 ===
     const equippedSkin = SKINS[save.equippedSkin];
     const currentShipId: ShipId = (save.selectedShip as ShipId) ?? "balanced";
@@ -4752,6 +4818,8 @@ class BattleScene extends Phaser.Scene {
     this.updateSkinBulletTrail();
     // === 突刺联动:影分身突刺 ===
     this.updateLungeShadowClones(time);
+    // === 镜像残响护符:HP < 30% 时召唤 1 个镜像影分身(无敌) ===
+    this.checkMirrorEcho();
   }
 
   updateSkinBulletTrail(): void {
@@ -7566,6 +7634,44 @@ class BattleScene extends Phaser.Scene {
     });
   }
 
+  // === 镜像残响:HP < 30% 召唤镜像 ===
+  checkMirrorEcho(): void {
+    if (!this.mirrorEchoArmed || this.mirrorEchoTriggered) return;
+    if (this.stats.hp <= 0 || this.stats.hp / this.stats.maxHp >= 0.3) return;
+    if (!this.player?.active) return;
+    this.mirrorEchoTriggered = true;
+    this.mirrorEchoArmed = false;
+    const ship = SHIPS[save.selectedShip];
+    const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
+    const echo = this.physics.add
+      .image(this.player.x - 80, this.player.y, texture)
+      .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
+      .setTint(0xb56cff)
+      .setAlpha(0.9)
+      .setDepth(11);
+    echo.setData("owner", 1);
+    echo.setData("mirrorEcho", true);
+    // 持续 8 秒,无敌,跟着玩家
+    this.time.delayedCall(8000, () => {
+      if (echo.active) {
+        this.burst(echo.x, echo.y, 0xb56cff, 1.2);
+        echo.destroy();
+      }
+    });
+    // 跟随玩家
+    const follow = (): void => {
+      if (!echo.active) return;
+      echo.setPosition(
+        Phaser.Math.Linear(echo.x, this.player.x - 90, 0.15),
+        Phaser.Math.Linear(echo.y, this.player.y, 0.15)
+      );
+      this.time.delayedCall(33, follow);
+    };
+    follow();
+    this.showBanner("◆ 镜像残响 · 召唤镜像", 1500);
+    this.burst(this.player.x, this.player.y, 0xb56cff, 1.5);
+  }
+
   // === 突刺联动:每帧更新影分身突刺位置 + 命中 ===
   updateLungeShadowClones(time: number): void {
     if (this.lungingShadowUntil === 0) return;
@@ -9123,6 +9229,8 @@ class BattleScene extends Phaser.Scene {
 
   damageBossPart(part: Phaser.Physics.Arcade.Image, rawDamage: number): void {
     if (!this.bossActive || !part.active) return;
+    // === 权柄污染:对 Boss 伤害 +20%(usurper 护符) ===
+    if (this.usurperBlight) rawDamage *= 1.2;
     const partName = part.getData("part");
     if (partName === "raid-core") {
       const collisionFinisher = part.getData("collisionFinisher") === true;
@@ -11091,7 +11199,8 @@ class BattleScene extends Phaser.Scene {
       isNineBattleMode()
         ? 95 + defeatedTier * 65 + selectedLevel * 15
         : 32 + defeatedTier * 20 + selectedLevel * 9;
-    const bossTokens = Math.round(baseBossTokens * (defeatedElite ? 1.5 : 1));
+    // === 削弱:boss 给的数值奖励砍 30%(空中支援 / 教义进化 / boss 护符为主奖励) ===
+    const bossTokens = Math.round(baseBossTokens * 0.7 * (defeatedElite ? 1.5 : 1));
     this.runTokens += bossTokens;
     this.floatText(
       WORLD_WIDTH / 2,
@@ -11118,8 +11227,22 @@ class BattleScene extends Phaser.Scene {
     });
     this.bossEliteAura?.destroy();
     this.bossEliteAura = undefined;
+    // === BOSS 护符:击破获得该 boss 专属被动 ===
+    const amulet = BOSS_AMULETS[defeatedKind];
+    amulet.apply(this);
     this.cameras.main.flash(160, 230, 255, 255);
     if (save.settings.screenShake) this.cameras.main.shake(600, 0.018);
+    this.showBanner(
+      `◆ 解锁护符: ${amulet.code} · ${amulet.description}`,
+      2000
+    );
+    this.floatText(
+      WORLD_WIDTH / 2,
+      340,
+      `${amulet.name} 已嵌入战机`,
+      true
+    );
+    this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.6);
     for (let i = 0; i < 8; i += 1) {
       this.time.delayedCall(i * 110, () =>
         this.burst(
@@ -11138,8 +11261,8 @@ class BattleScene extends Phaser.Scene {
       selectedMode === "endless"
         ? totalScore + 36000 + this.bossTier * 16800 + selectedLevel * 2160
         : 0;
-    this.ultimate = Math.min(100, this.ultimate + 36);
-    this.healPlayer(this.stats.maxHp * (isNineBattleMode() ? 0.22 : 0.12), "首领能量回收");
+    this.ultimate = Math.min(100, this.ultimate + 20);
+    this.healPlayer(this.stats.maxHp * (isNineBattleMode() ? 0.12 : 0.06), "首领能量回收");
     this.showBanner(
       `${defeatedElite ? "精英 " : ""}${BOSS_NAMES[defeatedKind]}击破 · 技能权限恢复`,
       1500
@@ -11274,6 +11397,26 @@ class BattleScene extends Phaser.Scene {
     if (this.ended) return;
     this.ended = true;
     this.physics.world.pause();
+    // === 魔神契约:玩家死亡时 25% 概率复活并保留 50% HP ===
+    if (!victory && this.deityPactArmed && !this.deityPactTriggered) {
+      if (Math.random() < 0.25) {
+        this.deityPactTriggered = true;
+        this.deityPactArmed = false;
+        this.ended = false;
+        this.physics.world.resume();
+        this.stats.hp = roundHealth(this.stats.maxHp * 0.5, this.stats.maxHp);
+        this.player.setVisible(true);
+        this.player.setAlpha(1);
+        this.showBanner("◆ 魔神契约 · 强行复活", 2000);
+        this.burst(this.player.x, this.player.y, 0xb56cff, 2.0);
+        this.cameras.main.flash(200, 180, 60, 220);
+        this.time.delayedCall(3000, () => this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + 3000));
+        return;
+      } else {
+        this.deityPactTriggered = true;  // 本局不再触发
+        showToast("魔神契约 · 契约已耗尽");
+      }
+    }
     // 终局残党阶段被小兵击毁 → 解锁「功亏一篑」(代币已通过 reward 字段保留)
     if (!victory && this.finalSwarmActive) {
       this.unlockAchievement("fell_short");
