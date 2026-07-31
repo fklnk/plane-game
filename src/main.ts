@@ -6247,6 +6247,19 @@ class BattleScene extends Phaser.Scene {
     if ((bullet.getData("owner") ?? 1) === 1) this.applyHitTrait();
     // === 吸血流派:子弹命中同帧生成 1 条虹吸链(上限 8 条) ===
     if ((bullet.getData("owner") ?? 1) === 1) this.spawnSiphonChain(enemy);
+    // === 敏捷流派:影分身子弹击杀 → MAX HP +3 + 1.5 HP ===
+    if (
+      (bullet.getData("weapon") ?? "") === "shadow_clone_bullet" &&
+      save.selectedSpecialization === "agile" &&
+      !enemy.active
+    ) {
+      this.stats.maxHp += 3;
+      this.stats.hp = roundHealth(
+        Math.min(this.stats.maxHp, this.stats.hp + 1.5),
+        this.stats.maxHp
+      );
+      this.recordAgileMaxHpGain(3);
+    }
     const remainingPierce = bullet.getData("pierce") ?? 0;
     if (remainingPierce > 0) bullet.setData("pierce", remainingPierce - 1);
     else bullet.disableBody(true, true);
@@ -6392,6 +6405,7 @@ class BattleScene extends Phaser.Scene {
         this.showBanner(`吞噬进化 · 最大生命 ${this.stats.maxHp}`, 600);
       }
     }
+    // 敏捷流派基础机炮击杀不给奖励(只有突刺 / 影分身 / 突刺联动击杀给)
   }
 
   applyHitTrait(): void {
@@ -7649,6 +7663,13 @@ class BattleScene extends Phaser.Scene {
       if (before - dmg <= 0) {
         hit.setData("wheelchairRamKill", true);
         this.destroyEnemy(hit, true);
+        // 突刺击杀奖励:MAX HP +3 + 1.5 HP(敏捷流派)
+        this.stats.maxHp += 3;
+        this.stats.hp = roundHealth(
+          Math.min(this.stats.maxHp, this.stats.hp + 1.5),
+          this.stats.maxHp
+        );
+        this.recordAgileMaxHpGain(3);
       } else {
         hit.setData("hp", before - dmg);
         this.floatText(hit.x, hit.y, `突刺 ${Math.round(dmg)}`, true);
@@ -7866,7 +7887,8 @@ class BattleScene extends Phaser.Scene {
           b.enableBody(true, clone.x, clone.y - 10, true, true);
           b.setDisplaySize(10, 18);
           b.setTint(0x8c25ff);
-          b.setData({ kind: "player-bullet", damage: this.computePlayerDamage() * (clone.getData("shadowCloneDmgMul") as number ?? 1), owner: 1 });
+          // 标记为"影分身子弹",击杀敌方给敏捷 MAX HP 奖励
+          b.setData({ kind: "player-bullet", damage: this.computePlayerDamage() * (clone.getData("shadowCloneDmgMul") as number ?? 1), owner: 1, weapon: "shadow_clone_bullet" });
           if (target) {
             const dx = target.x - clone.x;
             const dy = target.y - clone.y - 10;
