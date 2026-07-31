@@ -5,3 +5,7 @@ public/downloads/
 *.log
 *.tsbuildinfo
 .DS_Store
+tmp_skins/
+tmp_*.mjs
+tmp_*.ps1
+test_*.png

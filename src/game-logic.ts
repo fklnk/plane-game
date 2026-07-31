@@ -7,7 +7,15 @@ export type SpecializationId =
   | "vampire"
   | "devour"
   | "wheelchair";
-export type SkinId = "standard" | "aurora" | "inferno" | "void";
+export type SkinId =
+  | "standard"
+  | "aurora"
+  | "inferno"
+  | "void"
+  | "after_storm_skin"
+  | "fell_short_skin"
+  | "boss_slayer_skin"
+  | "campaign_ace_skin";
 export type PlayVariantId = "single" | "coop" | "score_duel";
 
 export interface DailyLoginData {
@@ -113,7 +121,16 @@ export function loadSave(raw: string | null): SaveData {
       "devour",
       "wheelchair"
     ];
-    const validSkins: SkinId[] = ["standard", "aurora", "inferno", "void"];
+    const validSkins: SkinId[] = [
+      "standard",
+      "aurora",
+      "inferno",
+      "void",
+      "after_storm_skin",
+      "fell_short_skin",
+      "boss_slayer_skin",
+      "campaign_ace_skin"
+    ];
     const validModes: GameMode[] = ["campaign", "endless", "boss"];
     const validVariants: PlayVariantId[] = ["single", "coop", "score_duel"];
     const selectedShip = validShips.includes(parsed.selectedShip as ShipId)
@@ -236,7 +253,8 @@ export function agileCritRateAttackBonus(critChance: number): number {
 }
 
 export function agileCritEffectSpeedMultiplier(critEffect: number): number {
-  return 1 + Math.max(0, critEffect);
+  // 减半:原本 +100% 移速,现在 +50%
+  return 1 + Math.max(0, critEffect) * 0.5;
 }
 
 export function collisionBossDamageScale(

@@ -121,6 +121,23 @@ body {
   font-size: 13px;
 }
 
+.topbar .brand-mini {
+  display: none;  /* topbar 内不显示,改用 fixed 浮在右下方 */
+}
+
+/* 固定浮在屏幕右上(避开 resource-chip)— resource-chip 在顶部,brand-mini 在顶部下方 */
+.app-shell:not(.playing) .brand-mini {
+  position: fixed;
+  top: 64px;
+  right: 24px;
+  z-index: 80;
+  padding: 5px 11px;
+  background: rgba(4, 13, 27, 0.66);
+  border: 1px solid rgba(45, 244, 255, 0.22);
+  border-radius: 5px;
+  letter-spacing: 0.16em;
+}
+
 .brand-mark {
   width: 30px;
   height: 30px;
@@ -1253,6 +1270,9 @@ kbd {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 26px;
+  /* 避开固定在右上角的返回键(14 + 38 + 14 = 66px) */
+  padding-right: 66px;
+  min-height: 38px;
 }
 
 .screen-title h2 {
@@ -1269,6 +1289,26 @@ kbd {
   border: 1px solid rgba(45, 244, 255, 0.24);
   background: rgba(7, 22, 40, 0.72);
   color: #9fc3d3;
+}
+
+/* 固定在屏幕右上角的返回键(所有 menu/pilot/hangar 等页面通用) */
+.back-button {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 90;
+  border-radius: 6px;
+  box-shadow: 0 0 12px rgba(45, 244, 255, 0.18);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.back-button:hover {
+  background: rgba(45, 244, 255, 0.12);
+  color: #d8f6ff;
+  transform: translateX(2px);
+}
+.back-button:active {
+  transform: translateX(0) scale(0.94);
 }
 
 .mode-grid,
@@ -1446,7 +1486,7 @@ kbd {
 
 .skin-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
   gap: 10px;
   margin-top: 10px;
 }
@@ -1457,6 +1497,10 @@ kbd {
   border: 1px solid rgba(98, 158, 188, 0.17);
   background: rgba(7, 20, 36, 0.76);
   overflow: hidden;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .skin-card.equipped {
@@ -1464,13 +1508,44 @@ kbd {
   box-shadow: inset 0 0 28px color-mix(in srgb, var(--skin-color) 11%, transparent);
 }
 
+.skin-card.locked {
+  opacity: 0.62;
+  filter: grayscale(0.55) brightness(0.78);
+}
+
+.skin-card.locked .skin-preview svg {
+  filter: drop-shadow(0 0 6px #3b2535) blur(0.4px) grayscale(0.6);
+  opacity: 0.7;
+}
+
+.skin-requirement {
+  display: block;
+  min-height: 18px;
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  font: 8px/1.4 "Roboto Mono", Consolas, monospace;
+  color: #ff8a8a;
+  background: rgba(255, 70, 100, 0.08);
+  border: 1px dashed rgba(255, 70, 100, 0.4);
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+}
+
 .skin-preview {
   position: relative;
-  height: 92px;
+  width: 100%;
+  height: 130px;
   display: grid;
   place-items: center;
   background: radial-gradient(circle, color-mix(in srgb, var(--skin-color) 20%, transparent), transparent 66%);
   overflow: hidden;
+  flex-shrink: 0;
+}
+
+.skin-preview svg {
+  width: 120px;
+  height: 120px;
+  display: block;
 }
 
 .skin-preview img {
