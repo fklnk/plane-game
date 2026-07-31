@@ -1262,7 +1262,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "»",
     kind: "weapon",
     description: (level) =>
-      `G 键瞬间位移到目标点 · 移动期间无敌 · 命中 1 个敌人回复 2% 最大生命(最多 10%) · 冷却 ${[30, 25, 20][level] || 20}s`
+      `G 键向鼠标方向突刺 · 长 ${300 + (level - 1) * 80} × 宽 ${40 + (level - 1) * 12} · 伤害 ×${[2.0, 3.0, 4.0][level] || 4.0} · 命中敌人沿路径扫过 · 冷却 ${[22, 18, 14][level] || 14}s`
   },
   {
     id: "agile_shadow_clone",
@@ -2607,6 +2607,10 @@ class BattleScene extends Phaser.Scene {
   lungingToY = 0;
   lungingReadyAt = 0;
   lungingHits = 0;
+  // 突刺参数(等级决定)
+  lungeMaxLength = 300;
+  lungeWidth = 40;
+  lungeDmgMul = 2.0;
   // === 突刺联动:4 影分身突刺(底部向上) ===
   lungingShadowClones: Phaser.Physics.Arcade.Image[] = [];
   lungingShadowUntil = 0;  // 突刺分身的存活截止时间
@@ -7568,32 +7572,93 @@ class BattleScene extends Phaser.Scene {
       return;
     }
     if (this.time.now < this.lungingUntil) return; // 正在突刺中
-    // 目标点 = 鼠标位置
+    // === 突刺参数(等级影响 长度/宽度/伤害/速度) ===
+    this.lungeMaxLength = 300 + (level - 1) * 80;  // 1 级 300, 2 级 380, 3 级 460
+    this.lungeWidth = 40 + (level - 1) * 12;       // 1 级 40, 2 级 52, 3 级 64
+    this.lungeDmgMul = [2.0, 3.0, 4.0][level - 1] ?? 4.0;
+    // 目标点 = 鼠标位置(夹取到最大长度内)
     const pointer = this.input.activePointer;
-    const tx = Phaser.Math.Clamp(pointer.x, 50, WORLD_WIDTH - 50);
-    const ty = Phaser.Math.Clamp(pointer.y, 100, WORLD_HEIGHT - 60);
+    const px = Phaser.Math.Clamp(pointer.x, 30, WORLD_WIDTH - 30);
+    const py = Phaser.Math.Clamp(pointer.y, 80, WORLD_HEIGHT - 40);
+    const dx = px - this.player.x;
+    const dy = py - this.player.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const finalDist = Math.min(dist, this.lungeMaxLength);
+    const dirX = dx / dist;
+    const dirY = dy / dist;
+    const tx = this.player.x + dirX * finalDist;
+    const ty = this.player.y + dirY * finalDist;
     this.lungingFromX = this.player.x;
     this.lungingFromY = this.player.y;
     this.lungingToX = tx;
     this.lungingToY = ty;
-    // 持续时间(基于距离,基础 2200 px/s,等级加成速度)
-    const speed = 2200 * (1 + (level - 1) * 0.2);
-    const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, tx, ty);
-    this.lungingUntil = this.time.now + Math.max(120, (dist / speed) * 1000);
-    const cooldown = [30, 25, 20][level - 1] ?? 20;
+    // 持续时间(基于最终距离,基础 1800 px/s,等级加成速度)
+    const speed = 1800 * (1 + (level - 1) * 0.25);
+    this.lungingUntil = this.time.now + Math.max(160, (finalDist / speed) * 1000);
+    const cooldown = [22, 18, 14][level - 1] ?? 14;
     this.lungingReadyAt = this.time.now + cooldown * 1000;
     this.lungingHits = 0;
-    this.showBanner("◆ 影步突刺", 500);
-    // 华丽特效:金色光速冲刺
+    this.showBanner(`◆ 影步突刺 Lv.${level} · 长度 ${Math.round(finalDist)} / ${this.lungeMaxLength}`, 600);
+    // === 华丽特效:金色光速冲刺 + 路径余光 ===
+    this.spawnLungeTrailEffect(this.lungingFromX, this.lungingFromY, this.lungingToX, this.lungingToY, this.lungeWidth);
     this.triggerSpecialtyFX(0xffd54a, {
       ring: 0xfff5b0,
-      flash: [140, 255, 220, 110],
-      shake: 220,
-      count: 32,
+      flash: [180, 255, 220, 140],
+      shake: 240,
+      count: 36,
     });
     // === 突刺联动:如果拥有影分身升级,召唤 4 影分身从底部向上突刺 ===
     if ((this.upgradeLevels.agile_shadow_clone ?? 0) > 0) {
       this.spawnLungeShadowCombo();
+    }
+  }
+
+  // === 突刺路径特效:从起点到终点画一条金色渐变光带 ===
+  spawnLungeTrailEffect(fromX: number, fromY: number, toX: number, toY: number, width: number): void {
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const dist = Math.hypot(toX - fromX, toY - fromY);
+    // 主光带
+    const main = this.add
+      .rectangle((fromX + toX) / 2, (fromY + toY) / 2, dist, width, 0xfff5b0, 0.85)
+      .setRotation(angle)
+      .setDepth(10)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: main,
+      alpha: 0,
+      scaleY: { from: 1, to: 0.4 },
+      duration: 280,
+      onComplete: () => main.destroy()
+    });
+    // 外层光晕
+    const halo = this.add
+      .rectangle((fromX + toX) / 2, (fromY + toY) / 2, dist, width * 2.2, 0xffd54a, 0.5)
+      .setRotation(angle)
+      .setDepth(9)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: halo,
+      alpha: 0,
+      scaleY: { from: 1, to: 0.6 },
+      duration: 380,
+      onComplete: () => halo.destroy()
+    });
+    // 路径粒子
+    for (let i = 0; i < 18; i += 1) {
+      const t = i / 18;
+      const px = Phaser.Math.Linear(fromX, toX, t) + Phaser.Math.Between(-12, 12);
+      const py = Phaser.Math.Linear(fromY, toY, t) + Phaser.Math.Between(-12, 12);
+      const p = this.add.circle(px, py, 3 + Math.random() * 3, 0xffd54a, 1)
+        .setDepth(11)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: p,
+        alpha: 0,
+        y: py - 30,
+        scale: 0.2,
+        duration: 400 + Math.random() * 200,
+        onComplete: () => p.destroy()
+      });
     }
   }
 
@@ -7766,46 +7831,65 @@ class BattleScene extends Phaser.Scene {
     );
     this.targetX = this.player.x;
     this.targetY = this.player.y;
-    // 命中敌人
-    const level = this.upgradeLevels.agile_lunge ?? 1;
-    const dmgMul = [1.1, 1.4, 1.7][level - 1] ?? 1.7;
-    const hit = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).find(
-      (e) => e.active && Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y) < 28
-    );
-    if (hit && !hit.getData("lungeHit")) {
-      hit.setData("lungeHit", true);
-      hit.setData("lastOwner", 1);
-      const dmg = this.computePlayerDamage() * dmgMul;
-      const before = hit.getData("hp") ?? 1;
-      if (before - dmg <= 0) {
-        hit.setData("wheelchairRamKill", true);
-        hit.setData("eliteKillWeapon", "lunge");
-        this.destroyEnemy(hit, true);
-        // 突刺击杀奖励:MAX HP +3 + 1.5 HP(敏捷流派)
-        this.stats.maxHp += 3;
-        this.stats.hp = roundHealth(
-          Math.min(this.stats.maxHp, this.stats.hp + 1.5),
-          this.stats.maxHp
-        );
-        this.recordAgileMaxHpGain(3);
-      } else {
-        hit.setData("hp", before - dmg);
-        this.floatText(hit.x, hit.y, `突刺 ${Math.round(dmg)}`, true);
+    // === 命中整路径上的所有敌人(点到线段距离) ===
+    const dmgMul = this.lungeDmgMul;
+    const halfW = this.lungeWidth * 0.5;
+    // 点到线段距离(从 fromX,fromY 到 toX,toY)
+    const distFromSeg = (px: number, py: number): number => {
+      const ax = this.lungingFromX;
+      const ay = this.lungingFromY;
+      const bx = this.lungingToX;
+      const by = this.lungingToY;
+      const abx = bx - ax;
+      const aby = by - ay;
+      const apx = px - ax;
+      const apy = py - ay;
+      const ab2 = abx * abx + aby * aby || 1;
+      const dot = (apx * abx + apy * aby) / ab2;
+      const tClamped = Math.max(0, Math.min(1, dot));
+      const cx = ax + abx * tClamped;
+      const cy = ay + aby * tClamped;
+      return Math.hypot(px - cx, py - cy);
+    };
+    const enemies = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
+    for (const enemy of enemies) {
+      if (!enemy.active) continue;
+      if (enemy.getData("lungeHit")) continue;
+      const d = distFromSeg(enemy.x, enemy.y);
+      if (d < halfW + 28) {  // 敌人半径约 28
+        enemy.setData("lungeHit", true);
+        enemy.setData("lastOwner", 1);
+        const dmg = this.computePlayerDamage() * dmgMul;
+        const before = enemy.getData("hp") ?? 1;
+        if (before - dmg <= 0) {
+          enemy.setData("wheelchairRamKill", true);
+          enemy.setData("eliteKillWeapon", "lunge");
+          this.destroyEnemy(enemy, true);
+          // 突刺击杀奖励:MAX HP +3 + 1.5 HP(敏捷流派)
+          this.stats.maxHp += 3;
+          this.stats.hp = roundHealth(
+            Math.min(this.stats.maxHp, this.stats.hp + 1.5),
+            this.stats.maxHp
+          );
+          this.recordAgileMaxHpGain(3);
+        } else {
+          enemy.setData("hp", before - dmg);
+          this.floatText(enemy.x, enemy.y, `突刺 ${Math.round(dmg)}`, true);
+        }
+        // 回复 2% 最大生命,最多 10%
+        this.lungingHits += 1;
+        const heal = this.stats.maxHp * 0.02;
+        this.stats.hp = roundHealth(Math.min(this.stats.maxHp, this.stats.hp + heal), this.stats.maxHp);
+        this.impactBurst(enemy.x, enemy.y, 0xffd54a);
       }
-      // 回复 2% 最大生命,最多 10%
-      this.lungingHits += 1;
-      const healCap = 0.02 * Math.min(5, this.lungingHits);
-      const heal = this.stats.maxHp * 0.02;
-      this.stats.hp = roundHealth(Math.min(this.stats.maxHp, this.stats.hp + heal), this.stats.maxHp);
-      this.impactBurst(hit.x, hit.y, 0xffd54a);
     }
-    // 命中首领
+    // 命中首领(矩形距离到路径)
     for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
       if (
         part.active &&
         part.getData("part") === "core" &&
         !part.getData("lungeHit") &&
-        Phaser.Math.Distance.Between(this.player.x, this.player.y, part.x, part.y) < 80
+        distFromSeg(part.x, part.y) < halfW + 100
       ) {
         part.setData("lungeHit", true);
         this.damageBossPart(part, this.computePlayerDamage() * dmgMul);
