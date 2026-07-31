@@ -7758,6 +7758,8 @@ class BattleScene extends Phaser.Scene {
     }
     if (this.shadowClones.length >= count) return;
     const need = count - this.shadowClones.length;
+    // 影分身血量 = 玩家 MAX HP × 40%(与突刺联动一致)
+    const cloneMaxHp = Math.max(1, this.stats.maxHp * 0.4);
     for (let i = 0; i < need; i += 1) {
       const ship = SHIPS[save.selectedShip];
       const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
@@ -7765,13 +7767,20 @@ class BattleScene extends Phaser.Scene {
         .image(this.player.x + Phaser.Math.Between(-60, 60), this.player.y + Phaser.Math.Between(-40, 40), texture)
         .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
         .setTint(0x8c25ff)
-        .setAlpha(0.65)
-        .setDepth(9);
+        .setAlpha(0.95)  // 之前 0.65 太透明,看不到
+        .setDepth(11);   // 提到 11(玩家身上,避免被敌弹遮)
+      // 紫色描边光圈(让影分身更显眼)
+      const ring = this.add
+        .circle(clone.x, clone.y, clone.displayWidth * 0.65, 0x8c25ff, 0)
+        .setStrokeStyle(2, 0xc16cff, 0.9)
+        .setDepth(10)
+        .setBlendMode(Phaser.BlendModes.ADD);
       clone.setData("owner", 1);
       clone.setData("shadowClone", true);
+      clone.setData("shadowCloneRing", ring);
       clone.setData("shadowCloneDmgMul", dmgMul);
-      clone.setData("hp", 1);
-      clone.setData("maxHp", 1);
+      clone.setData("hp", cloneMaxHp);
+      clone.setData("maxHp", cloneMaxHp);
       clone.setData("lastShotAt", 0);
       this.shadowClones.push(clone);
       this.burst(clone.x, clone.y, 0x9b5cff, 1.0);
@@ -7790,6 +7799,9 @@ class BattleScene extends Phaser.Scene {
     for (let i = this.shadowClones.length - 1; i >= 0; i -= 1) {
       const clone = this.shadowClones[i];
       if (!clone.active) {
+        // 销毁附属描边圈
+        const ring = clone.getData("shadowCloneRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
+        ring?.destroy();
         this.shadowClones.splice(i, 1);
         continue;
       }
@@ -7803,6 +7815,11 @@ class BattleScene extends Phaser.Scene {
         Phaser.Math.Linear(clone.x, tx, 0.18),
         Phaser.Math.Linear(clone.y, ty, 0.18)
       );
+      // === 描边圈跟随 ===
+      const ring = clone.getData("shadowCloneRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
+      if (ring && ring.active) {
+        ring.setPosition(clone.x, clone.y);
+      }
       // === 目标:优先攻击血量最高的敌人(不限距离) ===
       const enemyArr = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
       let target: Phaser.Physics.Arcade.Image | undefined;
@@ -7823,9 +7840,17 @@ class BattleScene extends Phaser.Scene {
         if (before - dmg <= 0) {
           collided.setData("wheelchairRamKill", true);
           this.destroyEnemy(collided, true);
+          // 影分身击杀奖励(与突刺联动一致):MAX HP +3 + 1.5 HP
+          this.stats.maxHp += 3;
+          this.stats.hp = roundHealth(
+            Math.min(this.stats.maxHp, this.stats.hp + 1.5),
+            this.stats.maxHp
+          );
+          this.recordAgileMaxHpGain(3);
         } else {
           collided.setData("hp", before - dmg);
         }
+        ring?.destroy();
         clone.setData("hp", 0);
         clone.disableBody(true, true);
         clone.destroy();
