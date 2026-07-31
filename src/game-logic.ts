@@ -228,8 +228,8 @@ export function roundHealth(value: number, maximum = Number.POSITIVE_INFINITY): 
 
 export function formatRoundedNumber(value: number): string {
   if (!Number.isFinite(value)) return "0";
-  // 底层保留 2 位小数(不引入额外精度损失),玩家看到的是 1 位四舍五入
-  return value.toFixed(2);
+  // 底层保留 3 位小数(不引入额外精度损失),玩家看到的是 1 位四舍五入
+  return value.toFixed(3);
 }
 
 // 玩家可见格式(1 位四舍五入)
@@ -260,8 +260,8 @@ export function agileCritRateAttackBonus(critChance: number): number {
 }
 
 export function agileCritEffectSpeedMultiplier(critEffect: number): number {
-  // 减半:原本 +100% 移速,现在 +50%
-  return 1 + Math.max(0, critEffect) * 0.5;
+  // 减半:原本 +100% 移速,现在 +30%
+  return 1 + Math.max(0, critEffect) * 0.3;
 }
 
 export function collisionBossDamageScale(

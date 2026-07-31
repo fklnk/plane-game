@@ -1,4 +1,4 @@
-﻿﻿import Phaser from "phaser";
+import Phaser from "phaser";
 import "./styles.css";
 import {
   DEFAULT_SAVE,
@@ -18,7 +18,6 @@ import {
   collisionHullAttackMultiplier,
   agileCritEffectSpeedMultiplier,
   agileCritRateAttackBonus,
-  formatRoundedNumber,
   formatRoundedNumberForDisplay,
   formatTime,
   loadSave,
@@ -50,6 +49,20 @@ const ATTACK_BONUS_SCALE = 2 / 3;
 const SAVE_KEY = "starfall_save_v1";
 const PERFORMANCE_MIGRATION_KEY = "starfall_performance_v051";
 const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+// 影步突刺(敏捷流派 G 键)：最大突进距离为地图竖直长度的 60%，固定 400ms 完成
+const AGILE_LUNGE_REACH = WORLD_HEIGHT * 0.6;
+const AGILE_LUNGE_DURATION = 400;
+const AGILE_LUNGE_HIT_WIDTH = [56, 68, 80] as const;
+const AGILE_LUNGE_MAX_HEAL_HITS = 5;
+// 影分身(敏捷流派):数量上限 4,攻击最高为本体 100%,血量最高为本体 40%
+// Lv.1 固定 1 点血;之后血量按本体最大生命的比例成长,超过 4 级只继续提升血量与攻击
+const AGILE_CLONE_MAX_COUNT = 4;
+const AGILE_CLONE_COUNTS = [1, 2, 3, 4] as const;
+const AGILE_CLONE_DAMAGE_RATIOS = [0.25, 0.5, 0.75, 1] as const;
+// Lv.1 用 0 表示「固定 1 点血」,后续为本体最大生命占比,上限 40%
+const AGILE_CLONE_HP_RATIOS = [0, 0.1, 0.25, 0.4] as const;
+// 召唤间隔随等级递减(秒),一次只补充 1 个
+const AGILE_CLONE_INTERVALS = [30, 25, 20, 15] as const;
 
 type UpgradeKind = "weapon" | "passive";
 
@@ -428,10 +441,6 @@ function skinUnlockRequirement(skinId: SkinId): string {
     default:
       return "";
   }
-}
-
-function isSkinUnlocked(skinId: SkinId): boolean {
-  return skinUnlockRequirement(skinId) === "";
 }
 
 // === 商店皮肤预览(使用 fighter_*.png 真实战机图片 + 装饰层) ===
@@ -1262,15 +1271,23 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "»",
     kind: "weapon",
     description: (level) =>
-      `G 键向鼠标方向突刺 · 长 ${300 + (level - 1) * 80} × 宽 ${40 + (level - 1) * 12} · 伤害 ×${[2.0, 3.0, 4.0][level] || 4.0} · 命中敌人沿路径扫过 · 冷却 ${[22, 18, 14][level] || 14}s`
+      `G 键沿准星方向突进 · 射程 ${Math.round(AGILE_LUNGE_REACH)} · 耗时 ${AGILE_LUNGE_DURATION}ms · 扫掠宽度 ${AGILE_LUNGE_HIT_WIDTH[level] ?? AGILE_LUNGE_HIT_WIDTH[2]} · 途经敌人全部受击 · 移动期间无敌 · 每命中回复 2% 最大生命(最多 10%) · 冷却 ${[30, 25, 20][level] || 20}s`
   },
   {
     id: "agile_shadow_clone",
     name: "影分身",
     icon: "∞",
     kind: "passive",
-    description: (level) =>
-      `每 ${[20, 15, 12, 10][level] || 10}s 生成 ${[1, 1, 2, 3][level] || 3} 个 1 血影分身 · 继承武器 ${[60, 80, 100, 120][level] || 120}% 伤害`
+    description: (level) => {
+      const tier = Math.min(level, AGILE_CLONE_MAX_COUNT - 1);
+      const count = AGILE_CLONE_COUNTS[tier] ?? AGILE_CLONE_MAX_COUNT;
+      const hpRatio = AGILE_CLONE_HP_RATIOS[tier] ?? 0.4;
+      const damage = Math.round((AGILE_CLONE_DAMAGE_RATIOS[tier] ?? 1) * 100);
+      const hpText = hpRatio <= 0 ? "1 点血(受伤即消散)" : `本体最大生命 ${Math.round(hpRatio * 100)}%(动态跟随)`;
+      return `与本体同水平线并列作战 · ${count} 个分身(上限 ${AGILE_CLONE_MAX_COUNT}) · ${hpText} · 继承本体 ${damage}% 攻击 · 优先攻击血量最少的目标 · 每 ${
+        AGILE_CLONE_INTERVALS[tier] ?? AGILE_CLONE_INTERVALS[AGILE_CLONE_MAX_COUNT - 1]
+      }s 补充 1 个`;
+    }
   },
   // === 吞噬流派专属 ===
   {
@@ -1287,7 +1304,7 @@ const UPGRADES: UpgradeDefinition[] = [
     name: "荆棘护甲",
     icon: "◈",
     kind: "passive",
-    description: (level) =>
+    description: () =>
       `反伤:受击时 100% 反馈给攻击者 · 百分比伤害按 100 HP 算 · 累计反伤到 1000 点回 5% 最大生命+5% 已损生命 · 反死敌人: 2% 最大生命回复 + 1.2% 最大生命上限 · 替代默认击杀回血`
   },
   // === 吸血流派专属 ===
@@ -1296,7 +1313,7 @@ const UPGRADES: UpgradeDefinition[] = [
     name: "虹吸链",
     icon: "⌇",
     kind: "passive",
-    description: (level) =>
+    description: () =>
       `子弹命中同帧生成 1 条链子锁住敌人(最多 8 条,每个单位最多 1 条)· 链子扣 50% 玩家伤害 · 锚定后按 0.3s 节奏回血 · 单目标 80% · 每多一个 +5%(上限 120%) · 链子持续 1.2s`
   }
 ];
@@ -1312,6 +1329,8 @@ let selectedLevel = save.lastLevel;
 let playVariant: PlayVariant = save.lastVariant;
 let selectedShip2: ShipId = save.lastShip2;
 let game: Phaser.Game | null = null;
+// 存档写入是否失败(用于设置页诊断与避免重复弹提示)
+let persistFailed = false;
 
 function isNineBattleMode(): boolean {
   return selectedMode === "campaign" || selectedMode === "boss";
@@ -1387,7 +1406,17 @@ const uiRoot = document.querySelector<HTMLDivElement>("#ui-root")!;
 const overlayRoot = document.querySelector<HTMLDivElement>("#overlay-root")!;
 
 function persist(): void {
-  localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+    persistFailed = false;
+  } catch (error) {
+    // 写入失败(隐私模式、配额耗尽、浏览器策略)时必须让玩家知道,否则进度静默丢失
+    if (!persistFailed) {
+      console.error("[存档] 写入 localStorage 失败", error);
+      showToast("⚠ 存档写入失败：进度无法保存，请检查浏览器隐私设置");
+    }
+    persistFailed = true;
+  }
   refreshRails();
 }
 
@@ -1671,10 +1700,10 @@ function showPilotSelect(): void {
       }
     });
   });
-  document.querySelector("#pilot-next")!.addEventListener("click", showLevelSelect);
+  document.querySelector("#pilot-next")!.addEventListener("click", () => showLevelSelect());
 }
 
-function showLevelSelect(): void {
+function showLevelSelect(restoredScrollTop = 0): void {
   if (![3, 4, 5].includes(selectedLevel)) selectedLevel = 3;
   uiRoot.innerHTML = `
     <section class="screen">
@@ -1760,18 +1789,20 @@ function showLevelSelect(): void {
   document.querySelector(".back-button")!.addEventListener("click", showPilotSelect);
   document.querySelectorAll<HTMLButtonElement>("[data-variant]").forEach((button) => {
     button.addEventListener("click", () => {
+      const scrollTop = document.querySelector<HTMLElement>(".screen")?.scrollTop ?? 0;
       playVariant = button.dataset.variant as PlayVariant;
       save.lastVariant = playVariant;
       persist();
-      showLevelSelect();
+      showLevelSelect(scrollTop);
     });
   });
   document.querySelectorAll<HTMLButtonElement>("[data-protocol]").forEach((button) => {
     button.addEventListener("click", () => {
+      const scrollTop = document.querySelector<HTMLElement>(".screen")?.scrollTop ?? 0;
       selectedMode = button.dataset.protocol as GameMode;
       save.lastMode = selectedMode;
       persist();
-      showLevelSelect();
+      showLevelSelect(scrollTop);
     });
   });
   document.querySelector<HTMLSelectElement>("#ship-two")?.addEventListener("change", (event) => {
@@ -1781,16 +1812,23 @@ function showLevelSelect(): void {
   });
   document.querySelectorAll<HTMLButtonElement>("[data-level]").forEach((button) => {
     button.addEventListener("click", () => {
+      const scrollTop = document.querySelector<HTMLElement>(".screen")?.scrollTop ?? 0;
       selectedLevel = Number(button.dataset.level);
       save.lastLevel = selectedLevel;
       persist();
-      showLevelSelect();
+      showLevelSelect(scrollTop);
     });
   });
   document.querySelector("#launch-level")!.addEventListener("click", () => {
     sfx("click");
     startRun();
   });
+  if (restoredScrollTop > 0) {
+    requestAnimationFrame(() => {
+      const screen = document.querySelector<HTMLElement>(".screen");
+      if (screen) screen.scrollTop = restoredScrollTop;
+    });
+  }
 }
 
 function showAbout(): void {
@@ -2365,44 +2403,6 @@ function showDoctrineSequence(scene: BattleScene, count: number, onComplete: () 
   });
 }
 
-function showBossPowerSelection(scene: BattleScene, onComplete: () => void): void {
-  scene.isModal = true;
-  scene.physics.world.pause();
-  overlayRoot.innerHTML = `
-    <div class="overlay doctrine-overlay boss-power-overlay">
-      <div class="overlay-panel">
-        <div class="eyebrow">STOLEN AUTHORITY RECOVERED</div>
-        <h2>选择一项首领权柄</h2>
-        <p>三神共斗的核心已被解析。能力装备在 G 键，持续 7 秒，冷却 40 秒。</p>
-        <div class="upgrade-grid">
-          ${BOSS_POWER_OPTIONS.map(
-            (power, index) => `
-              <button class="upgrade-card doctrine-card boss-power-card" data-boss-power="${power.id}">
-                <span class="upgrade-icon"><span>${power.icon}</span></span>
-                <span class="doctrine-school">${power.source}</span>
-                <span class="upgrade-level">G · ${index + 1}</span>
-                <h3>${power.name}</h3>
-                <p>${power.description}</p>
-              </button>
-            `
-          ).join("")}
-        </div>
-        <div class="evolution-note">本局只能携带一种权柄 · 撞击流派同样可以使用</div>
-      </div>
-    </div>
-  `;
-  document.querySelectorAll<HTMLButtonElement>("[data-boss-power]").forEach((button) => {
-    button.addEventListener("click", () => {
-      scene.setBossPower(button.dataset.bossPower as BossPowerId);
-      overlayRoot.innerHTML = "";
-      scene.isModal = false;
-      scene.physics.world.resume();
-      sfx("upgrade");
-      onComplete();
-    });
-  });
-}
-
 function showPause(scene: BattleScene): void {
   if (scene.isModal || scene.ended) return;
   scene.isModal = true;
@@ -2601,16 +2601,14 @@ class BattleScene extends Phaser.Scene {
   flamethrowerDmgPerFrame = 18;
   // === 敏捷流派:影步突刺 ===
   lungingUntil = 0;
+  lungingStartedAt = 0;
+  lungingDuration = 0;
   lungingFromX = 0;
   lungingFromY = 0;
   lungingToX = 0;
   lungingToY = 0;
   lungingReadyAt = 0;
   lungingHits = 0;
-  // 突刺参数(等级决定)
-  lungeMaxLength = 300;
-  lungeWidth = 40;
-  lungeDmgMul = 2.0;
   // === 突刺联动:4 影分身突刺(底部向上) ===
   lungingShadowClones: Phaser.Physics.Arcade.Image[] = [];
   lungingShadowUntil = 0;  // 突刺分身的存活截止时间
@@ -4600,11 +4598,6 @@ class BattleScene extends Phaser.Scene {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const total = Math.hypot(dx, dy) || 1;
-    const ux = dx / total;
-    const uy = dy / total;
-    // 垂直于链方向(链节短边方向)
-    const vx = -uy;
-    const vy = ux;
     // 链节数:每 14px 一个
     const segLen = 14;
     const segCount = Math.max(1, Math.floor(total / segLen));
@@ -4702,19 +4695,27 @@ class BattleScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-F", (e: KeyboardEvent) => { if (!isComposing(e)) this.activatePhaseDash(); });
     this.input.keyboard!.on("keydown-G", (e: KeyboardEvent) => {
       if (isComposing(e)) return;
-      // 力量流派:龙息喷火
-      if (save.selectedSpecialization === "power" && (this.upgradeLevels.power_flamethrower ?? 0) > 0) {
+      const specialization = save.selectedSpecialization;
+      // G 键为流派共用键位,但各流派逻辑独立
+      if (specialization === "power" && (this.upgradeLevels.power_flamethrower ?? 0) > 0) {
+        // 力量流派:龙息喷火
         this.activateFlamethrower();
         return;
       }
-      // 敏捷流派:影步突刺
-      if (save.selectedSpecialization === "agile" && (this.upgradeLevels.agile_lunge ?? 0) > 0) {
-        this.activateLunge();
+      if (specialization === "agile") {
+        // 敏捷流派:影步突刺(未取得升级时提示,不落到其它流派技能)
+        if ((this.upgradeLevels.agile_lunge ?? 0) > 0) this.activateLunge();
+        else showToast("G 键需要先取得「影步突刺」强化");
         return;
       }
-      // 默认:bossPower / 轮椅冲刺
+      if (specialization === "wheelchair") {
+        // 撞击流派:全速冲锋
+        this.activateWheelchairOverdrive();
+        return;
+      }
+      // 其余流派:首领权柄
       if (this.bossPower) this.activateBossPower();
-      else this.activateWheelchairOverdrive();
+      else showToast("G 键尚未装备首领权柄");
     });
     this.input.keyboard!.on("keydown-R", (e: KeyboardEvent) => { if (!isComposing(e)) this.activateNanoRepair(); });
     this.input.keyboard!.on("keydown-J", (e: KeyboardEvent) => {
@@ -7572,93 +7573,58 @@ class BattleScene extends Phaser.Scene {
       return;
     }
     if (this.time.now < this.lungingUntil) return; // 正在突刺中
-    // === 突刺参数(等级影响 长度/宽度/伤害/速度) ===
-    this.lungeMaxLength = 300 + (level - 1) * 80;  // 1 级 300, 2 级 380, 3 级 460
-    this.lungeWidth = 40 + (level - 1) * 12;       // 1 级 40, 2 级 52, 3 级 64
-    this.lungeDmgMul = [2.0, 3.0, 4.0][level - 1] ?? 4.0;
-    // 目标点 = 鼠标位置(夹取到最大长度内)
+    // 目标点 = 鼠标位置,并限制在最大突进距离内
     const pointer = this.input.activePointer;
-    const px = Phaser.Math.Clamp(pointer.x, 30, WORLD_WIDTH - 30);
-    const py = Phaser.Math.Clamp(pointer.y, 80, WORLD_HEIGHT - 40);
-    const dx = px - this.player.x;
-    const dy = py - this.player.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    const finalDist = Math.min(dist, this.lungeMaxLength);
-    const dirX = dx / dist;
-    const dirY = dy / dist;
-    const tx = this.player.x + dirX * finalDist;
-    const ty = this.player.y + dirY * finalDist;
+    const desiredX = Phaser.Math.Clamp(pointer.x, 50, WORLD_WIDTH - 50);
+    const desiredY = Phaser.Math.Clamp(pointer.y, 100, WORLD_HEIGHT - 60);
+    const reach = AGILE_LUNGE_REACH;
+    const rawDist = Phaser.Math.Distance.Between(
+      this.player.x,
+      this.player.y,
+      desiredX,
+      desiredY
+    );
+    // 鼠标超出射程时沿同方向截断到射程边缘;过近则给一个最小突进距离
+    const angle = Math.atan2(desiredY - this.player.y, desiredX - this.player.x);
+    const dist = Phaser.Math.Clamp(rawDist, 120, reach);
+    const tx = Phaser.Math.Clamp(this.player.x + Math.cos(angle) * dist, 50, WORLD_WIDTH - 50);
+    const ty = Phaser.Math.Clamp(this.player.y + Math.sin(angle) * dist, 100, WORLD_HEIGHT - 60);
     this.lungingFromX = this.player.x;
     this.lungingFromY = this.player.y;
     this.lungingToX = tx;
     this.lungingToY = ty;
-    // 持续时间(基于最终距离,基础 1800 px/s,等级加成速度)
-    const speed = 1800 * (1 + (level - 1) * 0.25);
-    this.lungingUntil = this.time.now + Math.max(160, (finalDist / speed) * 1000);
-    const cooldown = [22, 18, 14][level - 1] ?? 14;
+    // 固定 400ms 完成整段突进,距离越远速度越快
+    this.lungingDuration = AGILE_LUNGE_DURATION;
+    this.lungingStartedAt = this.time.now;
+    this.lungingUntil = this.time.now + this.lungingDuration;
+    const cooldown = [30, 25, 20][level - 1] ?? 20;
     this.lungingReadyAt = this.time.now + cooldown * 1000;
     this.lungingHits = 0;
-    this.showBanner(`◆ 影步突刺 Lv.${level} · 长度 ${Math.round(finalDist)} / ${this.lungeMaxLength}`, 600);
-    // === 华丽特效:金色光速冲刺 + 路径余光 ===
-    this.spawnLungeTrailEffect(this.lungingFromX, this.lungingFromY, this.lungingToX, this.lungingToY, this.lungeWidth);
+    // 每次突刺都是一次独立的扫掠,清除上一次留下的命中标记
+    for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      enemy.setData("lungeHit", false);
+    }
+    for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      part.setData("lungeHit", false);
+    }
+    this.showBanner("◆ 影步突刺", 500);
+    // 华丽特效:金色光速冲刺 + 沿轨迹的残影拖尾
     this.triggerSpecialtyFX(0xffd54a, {
       ring: 0xfff5b0,
-      flash: [180, 255, 220, 140],
-      shake: 240,
-      count: 36,
+      flash: [140, 255, 220, 110],
+      shake: 220,
+      count: 32,
     });
+    this.spawnLungeTrail(
+      this.lungingFromX,
+      this.lungingFromY,
+      tx,
+      ty,
+      AGILE_LUNGE_HIT_WIDTH[level - 1] ?? AGILE_LUNGE_HIT_WIDTH[AGILE_LUNGE_HIT_WIDTH.length - 1]
+    );
     // === 突刺联动:如果拥有影分身升级,召唤 4 影分身从底部向上突刺 ===
     if ((this.upgradeLevels.agile_shadow_clone ?? 0) > 0) {
       this.spawnLungeShadowCombo();
-    }
-  }
-
-  // === 突刺路径特效:从起点到终点画一条金色渐变光带 ===
-  spawnLungeTrailEffect(fromX: number, fromY: number, toX: number, toY: number, width: number): void {
-    const angle = Math.atan2(toY - fromY, toX - fromX);
-    const dist = Math.hypot(toX - fromX, toY - fromY);
-    // 主光带
-    const main = this.add
-      .rectangle((fromX + toX) / 2, (fromY + toY) / 2, dist, width, 0xfff5b0, 0.85)
-      .setRotation(angle)
-      .setDepth(10)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({
-      targets: main,
-      alpha: 0,
-      scaleY: { from: 1, to: 0.4 },
-      duration: 280,
-      onComplete: () => main.destroy()
-    });
-    // 外层光晕
-    const halo = this.add
-      .rectangle((fromX + toX) / 2, (fromY + toY) / 2, dist, width * 2.2, 0xffd54a, 0.5)
-      .setRotation(angle)
-      .setDepth(9)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({
-      targets: halo,
-      alpha: 0,
-      scaleY: { from: 1, to: 0.6 },
-      duration: 380,
-      onComplete: () => halo.destroy()
-    });
-    // 路径粒子
-    for (let i = 0; i < 18; i += 1) {
-      const t = i / 18;
-      const px = Phaser.Math.Linear(fromX, toX, t) + Phaser.Math.Between(-12, 12);
-      const py = Phaser.Math.Linear(fromY, toY, t) + Phaser.Math.Between(-12, 12);
-      const p = this.add.circle(px, py, 3 + Math.random() * 3, 0xffd54a, 1)
-        .setDepth(11)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      this.tweens.add({
-        targets: p,
-        alpha: 0,
-        y: py - 30,
-        scale: 0.2,
-        duration: 400 + Math.random() * 200,
-        onComplete: () => p.destroy()
-      });
     }
   }
 
@@ -7748,7 +7714,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   // === 突刺联动:每帧更新影分身突刺位置 + 命中 ===
-  updateLungeShadowClones(time: number): void {
+  updateLungeShadowClones(_time: number): void {
     if (this.lungingShadowUntil === 0) return;
     const now = this.time.now;
     for (let i = this.lungingShadowClones.length - 1; i >= 0; i -= 1) {
@@ -7815,90 +7781,147 @@ class BattleScene extends Phaser.Scene {
     if (this.lungingShadowClones.length === 0) this.lungingShadowUntil = 0;
   }
 
-  updateLunge(time: number): void {
-    if (this.time.now >= this.lungingUntil || this.lungingUntil === 0) return;
+  updateLunge(_time: number): void {
+    if (this.lungingUntil === 0) return;
+    if (this.time.now >= this.lungingUntil) {
+      this.lungingUntil = 0;
+      this.showBanner("◆ 突刺结束", 400);
+      return;
+    }
     // 强制无敌(同时 invulnerableUntil 设到 lunging 结束)
     this.invulnerableUntil = Math.max(this.invulnerableUntil, this.lungingUntil);
-    // 沿直线插值
-    const total = this.lungingUntil - (this.lungingUntil - Math.max(1, (this.lungingUntil - time)));
-    const dur = Math.max(1, this.lungingUntil - this.time.now);
-    const startDur = this.lungingUntil - this.time.now; // 当前剩余
-    const t = 1 - dur / Math.max(1, dur + startDur);
-    const safe = Math.max(0, Math.min(1, t));
+    // 沿直线按已经过时间比例插值
+    const progress = Phaser.Math.Clamp(
+      (this.time.now - this.lungingStartedAt) / Math.max(1, this.lungingDuration),
+      0,
+      1
+    );
+    const prevX = this.player.x;
+    const prevY = this.player.y;
     this.player.setPosition(
-      this.lungingFromX + (this.lungingToX - this.lungingFromX) * safe,
-      this.lungingFromY + (this.lungingToY - this.lungingFromY) * safe
+      Phaser.Math.Linear(this.lungingFromX, this.lungingToX, progress),
+      Phaser.Math.Linear(this.lungingFromY, this.lungingToY, progress)
     );
     this.targetX = this.player.x;
     this.targetY = this.player.y;
-    // === 命中整路径上的所有敌人(点到线段距离) ===
-    const dmgMul = this.lungeDmgMul;
-    const halfW = this.lungeWidth * 0.5;
-    // 点到线段距离(从 fromX,fromY 到 toX,toY)
-    const distFromSeg = (px: number, py: number): number => {
-      const ax = this.lungingFromX;
-      const ay = this.lungingFromY;
-      const bx = this.lungingToX;
-      const by = this.lungingToY;
-      const abx = bx - ax;
-      const aby = by - ay;
-      const apx = px - ax;
-      const apy = py - ay;
-      const ab2 = abx * abx + aby * aby || 1;
-      const dot = (apx * abx + apy * aby) / ab2;
-      const tClamped = Math.max(0, Math.min(1, dot));
-      const cx = ax + abx * tClamped;
-      const cy = ay + aby * tClamped;
-      return Math.hypot(px - cx, py - cy);
-    };
-    const enemies = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
-    for (const enemy of enemies) {
-      if (!enemy.active) continue;
-      if (enemy.getData("lungeHit")) continue;
-      const d = distFromSeg(enemy.x, enemy.y);
-      if (d < halfW + 28) {  // 敌人半径约 28
-        enemy.setData("lungeHit", true);
-        enemy.setData("lastOwner", 1);
-        const dmg = this.computePlayerDamage() * dmgMul;
-        const before = enemy.getData("hp") ?? 1;
-        if (before - dmg <= 0) {
-          enemy.setData("wheelchairRamKill", true);
-          enemy.setData("eliteKillWeapon", "lunge");
-          this.destroyEnemy(enemy, true);
-          // 突刺击杀奖励:MAX HP +3 + 1.5 HP(敏捷流派)
-          this.stats.maxHp += 3;
-          this.stats.hp = roundHealth(
-            Math.min(this.stats.maxHp, this.stats.hp + 1.5),
-            this.stats.maxHp
-          );
-          this.recordAgileMaxHpGain(3);
-        } else {
-          enemy.setData("hp", before - dmg);
-          this.floatText(enemy.x, enemy.y, `突刺 ${Math.round(dmg)}`, true);
-        }
-        // 回复 2% 最大生命,最多 10%
-        this.lungingHits += 1;
-        const heal = this.stats.maxHp * 0.02;
-        this.stats.hp = roundHealth(Math.min(this.stats.maxHp, this.stats.hp + heal), this.stats.maxHp);
-        this.impactBurst(enemy.x, enemy.y, 0xffd54a);
-      }
-    }
-    // 命中首领(矩形距离到路径)
-    for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
+    // 命中判定:对本帧走过的线段做扫掠检测,避免高速穿过敌人时漏判
+    const level = this.upgradeLevels.agile_lunge ?? 1;
+    const dmgMul = [1.1, 1.4, 1.7][level - 1] ?? 1.7;
+    const hitWidth =
+      AGILE_LUNGE_HIT_WIDTH[level - 1] ?? AGILE_LUNGE_HIT_WIDTH[AGILE_LUNGE_HIT_WIDTH.length - 1];
+    const baseDamage = this.computePlayerDamage() * dmgMul;
+    for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (!enemy.active || enemy.getData("lungeHit")) continue;
       if (
-        part.active &&
-        part.getData("part") === "core" &&
-        !part.getData("lungeHit") &&
-        distFromSeg(part.x, part.y) < halfW + 100
+        distancePointToSegment(enemy.x, enemy.y, prevX, prevY, this.player.x, this.player.y) >
+        hitWidth
       ) {
-        part.setData("lungeHit", true);
-        this.damageBossPart(part, this.computePlayerDamage() * dmgMul);
-        this.impactBurst(part.x, part.y, 0xffd54a);
+        continue;
       }
+      enemy.setData("lungeHit", true);
+      enemy.setData("lastOwner", 1);
+      const before = enemy.getData("hp") ?? 1;
+      if (before - baseDamage <= 0) {
+        enemy.setData("wheelchairRamKill", true);
+        enemy.setData("eliteKillWeapon", "lunge");
+        this.destroyEnemy(enemy, true);
+        // 突刺击杀奖励:MAX HP +3 + 1.5 HP(敏捷流派)
+        this.stats.maxHp += 3;
+        this.stats.hp = roundHealth(
+          Math.min(this.stats.maxHp, this.stats.hp + 1.5),
+          this.stats.maxHp
+        );
+        this.recordAgileMaxHpGain(3);
+      } else {
+        enemy.setData("hp", before - baseDamage);
+        this.floatText(enemy.x, enemy.y, `突刺 ${Math.round(baseDamage)}`, true);
+      }
+      // 回复 2% 最大生命,单次突刺最多累计 5 次
+      if (this.lungingHits < AGILE_LUNGE_MAX_HEAL_HITS) {
+        this.lungingHits += 1;
+        this.healPlayer(this.stats.maxHp * 0.02);
+      }
+      this.impactBurst(enemy.x, enemy.y, 0xffd54a);
     }
-    if (time >= this.lungingUntil) {
-      this.showBanner("◆ 突刺结束", 400);
+    // 命中首领
+    for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (!part.active || part.getData("part") !== "core" || part.getData("lungeHit")) continue;
+      if (
+        distancePointToSegment(part.x, part.y, prevX, prevY, this.player.x, this.player.y) >
+        hitWidth + 40
+      ) {
+        continue;
+      }
+      part.setData("lungeHit", true);
+      this.damageBossPart(part, baseDamage);
+      this.impactBurst(part.x, part.y, 0xffd54a);
     }
+  }
+
+  // === 影步突刺:沿轨迹绘制金色残影与冲击拖尾 ===
+  spawnLungeTrail(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    width: number
+  ): void {
+    const distance = Phaser.Math.Distance.Between(fromX, fromY, toX, toY);
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    // 主体光带:沿突刺方向的细长矩形
+    const beam = this.add
+      .rectangle((fromX + toX) / 2, (fromY + toY) / 2, distance, width * 0.5, 0xffd54a, 0.55)
+      .setRotation(angle)
+      .setDepth(19)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: beam,
+      alpha: 0,
+      scaleY: 0.2,
+      duration: 320,
+      ease: "Sine.easeOut",
+      onComplete: () => beam.destroy()
+    });
+    // 沿路径分布的战机残影
+    const ship = SHIPS[save.selectedShip];
+    const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
+    const ghostCount = Phaser.Math.Clamp(Math.round(distance / 70), 3, 8);
+    for (let i = 1; i <= ghostCount; i += 1) {
+      const ratio = i / (ghostCount + 1);
+      const ghost = this.add
+        .image(
+          Phaser.Math.Linear(fromX, toX, ratio),
+          Phaser.Math.Linear(fromY, toY, ratio),
+          texture
+        )
+        .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
+        .setTint(0xffd54a)
+        .setAlpha(0.5 * (1 - ratio) + 0.15)
+        .setDepth(18)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: ghost,
+        alpha: 0,
+        scale: ghost.scale * 0.7,
+        duration: 260 + i * 24,
+        ease: "Sine.easeOut",
+        onComplete: () => ghost.destroy()
+      });
+    }
+    // 终点冲击环
+    const impact = this.add
+      .circle(toX, toY, width * 0.4, 0xfff5b0, 0.3)
+      .setStrokeStyle(3, 0xffd54a, 0.9)
+      .setDepth(20)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: impact,
+      radius: width * 1.4,
+      alpha: 0,
+      duration: 380,
+      ease: "Sine.easeOut",
+      onComplete: () => impact.destroy()
+    });
   }
 
   // === 流派专属强化:统一华丽特效触发器 ===
@@ -7972,118 +7995,90 @@ class BattleScene extends Phaser.Scene {
   spawnShadowClones(): void {
     const level = this.upgradeLevels.agile_shadow_clone ?? 0;
     if (level <= 0) return;
-    const interval = [20, 15, 12, 10][level - 1] ?? 10;
-    const count = [1, 1, 2, 3][level - 1] ?? 3;
-    const dmgMul = [0.6, 0.8, 1.0, 1.2][level - 1] ?? 1.2;
+    const tier = Math.min(level, AGILE_CLONE_MAX_COUNT) - 1;
+    // 数量最多 4 个,继续升级只提升血量与攻击
+    const count = AGILE_CLONE_COUNTS[tier] ?? AGILE_CLONE_MAX_COUNT;
+    const dmgMul = AGILE_CLONE_DAMAGE_RATIOS[tier] ?? 1;
+    const hpRatio = AGILE_CLONE_HP_RATIOS[tier] ?? 0.4;
     // 清理死亡
     for (let i = this.shadowClones.length - 1; i >= 0; i -= 1) {
       if (!this.shadowClones[i].active) this.shadowClones.splice(i, 1);
     }
-    if (this.shadowClones.length >= count) return;
-    const need = count - this.shadowClones.length;
-    // 影分身血量 = 玩家 MAX HP × 40%(与突刺联动一致)
-    const cloneMaxHp = Math.max(1, this.stats.maxHp * 0.4);
-    for (let i = 0; i < need; i += 1) {
-      const ship = SHIPS[save.selectedShip];
-      const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
-      // 影分身用皮肤的同款 fighterBase(像玩家战机),但加紫色 tint + 描边光晕
-      const equippedSkin = SKINS[save.equippedSkin];
-      const skinVariant = equippedSkin.variants[(save.selectedShip as ShipId) ?? "balanced"] ?? equippedSkin.variants.balanced;
-      const skinFighter = skinVariant.fighterBase;
-      const cloneTexture = this.textures.exists(`skin_${skinFighter}`) ? `skin_${skinFighter}` : texture;
-      const clone = this.physics.add
-        .image(this.player.x + Phaser.Math.Between(-60, 60), this.player.y + Phaser.Math.Between(-40, 40), cloneTexture)
-        .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
-        .setTint(0x9b5cff)  // 中紫色(深紫光环)
-        .setAlpha(1.0)
-        .setDepth(11);
-      // === 大型紫色光晕(让影分身极显眼) ===
-      const halo = this.add
-        .ellipse(clone.x, clone.y, clone.displayWidth * 1.2, clone.displayWidth * 1.2, 0x9b5cff, 0.32)
-        .setDepth(10)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      // === 紫色描边光圈 ===
-      const ring = this.add
-        .circle(clone.x, clone.y, clone.displayWidth * 0.7, 0x9b5cff, 0)
-        .setStrokeStyle(4, 0xc16cff, 1.0)
-        .setDepth(12)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      // === 紫光外环(旋转) ===
-      const outerRing = this.add
-        .circle(clone.x, clone.y, clone.displayWidth * 0.9, 0x9b5cff, 0)
-        .setStrokeStyle(2, 0xffd54a, 0.7)  // 金黄外环,更显眼
-        .setDepth(12);
-      clone.setData("owner", 1);
-      clone.setData("shadowClone", true);
-      clone.setData("shadowCloneHalo", halo);
-      clone.setData("shadowCloneRing", ring);
-      clone.setData("shadowCloneOuterRing", outerRing);
-      clone.setData("shadowCloneDmgMul", dmgMul);
-      clone.setData("hp", cloneMaxHp);
-      clone.setData("maxHp", cloneMaxHp);
-      clone.setData("lastShotAt", 0);
-      this.shadowClones.push(clone);
-      this.burst(clone.x, clone.y, 0x9b5cff, 1.0);
-      // 华丽特效:紫色分身召唤阵
-      this.triggerSpecialtyFX(0x9b5cff, {
-        ring: 0xc16cff,
-        flash: [120, 155, 92, 255],
-        shake: 120,
-        count: 24,
-      });
-    }
+    // 每次只补充一个分身,间隔随等级递减
+    const interval = AGILE_CLONE_INTERVALS[tier] ?? AGILE_CLONE_INTERVALS[AGILE_CLONE_MAX_COUNT - 1];
     this.nextShadowCloneAt = this.time.now + interval * 1000;
+    if (this.shadowClones.length >= count) return;
+    const ship = SHIPS[save.selectedShip];
+    const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
+    // 影分身用皮肤的同款 fighterBase(像玩家战机),但加紫色 tint
+    const equippedSkin = SKINS[save.equippedSkin];
+    const skinVariant = equippedSkin.variants[(save.selectedShip as ShipId) ?? "balanced"] ?? equippedSkin.variants.balanced;
+    const skinFighter = skinVariant.fighterBase;
+    const cloneTexture = this.textures.exists(`skin_${skinFighter}`) ? `skin_${skinFighter}` : texture;
+    const clone = this.physics.add
+      .image(this.player.x + Phaser.Math.Between(-60, 60), this.player.y, cloneTexture)
+      .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
+      .setTint(0x9b5cff)  // 中紫色,便于与本体区分
+      .setAlpha(0.92)
+      .setDepth(11);
+    clone.setData("owner", 1);
+    clone.setData("shadowClone", true);
+    clone.setData("shadowCloneDmgMul", dmgMul);
+    // hpRatio 为 0 时固定 1 点血;否则按本体最大生命比例动态换算
+    clone.setData("shadowCloneHpRatio", hpRatio);
+    const cloneMaxHp = this.shadowCloneMaxHp(hpRatio);
+    clone.setData("hp", cloneMaxHp);
+    clone.setData("maxHp", cloneMaxHp);
+    clone.setData("lastShotAt", 0);
+    this.shadowClones.push(clone);
+    this.burst(clone.x, clone.y, 0x9b5cff, 1.0);
+  }
+
+  // 分身最大生命:Lv.1 固定 1 点,其余按本体当前最大生命的比例动态换算
+  shadowCloneMaxHp(hpRatio: number): number {
+    if (hpRatio <= 0) return 1;
+    return Math.max(1, Math.round(this.stats.maxHp * hpRatio));
   }
 
   updateShadowClones(time: number): void {
     for (let i = this.shadowClones.length - 1; i >= 0; i -= 1) {
       const clone = this.shadowClones[i];
       if (!clone.active) {
-        // 销毁附属描边圈 + 光晕 + 外环
-        const ring = clone.getData("shadowCloneRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
-        const halo = clone.getData("shadowCloneHalo") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
-        const outerRing = clone.getData("shadowCloneOuterRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
-        ring?.destroy();
-        halo?.destroy();
-        outerRing?.destroy();
         this.shadowClones.splice(i, 1);
         continue;
       }
-      // === 站位:与玩家同一水平线战斗(不主动找目标) ===
-      // 分身之间水平分散,垂直跟随玩家
+      // === 站位:与本体保持在同一水平线,只做左右分散 ===
       const n = this.shadowClones.length;
       const slot = n === 1 ? 0 : (i - (n - 1) / 2) * 110; // 110px 间隔
-      const tx = this.player.x + slot;
-      const ty = this.player.y + Math.sin(time / 220 + i * 1.3) * 14; // 轻微垂直抖
+      const tx = Phaser.Math.Clamp(this.player.x + slot, 42, WORLD_WIDTH - 42);
       clone.setPosition(
         Phaser.Math.Linear(clone.x, tx, 0.18),
-        Phaser.Math.Linear(clone.y, ty, 0.18)
+        Phaser.Math.Linear(clone.y, this.player.y, 0.18)
       );
-      // === 描边圈 + 光晕 + 外环跟随 ===
-      const ring = clone.getData("shadowCloneRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
-      const halo = clone.getData("shadowCloneHalo") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
-      const outerRing = clone.getData("shadowCloneOuterRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
-      if (ring && ring.active) ring.setPosition(clone.x, clone.y);
-      if (halo && halo.active) {
-        halo.setPosition(clone.x, clone.y);
-        // halo 是 Ellipse,用 setSize 呼吸
-        const s = clone.displayWidth * 0.6 + Math.sin(time / 200 + i) * 4;
-        (halo as Phaser.GameObjects.Ellipse).setSize(s * 2, s * 2);
+      // === 血量动态平衡:本体最大生命变化时,按比例同步分身上下限 ===
+      const hpRatio = (clone.getData("shadowCloneHpRatio") as number) ?? 0;
+      const desiredMaxHp = this.shadowCloneMaxHp(hpRatio);
+      const currentMaxHp = (clone.getData("maxHp") as number) ?? desiredMaxHp;
+      if (desiredMaxHp !== currentMaxHp) {
+        // 按当前血量百分比迁移,避免本体成长时分身被治疗或被削
+        const healthPercent = Phaser.Math.Clamp(
+          ((clone.getData("hp") as number) ?? currentMaxHp) / Math.max(1, currentMaxHp),
+          0,
+          1
+        );
+        clone.setData("maxHp", desiredMaxHp);
+        clone.setData("hp", Math.max(1, Math.round(desiredMaxHp * healthPercent)));
       }
-      if (outerRing && outerRing.active) {
-        outerRing.setPosition(clone.x, clone.y);
-        outerRing.setRotation(time / 800 + i);  // 缓慢旋转
-      }
-      // === 目标:优先攻击血量最高的敌人(不限距离) ===
+      // === 目标:优先攻击当前绝对血量最少的敌人(不限距离) ===
       const enemyArr = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
       let target: Phaser.Physics.Arcade.Image | undefined;
-      let maxHp = -1;
+      let lowestHp = Number.POSITIVE_INFINITY;
       for (const e of enemyArr) {
         if (!e.active) continue;
         const hp = (e.getData("hp") as number) ?? 0;
-        if (hp > maxHp) { maxHp = hp; target = e; }
+        if (hp < lowestHp) { lowestHp = hp; target = e; }
       }
-      // 1 血,碰到任何东西就死
+      // 撞到敌人:造成伤害并按分身自身血量结算存亡
       const collided = enemyArr.find(
         (e) => e.active && Phaser.Math.Distance.Between(clone.x, clone.y, e.x, e.y) < 24
       );
@@ -8105,16 +8100,30 @@ class BattleScene extends Phaser.Scene {
         } else {
           collided.setData("hp", before - dmg);
         }
-        ring?.destroy();
-        halo?.destroy();
-        outerRing?.destroy();
-        clone.setData("hp", 0);
-        clone.disableBody(true, true);
-        clone.destroy();
-        this.burst(clone.x, clone.y, 0x9b5cff, 1.2);
-        continue;
+        // 分身按敌人真实撞击伤害扣血(无免伤、无特殊减免),血量耗尽才消散
+        const collidedType = collided.getData("type");
+        const collidedElite = Boolean(collided.getData("elite"));
+        const contactDamage =
+          collidedElite || collidedType === "gunship" || collidedType === "bomber"
+            ? 24
+            : collidedType === "striker" ||
+                collidedType === "suppressor" ||
+                collidedType === "mine_layer"
+              ? 18
+              : 14;
+        const cloneHp = ((clone.getData("hp") as number) ?? 1) - contactDamage;
+        if (cloneHp <= 0) {
+          clone.setData("hp", 0);
+          clone.disableBody(true, true);
+          clone.destroy();
+          this.burst(clone.x, clone.y, 0x9b5cff, 1.2);
+          this.shadowClones.splice(i, 1);
+          continue;
+        }
+        clone.setData("hp", cloneHp);
+        this.impactBurst(clone.x, clone.y, 0x9b5cff);
       }
-      // 周期射击(朝最高血量目标方向)
+      // 周期射击(朝血量最少的目标方向)
       const lastShot = clone.getData("lastShotAt") as number;
       if (time - lastShot > 400) {
         clone.setData("lastShotAt", time);
@@ -9654,21 +9663,6 @@ class BattleScene extends Phaser.Scene {
       this.nextUsurperDisableAt = time + 40000;
       this.showBanner("权限篡夺 · 技能封锁 20 秒 · 冷却 40 秒", 1100);
     }
-    const executeRandom = (attacks: Array<() => void>): void => {
-      let attack = Phaser.Math.Between(0, attacks.length - 1);
-      if (attacks.length > 1 && attack === this.bossAttackIndex) {
-        attack = (attack + Phaser.Math.Between(1, attacks.length - 1)) % attacks.length;
-      }
-      this.bossAttackIndex = attack;
-      attacks[attack]();
-      if (this.bossPhase === 3 && Math.random() < (this.bossElite ? 0.55 : 0.32)) {
-        this.time.delayedCall(430, () => {
-          if (this.bossActive && core.active) {
-            this.bossHomingSwarm(core, 4 + this.bossTier, 0xff7de3);
-          }
-        });
-      }
-    };
     if (this.bossKind === "titan") {
       const extras = [() => this.bossSpiralAttack(core), () => this.bossRageAttack(core)];
       Phaser.Utils.Array.GetRandom(extras)();
@@ -10119,7 +10113,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   // 独有招式：灵魂抽离 - 玩家脚下环形吸取场 → 0.6s 后向中心收缩 3 次，命中持续扣血
-  shadowDrainWave(core: Phaser.Physics.Arcade.Image, pursuit: boolean): void {
+  shadowDrainWave(_core: Phaser.Physics.Arcade.Image, pursuit: boolean): void {
     const cx = this.player.x;
     const cy = Math.min(this.player.y + 40, WORLD_HEIGHT - 200);
     const innerR = pursuit ? 60 : 90;
@@ -10180,7 +10174,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   // 独有招式：暗影牢笼 - 8 道暗影柱从四周同时逼近中心，留 2 个缺口让玩家走位
-  shadowCage(core: Phaser.Physics.Arcade.Image, pursuit: boolean): void {
+  shadowCage(_core: Phaser.Physics.Arcade.Image, pursuit: boolean): void {
     const count = 8;
     const cx = this.player.x;
     const cy = Math.min(this.player.y + 30, WORLD_HEIGHT - 200);

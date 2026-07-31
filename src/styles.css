@@ -1050,78 +1050,7 @@ body {
   color: white;
 }
 
-.level-map {
-  width: 100%;
-  display: grid;
-  gap: 8px;
-}
 
-.level-node {
-  position: relative;
-  display: grid;
-  grid-template-columns: 52px 1fr auto;
-  grid-template-areas:
-    "code title danger"
-    "code copy copy"
-    "code note note";
-  gap: 3px 10px;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid rgba(101, 162, 188, 0.15);
-  border-left: 3px solid var(--level-accent);
-  background: rgba(7, 20, 38, 0.8);
-  color: white;
-  text-align: left;
-  cursor: pointer;
-}
-
-.level-node.selected {
-  border-color: var(--level-accent);
-  box-shadow: inset 0 0 24px color-mix(in srgb, var(--level-accent) 12%, transparent);
-}
-
-.level-code {
-  grid-area: code;
-  color: var(--level-accent);
-  font: 11px/1 "Roboto Mono", Consolas, monospace;
-}
-
-.level-danger {
-  grid-area: danger;
-  color: var(--level-accent);
-  font-size: 8px;
-}
-
-.level-node h3 {
-  grid-area: title;
-  margin: 0;
-  font-size: 13px;
-}
-
-.level-node p {
-  grid-area: copy;
-  margin: 0;
-  color: #769bad;
-  font-size: 9px;
-}
-
-.level-node small {
-  grid-area: note;
-  color: #526f80;
-  font-size: 8px;
-}
-
-.level-footer {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 1fr 1.3fr;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.level-footer .primary-button {
-  min-height: 44px;
-}
 
 .about-panel {
   width: 100%;
@@ -1313,15 +1242,12 @@ kbd {
 .back-button:active {
   transform: translateX(0) scale(0.94);
 }
-
-.mode-grid,
 .hangar-grid {
   width: 100%;
   display: grid;
   gap: 12px;
 }
 
-.mode-card,
 .ship-card {
   position: relative;
   width: 100%;
@@ -1335,38 +1261,29 @@ kbd {
   transition: border-color 160ms ease, transform 160ms ease;
 }
 
-.mode-card:hover,
 .ship-card:hover,
 .ship-card.selected {
   transform: translateX(3px);
   border-color: rgba(45, 244, 255, 0.66);
 }
 
-.mode-card.locked,
 .ship-card.locked {
   opacity: 0.52;
   cursor: not-allowed;
 }
 
-.mode-card .mode-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+
 
 .mode-tag {
   color: var(--cyan);
   font: 9px/1 "Roboto Mono", Consolas, monospace;
   letter-spacing: 0.16em;
 }
-
-.mode-card h3,
 .ship-card h3 {
   margin: 10px 0 5px;
   font-size: 18px;
 }
 
-.mode-card p,
 .ship-card p {
   margin: 0;
   color: #7fa7ba;
@@ -1374,11 +1291,7 @@ kbd {
   line-height: 1.6;
 }
 
-.mode-record {
-  margin-top: 13px;
-  color: #d9f8ff;
-  font: 10px/1 "Roboto Mono", Consolas, monospace;
-}
+
 
 .ship-stats {
   display: flex;
@@ -1987,15 +1900,6 @@ kbd {
     font-size: 9px;
   }
 
-  .level-footer {
-    grid-template-columns: 1fr;
-  }
-
-  .level-footer .primary-button,
-  .level-footer .secondary-button {
-    width: 100%;
-    min-width: 0;
-  }
 
   .menu-actions {
     grid-template-columns: 1fr 1fr;
@@ -2148,107 +2052,7 @@ kbd {
   }
 }
 
-.campaign-story-overlay {
-  background:
-    radial-gradient(circle at 50% 38%, rgba(124, 38, 255, 0.2), transparent 32%),
-    linear-gradient(180deg, rgba(0, 2, 10, 0.86), rgba(7, 0, 18, 0.97));
-  backdrop-filter: blur(10px);
-}
 
-.campaign-story-panel {
-  position: relative;
-  width: min(680px, calc(100% - 32px));
-  overflow: hidden;
-  border-color: rgba(167, 93, 255, 0.52);
-  background:
-    linear-gradient(135deg, rgba(143, 45, 255, 0.09), transparent 44%),
-    rgba(3, 7, 20, 0.97);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.025) inset,
-    0 26px 90px rgba(0, 0, 0, 0.72),
-    0 0 56px rgba(112, 36, 255, 0.14);
-}
-
-.campaign-story-panel::before,
-.campaign-story-panel::after {
-  content: "";
-  position: absolute;
-  width: 170px;
-  height: 1px;
-  top: 42px;
-  background: linear-gradient(90deg, transparent, #9b5cff);
-  box-shadow: 0 0 12px #9b5cff;
-}
-
-.campaign-story-panel::before {
-  left: 24px;
-}
-
-.campaign-story-panel::after {
-  right: 24px;
-  transform: scaleX(-1);
-}
-
-.campaign-story-sigil {
-  width: 92px;
-  height: 92px;
-  display: grid;
-  place-items: center;
-  margin: 14px auto 10px;
-  border: 1px solid rgba(188, 128, 255, 0.55);
-  border-radius: 50%;
-  color: #d8b8ff;
-  font: 38px/1 "Roboto Mono", Consolas, monospace;
-  background:
-    radial-gradient(circle, rgba(155, 92, 255, 0.25), rgba(10, 3, 24, 0.2) 58%, transparent 60%);
-  filter: drop-shadow(0 0 18px rgba(155, 92, 255, 0.72));
-  animation: campaign-sigil-pulse 1.8s ease-in-out infinite;
-}
-
-.campaign-progress-strip {
-  display: grid;
-  grid-template-columns: repeat(9, minmax(24px, 1fr));
-  gap: 7px;
-  margin: 25px 0 28px;
-}
-
-.campaign-progress-strip i {
-  position: relative;
-  display: grid;
-  place-items: center;
-  height: 34px;
-  border: 1px solid rgba(102, 137, 166, 0.25);
-  color: #547388;
-  background: rgba(5, 16, 28, 0.78);
-  font: normal 10px/1 "Roboto Mono", Consolas, monospace;
-  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
-}
-
-.campaign-progress-strip i.done {
-  border-color: rgba(45, 244, 255, 0.52);
-  color: #8cffff;
-  background: rgba(20, 155, 170, 0.14);
-}
-
-.campaign-progress-strip i.active {
-  border-color: #b96dff;
-  color: #fff;
-  background: rgba(150, 55, 255, 0.24);
-  box-shadow: 0 0 18px rgba(155, 92, 255, 0.32);
-}
-
-.boss-power-card {
-  border-color: rgba(190, 112, 255, 0.48);
-  background:
-    linear-gradient(180deg, rgba(149, 60, 255, 0.12), transparent 52%),
-    rgba(5, 10, 24, 0.97);
-}
-
-.boss-power-card:hover,
-.boss-power-card:focus-visible {
-  border-color: #c888ff;
-  box-shadow: 0 0 30px rgba(155, 92, 255, 0.2);
-}
 
 @keyframes campaign-sigil-pulse {
   0%,
@@ -2259,17 +2063,6 @@ kbd {
   50% {
     transform: scale(1.06) rotate(3deg);
     opacity: 1;
-  }
-}
-
-@media (max-width: 600px) {
-  .campaign-progress-strip {
-    gap: 3px;
-  }
-
-  .campaign-progress-strip i {
-    height: 28px;
-    font-size: 8px;
   }
 }
 

@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/package-release.mjs clean && tsc -b && vite build --configLoader runner && node scripts/prepare-hosting.mjs && node scripts/package-release.mjs pack",
+    "build": "node scripts/check-bom.mjs --fix && node scripts/package-release.mjs clean && tsc -b && vite build --configLoader runner && node scripts/prepare-hosting.mjs && node scripts/package-release.mjs pack",
     "preview": "vite preview",
-    "test": "vitest run --configLoader runner",
+    "test": "node scripts/check-bom.mjs --fix && vitest run --configLoader runner",
+    "check:bom": "node scripts/check-bom.mjs",
+    "fix:bom": "node scripts/check-bom.mjs --fix",
     "package:release": "node scripts/package-release.mjs pack",
     "verify:release": "node scripts/verify-release.mjs",
     "serve:dist": "node scripts/serve-static.mjs dist 4173"
@@ -16,6 +18,7 @@
     "phaser": "3.90.0"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
     "vitest": "^3.0.5"

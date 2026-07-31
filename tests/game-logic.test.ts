@@ -12,6 +12,7 @@ import {
   collisionHullAttackMultiplier,
   dailyLoginOffer,
   formatRoundedNumber,
+  formatRoundedNumberForDisplay,
   formatTime,
   loadSave,
   minionHealthDamageMultiplier,
@@ -126,10 +127,15 @@ describe("progression", () => {
   });
 
   it("rounds visible values to an integer or one decimal place", () => {
-    expect(formatRoundedNumber(2.4000000000000004)).toBe("2.4");
-    expect(formatRoundedNumber(2.44)).toBe("2.4");
-    expect(formatRoundedNumber(2.45)).toBe("2.5");
-    expect(formatRoundedNumber(3)).toBe("3");
+    // 底层统一保留 3 位小数,不暴露浮点尾数
+    expect(formatRoundedNumber(2.4000000000000004)).toBe("2.400");
+    expect(formatRoundedNumber(2.4449)).toBe("2.445");
+    expect(formatRoundedNumber(3)).toBe("3.000");
+    // 玩家可见值:整数不带小数位,非整数最多一位
+    expect(formatRoundedNumberForDisplay(2.4000000000000004)).toBe("2.4");
+    expect(formatRoundedNumberForDisplay(2.44)).toBe("2.4");
+    expect(formatRoundedNumberForDisplay(2.45)).toBe("2.5");
+    expect(formatRoundedNumberForDisplay(3)).toBe("3");
   });
 
   it("raises specialization base stats by one sixth without changing size", () => {
@@ -150,8 +156,9 @@ describe("progression", () => {
   it("uses the strengthened agile crit conversions", () => {
     expect(agileCritRateAttackBonus(0.01)).toBeCloseTo(0.02);
     expect(agileCritRateAttackBonus(0.1)).toBeCloseTo(0.2);
-    expect(agileCritEffectSpeedMultiplier(0.01)).toBeCloseTo(1.01);
-    expect(agileCritEffectSpeedMultiplier(1.2)).toBeCloseTo(2.2);
+    // 暴击效果 → 移速:每 1% 暴击效果 +0.3% 移速
+    expect(agileCritEffectSpeedMultiplier(0.01)).toBeCloseTo(1.003);
+    expect(agileCritEffectSpeedMultiplier(1.2)).toBeCloseTo(1.36);
   });
 
   it("reduces boss damage by one quarter for high-health collision builds", () => {
