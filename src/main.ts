@@ -6321,6 +6321,7 @@ class BattleScene extends Phaser.Scene {
       save.selectedSpecialization === "agile" &&
       !enemy.active
     ) {
+      enemy.setData("eliteKillWeapon", "shadow_clone_bullet");
       this.stats.maxHp += 3;
       this.stats.hp = roundHealth(
         Math.min(this.stats.maxHp, this.stats.hp + 1.5),
@@ -6417,7 +6418,16 @@ class BattleScene extends Phaser.Scene {
         );
       }
       const eliteKill = Boolean(enemy.getData("elite"));
-      if (save.selectedSpecialization === "agile" && eliteKill) {
+      // 敏捷流派精英掠夺:只有突刺 / 影分身 / 影分身子弹击杀才生效(机炮不算)
+      const eliteKillWeapon = enemy.getData("eliteKillWeapon") as string | undefined;
+      if (
+        save.selectedSpecialization === "agile" &&
+        eliteKill &&
+        (eliteKillWeapon === "lunge" ||
+          eliteKillWeapon === "lunge_shadow" ||
+          eliteKillWeapon === "shadow_clone_bullet" ||
+          eliteKillWeapon === "shadow_clone")
+      ) {
         const oldMaxHp = this.stats.maxHp;
         this.stats.maxHp = Math.ceil(this.stats.maxHp * 1.05);
         this.recordAgileMaxHpGain(this.stats.maxHp - oldMaxHp);
@@ -7705,6 +7715,7 @@ class BattleScene extends Phaser.Scene {
         const before = hit.getData("hp") ?? 1;
         if (before - dmg <= 0) {
           hit.setData("wheelchairRamKill", true);
+          hit.setData("eliteKillWeapon", "lunge_shadow");
           this.destroyEnemy(hit, true);
           // 联动击杀奖励:MAX HP +3 + 1.5 HP
           this.stats.maxHp += 3;
@@ -7768,6 +7779,7 @@ class BattleScene extends Phaser.Scene {
       const before = hit.getData("hp") ?? 1;
       if (before - dmg <= 0) {
         hit.setData("wheelchairRamKill", true);
+        hit.setData("eliteKillWeapon", "lunge");
         this.destroyEnemy(hit, true);
         // 突刺击杀奖励:MAX HP +3 + 1.5 HP(敏捷流派)
         this.stats.maxHp += 3;
@@ -7966,6 +7978,7 @@ class BattleScene extends Phaser.Scene {
         const before = collided.getData("hp") ?? 1;
         if (before - dmg <= 0) {
           collided.setData("wheelchairRamKill", true);
+          collided.setData("eliteKillWeapon", "shadow_clone");
           this.destroyEnemy(collided, true);
           // 影分身击杀奖励(与突刺联动一致):MAX HP +3 + 1.5 HP
           this.stats.maxHp += 3;
