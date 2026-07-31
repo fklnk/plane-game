@@ -7902,21 +7902,38 @@ class BattleScene extends Phaser.Scene {
     for (let i = 0; i < need; i += 1) {
       const ship = SHIPS[save.selectedShip];
       const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
+      // 影分身用皮肤的同款 fighterBase(像玩家战机),但加紫色 tint + 描边光晕
+      const equippedSkin = SKINS[save.equippedSkin];
+      const skinVariant = equippedSkin.variants[(save.selectedShip as ShipId) ?? "balanced"] ?? equippedSkin.variants.balanced;
+      const skinFighter = skinVariant.fighterBase;
+      const cloneTexture = this.textures.exists(`skin_${skinFighter}`) ? `skin_${skinFighter}` : texture;
       const clone = this.physics.add
-        .image(this.player.x + Phaser.Math.Between(-60, 60), this.player.y + Phaser.Math.Between(-40, 40), texture)
+        .image(this.player.x + Phaser.Math.Between(-60, 60), this.player.y + Phaser.Math.Between(-40, 40), cloneTexture)
         .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
-        .setTint(0x8c25ff)
-        .setAlpha(0.95)  // 之前 0.65 太透明,看不到
-        .setDepth(11);   // 提到 11(玩家身上,避免被敌弹遮)
-      // 紫色描边光圈(让影分身更显眼)
-      const ring = this.add
-        .circle(clone.x, clone.y, clone.displayWidth * 0.65, 0x8c25ff, 0)
-        .setStrokeStyle(2, 0xc16cff, 0.9)
+        .setTint(0x9b5cff)  // 中紫色(深紫光环)
+        .setAlpha(1.0)
+        .setDepth(11);
+      // === 大型紫色光晕(让影分身极显眼) ===
+      const halo = this.add
+        .ellipse(clone.x, clone.y, clone.displayWidth * 1.2, clone.displayWidth * 1.2, 0x9b5cff, 0.32)
         .setDepth(10)
         .setBlendMode(Phaser.BlendModes.ADD);
+      // === 紫色描边光圈 ===
+      const ring = this.add
+        .circle(clone.x, clone.y, clone.displayWidth * 0.7, 0x9b5cff, 0)
+        .setStrokeStyle(4, 0xc16cff, 1.0)
+        .setDepth(12)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      // === 紫光外环(旋转) ===
+      const outerRing = this.add
+        .circle(clone.x, clone.y, clone.displayWidth * 0.9, 0x9b5cff, 0)
+        .setStrokeStyle(2, 0xffd54a, 0.7)  // 金黄外环,更显眼
+        .setDepth(12);
       clone.setData("owner", 1);
       clone.setData("shadowClone", true);
+      clone.setData("shadowCloneHalo", halo);
       clone.setData("shadowCloneRing", ring);
+      clone.setData("shadowCloneOuterRing", outerRing);
       clone.setData("shadowCloneDmgMul", dmgMul);
       clone.setData("hp", cloneMaxHp);
       clone.setData("maxHp", cloneMaxHp);
@@ -7938,9 +7955,13 @@ class BattleScene extends Phaser.Scene {
     for (let i = this.shadowClones.length - 1; i >= 0; i -= 1) {
       const clone = this.shadowClones[i];
       if (!clone.active) {
-        // 销毁附属描边圈
+        // 销毁附属描边圈 + 光晕 + 外环
         const ring = clone.getData("shadowCloneRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
+        const halo = clone.getData("shadowCloneHalo") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
+        const outerRing = clone.getData("shadowCloneOuterRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
         ring?.destroy();
+        halo?.destroy();
+        outerRing?.destroy();
         this.shadowClones.splice(i, 1);
         continue;
       }
@@ -7954,10 +7975,20 @@ class BattleScene extends Phaser.Scene {
         Phaser.Math.Linear(clone.x, tx, 0.18),
         Phaser.Math.Linear(clone.y, ty, 0.18)
       );
-      // === 描边圈跟随 ===
+      // === 描边圈 + 光晕 + 外环跟随 ===
       const ring = clone.getData("shadowCloneRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
-      if (ring && ring.active) {
-        ring.setPosition(clone.x, clone.y);
+      const halo = clone.getData("shadowCloneHalo") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
+      const outerRing = clone.getData("shadowCloneOuterRing") as Phaser.GameObjects.Arc | Phaser.GameObjects.Ellipse | null;
+      if (ring && ring.active) ring.setPosition(clone.x, clone.y);
+      if (halo && halo.active) {
+        halo.setPosition(clone.x, clone.y);
+        // halo 是 Ellipse,用 setSize 呼吸
+        const s = clone.displayWidth * 0.6 + Math.sin(time / 200 + i) * 4;
+        (halo as Phaser.GameObjects.Ellipse).setSize(s * 2, s * 2);
+      }
+      if (outerRing && outerRing.active) {
+        outerRing.setPosition(clone.x, clone.y);
+        outerRing.setRotation(time / 800 + i);  // 缓慢旋转
       }
       // === 目标:优先攻击血量最高的敌人(不限距离) ===
       const enemyArr = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
@@ -7991,6 +8022,8 @@ class BattleScene extends Phaser.Scene {
           collided.setData("hp", before - dmg);
         }
         ring?.destroy();
+        halo?.destroy();
+        outerRing?.destroy();
         clone.setData("hp", 0);
         clone.disableBody(true, true);
         clone.destroy();
