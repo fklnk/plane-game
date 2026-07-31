@@ -228,6 +228,13 @@ export function roundHealth(value: number, maximum = Number.POSITIVE_INFINITY): 
 
 export function formatRoundedNumber(value: number): string {
   if (!Number.isFinite(value)) return "0";
+  // 底层保留 2 位小数(不引入额外精度损失),玩家看到的是 1 位四舍五入
+  return value.toFixed(2);
+}
+
+// 玩家可见格式(1 位四舍五入)
+export function formatRoundedNumberForDisplay(value: number): string {
+  if (!Number.isFinite(value)) return "0";
   const rounded = Math.round((value + Number.EPSILON) * 10) / 10;
   return Number.isInteger(rounded) ? rounded.toString() : rounded.toFixed(1);
 }

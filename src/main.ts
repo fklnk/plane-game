@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+﻿import Phaser from "phaser";
 import "./styles.css";
 import {
   DEFAULT_SAVE,
@@ -19,6 +19,7 @@ import {
   agileCritEffectSpeedMultiplier,
   agileCritRateAttackBonus,
   formatRoundedNumber,
+  formatRoundedNumberForDisplay,
   formatTime,
   loadSave,
   minionHealthDamageMultiplier,
@@ -112,7 +113,7 @@ const SHIPS: Record<
     tag: "高速机动",
     description: "较快移动速度与短技能冷却,适合擦弹和走位。",
     hp: 78,
-    speed: 470,
+    speed: 423,
     damage: 0.92,
     passive: "闪电协议：主动技能冷却缩短 18%",
     asset: "fighter_lightning"
@@ -160,11 +161,11 @@ const SPECIALIZATIONS: Record<
     damageTaken: 1,
     explosionTaken: 1,
     scale: 1,
-    trait: `初始暴击 ${formatRoundedNumber(
+    trait: `初始暴击 ${formatRoundedNumberForDisplay(
       10 * SPECIALIZATION_BASE_STAT_BOOST
-    )}% / 效果 ${formatRoundedNumber(
+    )}% / 效果 ${formatRoundedNumberForDisplay(
       120 * SPECIALIZATION_BASE_STAT_BOOST
-    )}% · 暴击击杀回血 ${formatRoundedNumber(
+    )}% · 暴击击杀回血 ${formatRoundedNumberForDisplay(
       5 * SPECIALIZATION_BASE_STAT_BOOST
     )}% · G 键龙息喷火(专属)`
   },
@@ -196,7 +197,7 @@ const SPECIALIZATIONS: Record<
     damageTaken: 1 / 1.2,
     explosionTaken: 0.5,
     scale: 1.15,
-    trait: `爆炸减伤 ${formatRoundedNumber(
+    trait: `爆炸减伤 ${formatRoundedNumberForDisplay(
       (1 - boostedSpecializationReduction(0.5)) * 100
     )}% · 击杀不再回血(搭配荆棘护甲靠反伤回血)`
   },
@@ -213,7 +214,7 @@ const SPECIALIZATIONS: Record<
     damageTaken: 1.11,
     explosionTaken: 1,
     scale: 1,
-    trait: `每次命中回复 ${formatRoundedNumber(
+    trait: `每次命中回复 ${formatRoundedNumberForDisplay(
       3 * SPECIALIZATION_BASE_STAT_BOOST
     )}% 已损生命 · 基础减伤同步强化`
   },
@@ -230,7 +231,7 @@ const SPECIALIZATIONS: Record<
     damageTaken: 1,
     explosionTaken: 1,
     scale: 1,
-    trait: `每次击杀：生命上限 +2% · 回复最大生命 ${formatRoundedNumber(
+    trait: `每次击杀：生命上限 +2% · 回复最大生命 ${formatRoundedNumberForDisplay(
       1 * SPECIALIZATION_BASE_STAT_BOOST
     )}%`
   },
@@ -247,7 +248,7 @@ const SPECIALIZATIONS: Record<
     damageTaken: 0.45,
     explosionTaken: 0.45,
     scale: 1.12,
-    trait: `接触 300ms / Boss 325ms · 每新增 500 MAX HP 攻击 +20% · 每 5 秒回复 ${formatRoundedNumber(
+    trait: `接触 300ms / Boss 325ms · 每新增 500 MAX HP 攻击 +20% · 每 5 秒回复 ${formatRoundedNumberForDisplay(
       5 * SPECIALIZATION_BASE_STAT_BOOST
     )}%`
   }
@@ -846,7 +847,7 @@ const DOCTRINE_EVOLUTIONS = [
     icon: "∞",
     name: "适者进化",
     description: (level: number) =>
-      `每 12 次击杀获得 +${formatRoundedNumber((level + 1) * 4 / 3)}% 本局伤害，总加成最高 45%。`
+      `每 12 次击杀获得 +${formatRoundedNumberForDisplay((level + 1) * 4 / 3)}% 本局伤害，总加成最高 45%。`
   }
 ];
 
@@ -893,7 +894,7 @@ const AIR_SUPPORT_SKILLS: Array<{
     colorHex: 0x79f4ff,
     cooldown: 19800,
     description: (level) =>
-      `低温支援机冻结全部敌机、Boss 与敌弹 ${formatRoundedNumber(3.2 + level * 0.35)} 秒。`
+      `低温支援机冻结全部敌机、Boss 与敌弹 ${formatRoundedNumberForDisplay(3.2 + level * 0.35)} 秒。`
   },
   {
     id: "phase_escort",
@@ -904,7 +905,7 @@ const AIR_SUPPORT_SKILLS: Array<{
     colorHex: 0x43ff9a,
     cooldown: 20800,
     description: (level) =>
-      `护航机掠过后获得 ${formatRoundedNumber(2.4 + level * 0.3)} 秒完全无敌，并清除近身敌弹。`
+      `护航机掠过后获得 ${formatRoundedNumberForDisplay(2.4 + level * 0.3)} 秒完全无敌，并清除近身敌弹。`
   },
   {
     id: "repair_convoy",
@@ -1088,7 +1089,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "✚",
     kind: "passive",
     description: (level) =>
-      `每 5 秒额外恢复 ${formatRoundedNumber((level + 1) * 0.8)}% 最大生命`
+      `每 5 秒额外恢复 ${formatRoundedNumberForDisplay((level + 1) * 0.8)}% 最大生命`
   },
   {
     id: "ram_salvage",
@@ -1096,7 +1097,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "∞",
     kind: "passive",
     description: (level) =>
-      `撞毁小兵时，额外回收其最大生命的 ${formatRoundedNumber((level + 1) * 0.75)}%`
+      `撞毁小兵时，额外回收其最大生命的 ${formatRoundedNumberForDisplay((level + 1) * 0.75)}%`
   },
   {
     id: "ram_shockwave",
@@ -1119,7 +1120,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "△",
     kind: "passive",
     description: (level) =>
-      `全部武器伤害 +${formatRoundedNumber((level + 1) * 16 / 3)}%`
+      `全部武器伤害 +${formatRoundedNumberForDisplay((level + 1) * 16 / 3)}%`
   },
   {
     id: "haste",
@@ -1127,7 +1128,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "»",
     kind: "passive",
     description: (level) =>
-      `全部武器射速 +${formatRoundedNumber((level + 1) * 14 / 3)}%`
+      `全部武器射速 +${formatRoundedNumberForDisplay((level + 1) * 14 / 3)}%`
   },
   {
     id: "speed",
@@ -1156,7 +1157,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "✦",
     kind: "passive",
     description: (level) =>
-      `暴击率 +${formatRoundedNumber((level + 1) * 8 / 3)}%`
+      `暴击率 +${formatRoundedNumberForDisplay((level + 1) * 8 / 3)}%`
   },
   // === 通用强化(所有流派都能出) ===
   {
@@ -1181,7 +1182,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "△",
     kind: "passive",
     description: (level) =>
-      `全部伤害 +${formatRoundedNumber((level + 1) * 6)}%，暴击 +${formatRoundedNumber((level + 1) * 2)}%`
+      `全部伤害 +${formatRoundedNumberForDisplay((level + 1) * 6)}%，暴击 +${formatRoundedNumberForDisplay((level + 1) * 2)}%`
   },
   {
     id: "magnetism",
@@ -2552,6 +2553,9 @@ class BattleScene extends Phaser.Scene {
   lungingToY = 0;
   lungingReadyAt = 0;
   lungingHits = 0;
+  // === 突刺联动:4 影分身突刺(底部向上) ===
+  lungingShadowClones: Phaser.Physics.Arcade.Image[] = [];
+  lungingShadowUntil = 0;  // 突刺分身的存活截止时间
   // === 敏捷流派:影分身 ===
   nextShadowCloneAt = 0;
   shadowClones: Phaser.Physics.Arcade.Image[] = [];
@@ -4744,6 +4748,38 @@ class BattleScene extends Phaser.Scene {
       this.levelCompleteTriggered = true;
       this.playBossArrivalCG();
     }
+    // === 皮肤弹道特效(尾迹 + 光环 跟随子弹) ===
+    this.updateSkinBulletTrail();
+    // === 突刺联动:影分身突刺 ===
+    this.updateLungeShadowClones(time);
+  }
+
+  updateSkinBulletTrail(): void {
+    const bullets = this.playerBullets.getChildren() as Phaser.Physics.Arcade.Image[];
+    for (const b of bullets) {
+      if (!b.active) {
+        // 销毁附属特效
+        const halo = b.getData("skinHalo") as Phaser.GameObjects.Ellipse | null;
+        const trail = b.getData("skinTrail") as Phaser.GameObjects.Ellipse | null;
+        halo?.destroy();
+        trail?.destroy();
+        b.setData("skinHalo", null);
+        b.setData("skinTrail", null);
+        continue;
+      }
+      const halo = b.getData("skinHalo") as Phaser.GameObjects.Ellipse | null;
+      const trail = b.getData("skinTrail") as Phaser.GameObjects.Ellipse | null;
+      if (halo && halo.active) {
+        halo.setPosition(b.x, b.y);
+        halo.setRotation(b.rotation);
+      }
+      if (trail && trail.active) {
+        // 拖尾:在 bullet 后 1-2px 画渐弱小点
+        trail.setPosition(b.x, b.y + 2);
+        trail.setRotation(b.rotation);
+        trail.setAlpha(0.55);
+      }
+    }
   }
 
   updateCampaignMysteryFeedback(): void {
@@ -5401,7 +5437,42 @@ class BattleScene extends Phaser.Scene {
     bullet.setData("owner", owner);
     bullet.setData("pierce", 0);
     bullet.setVelocity(0, velocityY);
+    // === 皮肤弹道特效(尾迹 + 中心高光) ===
+    this.applySkinBulletFx(bullet, owner);
     return bullet;
+  }
+
+  // 皮肤弹道特效:每个皮肤给玩家子弹加 1-2 个附加视觉(尾迹粒子 / 光环 / 中心高光)
+  applySkinBulletFx(bullet: Phaser.Physics.Arcade.Image, owner: number): void {
+    const fx = (SKINS[save.equippedSkin].fx ?? "none") as string;
+    if (fx === "none") return;
+    // 给 bullet 加:中心高亮 + 不同尺寸发光椭圆,跟随子弹移动
+    const accent = SKINS[save.equippedSkin].accent;
+    const tintMap: Record<string, number> = {
+      aurora: 0x6ffcff,
+      inferno: 0xff8a4f,
+      void: 0xb56cff,
+      after_storm: 0xff4d6a,
+      fell_short: 0xffb044,
+      boss_slayer: 0xc16cff,
+      campaign_ace: 0x6fb6ff
+    };
+    const color = tintMap[fx] ?? 0xffffff;
+    // 中心高光(白色)
+    bullet.setTint(color);
+    // 外发光(更大半透明)
+    const halo = this.add.ellipse(bullet.x, bullet.y, bullet.displayWidth * 1.6, bullet.displayHeight * 1.6, color, 0.55)
+      .setDepth(7)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    bullet.setData("skinHalo", halo);
+    // 尾迹(每帧创建一个小点)
+    const trail = this.add.ellipse(bullet.x, bullet.y + 2, bullet.displayWidth * 0.6, bullet.displayHeight * 0.6, color, 0.85)
+      .setDepth(6)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    bullet.setData("skinTrail", trail);
+    // 周期更新:在 update 里统一处理
+    void accent; // 暂不使用
+    void owner; // 暂不使用
   }
 
   currentDamageMultiplier(): number {
@@ -5740,10 +5811,12 @@ class BattleScene extends Phaser.Scene {
         courier: 52
       } as Record<EnemyType, number>
     )[type];
+    // 第一波(0-30s)用更陡的难度曲线,之后还原
+    const firstWave = this.elapsedSeconds < 30;
     const hp =
       baseHp *
-      1.25 *
-      (1 + this.elapsedSeconds * 0.0062 + scorePressure * 0.32 + levelConfig.danger * 0.085) *
+      (firstWave ? 1.25 : 1) *
+      (1 + this.elapsedSeconds * (firstWave ? 0.0062 : 0.0035) + scorePressure * (firstWave ? 0.32 : 0.24) + levelConfig.danger * (firstWave ? 0.085 : 0.06)) *
       enemyUpgradeScale() *
       (eliteVariant ? 2.15 : 1) *
       (mutation === "armor" ? 1.55 : mutated ? 1.18 : 1);
@@ -6389,7 +6462,7 @@ class BattleScene extends Phaser.Scene {
     }
     if (pulses > 0) {
       this.showBanner(
-        `敏捷生命回响 ×${pulses} · 回复 ${formatRoundedNumber(
+        `敏捷生命回响 ×${pulses} · 回复 ${formatRoundedNumberForDisplay(
           8 * SPECIALIZATION_BASE_STAT_BOOST
         )}% 已损生命`,
         850
@@ -6478,7 +6551,7 @@ class BattleScene extends Phaser.Scene {
     this.darkDotUntil = Math.max(this.darkDotUntil, this.time.now + duration * 1000);
     this.darkHealLockUntil = Math.max(this.darkHealLockUntil, this.darkDotUntil);
     this.nextDarkDotTick = Math.min(this.nextDarkDotTick || this.time.now, this.time.now);
-    this.showBanner(`${label} · ${formatRoundedNumber(duration)} 秒禁止回血`, 900);
+    this.showBanner(`${label} · ${formatRoundedNumberForDisplay(duration)} 秒禁止回血`, 900);
   }
 
   updateDarkEffects(time: number): void {
@@ -6573,7 +6646,7 @@ class BattleScene extends Phaser.Scene {
       (1 - Math.min(0.3, (this.upgradeLevels.ram_drive ?? 0) * 0.06));
     if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
       showToast(
-        `破阵冲刺冷却 ${formatRoundedNumber((this.skillReadyAt[key] - this.time.now) / 1000)}s`
+        `破阵冲刺冷却 ${formatRoundedNumberForDisplay((this.skillReadyAt[key] - this.time.now) / 1000)}s`
       );
       return;
     }
@@ -6687,7 +6760,7 @@ class BattleScene extends Phaser.Scene {
     const cooldown = 16000 * this.stats.cooldownMultiplier;
     if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
       showToast(
-        `全速冲锋冷却 ${formatRoundedNumber((this.skillReadyAt[key] - this.time.now) / 1000)}s`
+        `全速冲锋冷却 ${formatRoundedNumberForDisplay((this.skillReadyAt[key] - this.time.now) / 1000)}s`
       );
       return;
     }
@@ -6724,7 +6797,7 @@ class BattleScene extends Phaser.Scene {
     }
     if (this.time.now < this.bossPowerReadyAt) {
       showToast(
-        `首领权柄冷却 ${formatRoundedNumber(
+        `首领权柄冷却 ${formatRoundedNumberForDisplay(
           (this.bossPowerReadyAt - this.time.now) / 1000
         )}s`
       );
@@ -7023,7 +7096,7 @@ class BattleScene extends Phaser.Scene {
       );
       this.cameras.main.flash(120, 120, 244, 255);
       this.showBanner(
-        `绝对零度 · 全场冻结 ${formatRoundedNumber(3.2 + level * 0.35)} 秒`,
+        `绝对零度 · 全场冻结 ${formatRoundedNumberForDisplay(3.2 + level * 0.35)} 秒`,
         780
       );
     } else if (id === "phase_escort") {
@@ -7051,7 +7124,7 @@ class BattleScene extends Phaser.Scene {
         onComplete: () => shield.destroy()
       });
       this.showBanner(
-        `相位护航 · 无敌 ${formatRoundedNumber(duration / 1000)} 秒`,
+        `相位护航 · 无敌 ${formatRoundedNumberForDisplay(duration / 1000)} 秒`,
         760
       );
     } else if (id === "repair_convoy") {
@@ -7426,6 +7499,124 @@ class BattleScene extends Phaser.Scene {
       shake: 220,
       count: 32,
     });
+    // === 突刺联动:如果拥有影分身升级,召唤 4 影分身从底部向上突刺 ===
+    if ((this.upgradeLevels.agile_shadow_clone ?? 0) > 0) {
+      this.spawnLungeShadowCombo();
+    }
+  }
+
+  // === 突刺联动:4 个影分身从地图最下边竖直向上突刺(300ms 突刺至上方) ===
+  spawnLungeShadowCombo(): void {
+    // 清理旧的突刺分身
+    for (const c of this.lungingShadowClones) c.destroy();
+    this.lungingShadowClones = [];
+    // 4 个分身:最左 / 左中 / 最右 / 右中
+    const positions = [0.15, 0.4, 0.6, 0.85].map((r) => WORLD_WIDTH * r);
+    const ship = SHIPS[save.selectedShip];
+    const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
+    const maxHp = Math.max(1, this.stats.maxHp * 0.4);
+    const dmgMul = 2.4 + ((this.upgradeLevels.agile_shadow_clone ?? 1) - 1) * 0.4;
+    const now = this.time.now;
+    const duration = 300; // 突刺总耗时 300ms
+    const reach = WORLD_HEIGHT * 0.6; // 最长突刺长度 = 地图长度的 60%
+    this.lungingShadowUntil = now + duration;
+    for (let i = 0; i < positions.length; i += 1) {
+      const x = positions[i];
+      const startY = WORLD_HEIGHT + 30;
+      const endY = WORLD_HEIGHT - reach;
+      const clone = this.physics.add
+        .image(x, startY, texture)
+        .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
+        .setTint(0x8c25ff)
+        .setAlpha(0.92)
+        .setDepth(11);
+      clone.setData("owner", 1);
+      clone.setData("lungeShadow", true);
+      clone.setData("hp", maxHp);
+      clone.setData("maxHp", maxHp);
+      clone.setData("dmgMul", dmgMul);
+      clone.setData("bornAt", now);
+      clone.setData("duration", duration);
+      clone.setData("startY", startY);
+      clone.setData("endY", endY);
+      clone.setData("xTarget", x);  // 4 个分身固定 x(竖直)
+      // 沿突刺方向(向上 = 负 y)
+      this.lungingShadowClones.push(clone);
+    }
+    // 特效:全屏 4 束紫色激光
+    this.triggerSpecialtyFX(0x9b5cff, {
+      ring: 0xc16cff,
+      flash: [120, 60, 220, 200],
+      shake: 240,
+      count: 50,
+    });
+  }
+
+  // === 突刺联动:每帧更新影分身突刺位置 + 命中 ===
+  updateLungeShadowClones(time: number): void {
+    if (this.lungingShadowUntil === 0) return;
+    const now = this.time.now;
+    for (let i = this.lungingShadowClones.length - 1; i >= 0; i -= 1) {
+      const c = this.lungingShadowClones[i];
+      if (!c.active) {
+        this.lungingShadowClones.splice(i, 1);
+        continue;
+      }
+      const born = c.getData("bornAt") as number;
+      const dur = c.getData("duration") as number;
+      const startY = c.getData("startY") as number;
+      const endY = c.getData("endY") as number;
+      const xTarget = c.getData("xTarget") as number;
+      const t = Math.min(1, Math.max(0, (now - born) / dur));
+      // 玩家移动方向微调 x(让 4 个分身偏向玩家)
+      const playerX = this.player?.x ?? xTarget;
+      const xFinal = Phaser.Math.Linear(xTarget, playerX, 0.35);
+      const yNow = Phaser.Math.Linear(startY, endY, t);
+      c.setPosition(xFinal, yNow);
+      // 命中敌人
+      const dmgMul = c.getData("dmgMul") as number;
+      const dmg = this.computePlayerDamage() * dmgMul;
+      const hit = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).find(
+        (e) => e.active && Phaser.Math.Distance.Between(c.x, c.y, e.x, e.y) < 32
+      );
+      if (hit && !hit.getData("lungeShadowHit")) {
+        hit.setData("lungeShadowHit", true);
+        hit.setData("lastOwner", 1);
+        const before = hit.getData("hp") ?? 1;
+        if (before - dmg <= 0) {
+          hit.setData("wheelchairRamKill", true);
+          this.destroyEnemy(hit, true);
+          // 联动击杀奖励:MAX HP +3 + 1.5 HP
+          this.stats.maxHp += 3;
+          const heal = 1.5;
+          this.stats.hp = roundHealth(Math.min(this.stats.maxHp, this.stats.hp + heal), this.stats.maxHp);
+          this.recordAgileMaxHpGain(3);
+        } else {
+          hit.setData("hp", before - dmg);
+        }
+        this.impactBurst(hit.x, hit.y, 0x9b5cff);
+      }
+      // 命中首领
+      for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
+        if (
+          part.active &&
+          part.getData("part") === "core" &&
+          !part.getData("lungeShadowHit") &&
+          Phaser.Math.Distance.Between(c.x, c.y, part.x, part.y) < 60
+        ) {
+          part.setData("lungeShadowHit", true);
+          this.damageBossPart(part, dmg);
+          this.impactBurst(part.x, part.y, 0x9b5cff);
+        }
+      }
+      // 突刺结束 → 销毁
+      if (t >= 1) {
+        this.burst(c.x, c.y, 0x9b5cff, 0.9);
+        c.destroy();
+        this.lungingShadowClones.splice(i, 1);
+      }
+    }
+    if (this.lungingShadowClones.length === 0) this.lungingShadowUntil = 0;
   }
 
   updateLunge(time: number): void {
@@ -7602,49 +7793,25 @@ class BattleScene extends Phaser.Scene {
         this.shadowClones.splice(i, 1);
         continue;
       }
-      // === 目标:优先攻击血量最高的敌人;无目标时围绕玩家站位 ===
-      const enemyArr = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
-      let target: Phaser.Physics.Arcade.Image | undefined;
-      let maxHp = -1;
-      // 搜索半径 360px 内血量最高的敌人
-      for (const e of enemyArr) {
-        if (!e.active) continue;
-        const dist = Phaser.Math.Distance.Between(clone.x, clone.y, e.x, e.y);
-        if (dist > 360) continue;
-        const hp = (e.getData("hp") as number) ?? 0;
-        if (hp > maxHp) { maxHp = hp; target = e; }
-      }
-      // 目标移动速度
-      const moveSpeed = 320;
-      let tx: number;
-      let ty: number;
-      if (target) {
-        // 朝目标移动,但保持 30-50px 的攻击距离
-        const dx = target.x - clone.x;
-        const dy = target.y - clone.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        const desired = 40;
-        if (dist > desired) {
-          // 距离太远 → 朝目标走(减去 desired 距离保留攻击距离)
-          tx = clone.x + (dx / dist) * Math.min(moveSpeed / 60, dist - desired);
-          ty = clone.y + (dy / dist) * Math.min(moveSpeed / 60, dist - desired);
-        } else {
-          // 进入攻击距离 → 轻微左右晃(快速闪避)
-          const side = Math.sin(time / 100 + i * 1.7) * 28;
-          tx = clone.x + (dx / dist) * side;
-          ty = clone.y + (dy / dist) * side;
-        }
-      } else {
-        // 无目标 → 围绕玩家 60-100px 的环上占位(分身之间分散)
-        const slot = (i / Math.max(1, this.shadowClones.length)) * Math.PI * 2 + time / 1500;
-        tx = this.player.x + Math.cos(slot) * 100;
-        ty = this.player.y + Math.sin(slot) * 70;
-      }
-      // 平滑移动
+      // === 站位:与玩家同一水平线战斗(不主动找目标) ===
+      // 分身之间水平分散,垂直跟随玩家
+      const n = this.shadowClones.length;
+      const slot = n === 1 ? 0 : (i - (n - 1) / 2) * 110; // 110px 间隔
+      const tx = this.player.x + slot;
+      const ty = this.player.y + Math.sin(time / 220 + i * 1.3) * 14; // 轻微垂直抖
       clone.setPosition(
         Phaser.Math.Linear(clone.x, tx, 0.18),
         Phaser.Math.Linear(clone.y, ty, 0.18)
       );
+      // === 目标:优先攻击血量最高的敌人(不限距离) ===
+      const enemyArr = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
+      let target: Phaser.Physics.Arcade.Image | undefined;
+      let maxHp = -1;
+      for (const e of enemyArr) {
+        if (!e.active) continue;
+        const hp = (e.getData("hp") as number) ?? 0;
+        if (hp > maxHp) { maxHp = hp; target = e; }
+      }
       // 1 血,碰到任何东西就死
       const collided = enemyArr.find(
         (e) => e.active && Phaser.Math.Distance.Between(clone.x, clone.y, e.x, e.y) < 24
@@ -7665,7 +7832,7 @@ class BattleScene extends Phaser.Scene {
         this.burst(clone.x, clone.y, 0x9b5cff, 1.2);
         continue;
       }
-      // 周期射击(只射向当前目标方向)
+      // 周期射击(朝最高血量目标方向)
       const lastShot = clone.getData("lastShotAt") as number;
       if (time - lastShot > 400) {
         clone.setData("lastShotAt", time);
@@ -7676,7 +7843,6 @@ class BattleScene extends Phaser.Scene {
           b.setTint(0x8c25ff);
           b.setData({ kind: "player-bullet", damage: this.computePlayerDamage() * (clone.getData("shadowCloneDmgMul") as number ?? 1), owner: 1 });
           if (target) {
-            // 朝目标方向射
             const dx = target.x - clone.x;
             const dy = target.y - clone.y - 10;
             const dist = Math.hypot(dx, dy) || 1;
@@ -7706,7 +7872,7 @@ class BattleScene extends Phaser.Scene {
       (owner === 1 && save.selectedShip === "lightning" ? 0.82 : 1);
     if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
       showToast(
-        `${kind.toUpperCase()} 冷却 ${formatRoundedNumber(
+        `${kind.toUpperCase()} 冷却 ${formatRoundedNumberForDisplay(
           Math.max(0, this.skillReadyAt[key] - this.time.now) / 1000
         )}s`
       );
@@ -7779,7 +7945,7 @@ class BattleScene extends Phaser.Scene {
       (owner === 1 && save.selectedShip === "lightning" ? 0.82 : 1);
     if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
       showToast(
-        `EMP 冷却 ${formatRoundedNumber(
+        `EMP 冷却 ${formatRoundedNumberForDisplay(
           Math.max(0, this.skillReadyAt[key] - this.time.now) / 1000
         )}s`
       );
@@ -7841,7 +8007,7 @@ class BattleScene extends Phaser.Scene {
     const cooldown = 8200 * this.stats.cooldownMultiplier;
     if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
       showToast(
-        `相位闪避冷却 ${formatRoundedNumber(
+        `相位闪避冷却 ${formatRoundedNumberForDisplay(
           (this.skillReadyAt[key] - this.time.now) / 1000
         )}s`
       );
@@ -7887,7 +8053,7 @@ class BattleScene extends Phaser.Scene {
     const cooldown = 24000 * this.stats.cooldownMultiplier;
     if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
       showToast(
-        `纳米修复冷却 ${formatRoundedNumber(
+        `纳米修复冷却 ${formatRoundedNumberForDisplay(
           (this.skillReadyAt[key] - this.time.now) / 1000
         )}s`
       );
