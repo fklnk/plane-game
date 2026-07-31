@@ -6267,15 +6267,9 @@ class BattleScene extends Phaser.Scene {
   }
 
   applyKillTrait(): void {
+    // 防御流派:已删除击杀回血(只能靠荆棘护甲反伤回血)
     if (save.selectedSpecialization === "defender") {
-      // 选了荆棘护甲 → 不再触发默认击杀回血(由 applyThorns 替代)
-      if ((this.upgradeLevels.defender_thorns ?? 0) > 0) return;
-      this.healPlayer(
-        this.stats.maxHp * 0.02 * SPECIALIZATION_BASE_STAT_BOOST,
-        `重甲回收 +${formatRoundedNumber(
-          2 * SPECIALIZATION_BASE_STAT_BOOST
-        )}%`
-      );
+      return;
     } else if (save.selectedSpecialization === "devour") {
       this.stats.maxHp = Math.ceil(this.stats.maxHp * 1.02);
       this.healPlayer(
