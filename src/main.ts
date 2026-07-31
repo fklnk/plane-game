@@ -266,6 +266,11 @@ for (const specialization of Object.values(SPECIALIZATIONS)) {
   );
 }
 
+type SkinVariant = Record<
+  ShipId,
+  { fighterBase: string; tint: number; cssFilter: string }
+>;
+
 const SKINS: Record<
   SkinId,
   {
@@ -273,10 +278,8 @@ const SKINS: Record<
     code: string;
     description: string;
     cost: number;
-    tint: number;
-    cssFilter: string;
     accent: string;
-    fighterBase: string;
+    variants: SkinVariant;  // 4 架战机各一个变体(系列皮肤)
     fx: string;
   }
 > = {
@@ -285,91 +288,122 @@ const SKINS: Record<
     code: "ORIGIN",
     description: "机库标准出厂涂层。",
     cost: 0,
-    tint: 0xffffff,
-    cssFilter: "none",
     accent: "#2df4ff",
-    fighterBase: "fighter_balanced",
+    variants: {
+      balanced: { fighterBase: "fighter_balanced", tint: 0xffffff, cssFilter: "none" },
+      bomber: { fighterBase: "fighter_bomber", tint: 0xffffff, cssFilter: "none" },
+      lightning: { fighterBase: "fighter_lightning", tint: 0xffffff, cssFilter: "none" },
+      guardian: { fighterBase: "fighter_guardian", tint: 0xffffff, cssFilter: "none" }
+    },
     fx: "none"
   },
   aurora: {
     name: "极光脉冲",
     code: "AURORA",
-    description: "冰蓝离子镀层，在深空中留下极光尾迹。",
+    description: "冰蓝离子镀层系列 — 4 架战机统一冰蓝极光风格。",
     cost: 1800,
-    tint: 0x6ffcff,
-    cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)",
     accent: "#63fff2",
-    fighterBase: "fighter_lightning",
+    variants: {
+      balanced: { fighterBase: "fighter_balanced", tint: 0x6ffcff, cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)" },
+      bomber: { fighterBase: "fighter_bomber", tint: 0x6ffcff, cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)" },
+      lightning: { fighterBase: "fighter_lightning", tint: 0x6ffcff, cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)" },
+      guardian: { fighterBase: "fighter_guardian", tint: 0x6ffcff, cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)" }
+    },
     fx: "aurora"
   },
   inferno: {
     name: "熔核天火",
     code: "INFERNO",
-    description: "高温橙红陶瓷装甲，像一枚撕裂夜空的火种。",
+    description: "高温橙红陶瓷装甲系列 — 4 架战机统一烈焰风格。",
     cost: 3000,
-    tint: 0xff8a4f,
-    cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)",
     accent: "#ff7a45",
-    fighterBase: "fighter_bomber",
+    variants: {
+      balanced: { fighterBase: "fighter_balanced", tint: 0xff8a4f, cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)" },
+      bomber: { fighterBase: "fighter_bomber", tint: 0xff8a4f, cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)" },
+      lightning: { fighterBase: "fighter_lightning", tint: 0xff8a4f, cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)" },
+      guardian: { fighterBase: "fighter_guardian", tint: 0xff8a4f, cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)" }
+    },
     fx: "inferno"
   },
   void: {
     name: "虚空皇权",
     code: "VOID CROWN",
-    description: "紫黑暗物质涂层，仅向真正的王牌开放。",
+    description: "紫黑暗物质涂层系列 — 4 架战机统一暗紫风格。",
     cost: 5200,
-    tint: 0xb56cff,
-    cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)",
     accent: "#bd72ff",
-    fighterBase: "fighter_guardian",
+    variants: {
+      balanced: { fighterBase: "fighter_balanced", tint: 0xb56cff, cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)" },
+      bomber: { fighterBase: "fighter_bomber", tint: 0xb56cff, cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)" },
+      lightning: { fighterBase: "fighter_lightning", tint: 0xb56cff, cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)" },
+      guardian: { fighterBase: "fighter_guardian", tint: 0xb56cff, cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)" }
+    },
     fx: "void"
   },
-  // === 成就/通关皮肤(不可购买,需达成对应条件自动解锁) ===
+  // === 成就/通关皮肤(系列,4 架战机都有变体) ===
   after_storm_skin: {
     name: "柳暗花明",
     code: "AFTER STORM",
-    description: "终局击破 96 只残党净化航线。哑光黑甲,正中央嵌红色脉冲核。",
+    description: "终局净化航线系列 — 哑光黑甲,正中央嵌红色脉冲核。",
     cost: 0,
-    tint: 0xff4d6a,
-    cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)",
     accent: "#ff3d77",
-    fighterBase: "fighter_balanced",
+    variants: {
+      balanced: { fighterBase: "fighter_balanced", tint: 0xff4d6a, cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)" },
+      bomber: { fighterBase: "fighter_bomber", tint: 0xff4d6a, cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)" },
+      lightning: { fighterBase: "fighter_lightning", tint: 0xff4d6a, cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)" },
+      guardian: { fighterBase: "fighter_guardian", tint: 0xff4d6a, cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)" }
+    },
     fx: "after_storm"
   },
   fell_short_skin: {
     name: "功亏一篑",
     code: "FELL SHORT",
-    description: "终局残党阶段被小兵击毁。星尘战损涂层,边缘迸裂的橙黄火焰。",
+    description: "终局战损系列 — 星尘战损涂层,边缘迸裂的橙黄火焰。",
     cost: 0,
-    tint: 0xffb044,
-    cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)",
     accent: "#ffa033",
-    fighterBase: "fighter_bomber",
+    variants: {
+      balanced: { fighterBase: "fighter_balanced", tint: 0xffb044, cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)" },
+      bomber: { fighterBase: "fighter_bomber", tint: 0xffb044, cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)" },
+      lightning: { fighterBase: "fighter_lightning", tint: 0xffb044, cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)" },
+      guardian: { fighterBase: "fighter_guardian", tint: 0xffb044, cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)" }
+    },
     fx: "fell_short"
   },
   boss_slayer_skin: {
     name: "首领终结",
     code: "BOSS SLAYER",
-    description: "完成主线战役。九首领之血凝成的深紫战衣,边缘渗出磷光。",
+    description: "九首领之血系列 — 深紫战衣,边缘渗出磷光。",
     cost: 0,
-    tint: 0xc16cff,
-    cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)",
     accent: "#b541ff",
-    fighterBase: "fighter_lightning",
+    variants: {
+      balanced: { fighterBase: "fighter_balanced", tint: 0xc16cff, cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)" },
+      bomber: { fighterBase: "fighter_bomber", tint: 0xc16cff, cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)" },
+      lightning: { fighterBase: "fighter_lightning", tint: 0xc16cff, cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)" },
+      guardian: { fighterBase: "fighter_guardian", tint: 0xc16cff, cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)" }
+    },
     fx: "boss_slayer"
   },
   campaign_ace_skin: {
     name: "战役尖兵",
     code: "CAMPAIGN ACE",
-    description: "完成 5 关战役所有关卡。冰蓝极光脉冲,记录每一次光荣战绩。",
+    description: "全战役通关系列 — 冰蓝极光脉冲,记录每一次光荣战绩。",
     cost: 0,
-    tint: 0x6fb6ff,
-    cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)",
     accent: "#5fb6ff",
-    fighterBase: "fighter_balanced",
+    variants: {
+      balanced: { fighterBase: "fighter_balanced", tint: 0x6fb6ff, cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)" },
+      bomber: { fighterBase: "fighter_bomber", tint: 0x6fb6ff, cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)" },
+      lightning: { fighterBase: "fighter_lightning", tint: 0x6fb6ff, cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)" },
+      guardian: { fighterBase: "fighter_guardian", tint: 0x6fb6ff, cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)" }
+    },
     fx: "campaign_ace"
   }
 };
+
+// 获取当前玩家装备皮肤 + 当前战机 对应的变体
+function currentSkinVariant(): SkinVariant[ShipId] {
+  const skin = SKINS[save.equippedSkin];
+  const shipId: ShipId = (save.selectedShip as ShipId) ?? "balanced";
+  return skin.variants[shipId] ?? skin.variants.balanced;
+}
 
 // 皮肤解锁条件:返回 string 表示未解锁原因,空串表示已解锁
 function skinUnlockRequirement(skinId: SkinId): string {
@@ -402,8 +436,10 @@ function isSkinUnlocked(skinId: SkinId): boolean {
 // === 商店皮肤预览(使用 fighter_*.png 真实战机图片 + 装饰层) ===
 function skinArtworkSVG(skinId: SkinId, accent: string): string {
   const skin = SKINS[skinId];
-  const base = skin?.fighterBase ?? "fighter_balanced";
-  const filter = skin?.cssFilter ?? "none";
+  const shipId: ShipId = (save.selectedShip as ShipId) ?? "balanced";
+  const variant = skin.variants[shipId] ?? skin.variants.balanced;
+  const base = variant.fighterBase;
+  const filter = variant.cssFilter;
   // 装饰层根据皮肤类型定制
   const fx = skinFxLayer(skinId, accent);
   return `
@@ -1419,9 +1455,10 @@ function shipMarkup(): string {
 function fighterPreview(shipId: ShipId, className = ""): string {
   const ship = SHIPS[shipId];
   const skin = SKINS[save.equippedSkin];
+  const variant = skin.variants[shipId] ?? skin.variants.balanced;
   return `
     <div class="fighter-preview ${className}" style="--skin-accent:${skin.accent}">
-      <img src="/assets/fighters/${ship.asset}.png" alt="${ship.name}" style="filter:${skin.cssFilter}" onerror="this.style.display='none';this.nextElementSibling.style.display='block'" />
+      <img src="/assets/fighters/${ship.asset}.png" alt="${ship.name}" style="filter:${variant.cssFilter}" onerror="this.style.display='none';this.nextElementSibling.style.display='block'" />
       <div class="fighter-fallback" style="display:none">${shipMarkup()}</div>
     </div>
   `;
@@ -3454,9 +3491,11 @@ class BattleScene extends Phaser.Scene {
     this.nextShadowCloneAt = this.time.now + 12000;
     this.devourKillCount = 0;
     this.rerolls = 1 + save.permanentUpgrades.reroll;
-    // === 玩家战机贴图:皮肤专用 fighter_*.png > 战机默认 ===
+    // === 玩家战机贴图:皮肤系列中当前战机对应的 fighter_*.png > 战机默认 ===
     const equippedSkin = SKINS[save.equippedSkin];
-    const skinFighter = equippedSkin?.fighterBase;
+    const currentShipId: ShipId = (save.selectedShip as ShipId) ?? "balanced";
+    const skinVariant = equippedSkin.variants[currentShipId] ?? equippedSkin.variants.balanced;
+    const skinFighter = skinVariant.fighterBase;
     const skinKey = skinFighter ? `skin_${skinFighter}` : null;
     if (skinKey && !this.textures.exists(skinKey)) {
       this.load.image(skinKey, `assets/skins/${skinFighter}.png`);
@@ -3478,7 +3517,7 @@ class BattleScene extends Phaser.Scene {
       .setDepth(10)
       .setCollideWorldBounds(true)
       .setData("owner", 1)
-      .setTint(SKINS[save.equippedSkin].tint);
+      .setTint(currentSkinVariant().tint);
     this.configurePlayerBody(this.player);
     this.targetX = this.player.x;
     this.targetY = this.player.y;
@@ -3492,7 +3531,7 @@ class BattleScene extends Phaser.Scene {
         .setCollideWorldBounds(true)
         .setData("owner", 2);
       this.configurePlayerBody(this.player2);
-      this.player2.setTint(SKINS[save.equippedSkin].tint);
+      this.player2.setTint(currentSkinVariant().tint);
       this.player2MaxHp = Math.round(ship2.hp * specialization.hp * hpBoost);
       this.player2Hp = this.player2MaxHp;
     }
@@ -4798,7 +4837,7 @@ class BattleScene extends Phaser.Scene {
           .setVisible(true)
           .setPosition(this.player.x + offset, this.player.y + this.player.displayHeight * 0.35)
           .setTexture("engineSpark")
-          .setTint(SKINS[save.equippedSkin].tint)
+          .setTint(currentSkinVariant().tint)
           .setBlendMode(Phaser.BlendModes.ADD)
           .setDepth(6)
           .setAlpha(1)
@@ -5025,10 +5064,10 @@ class BattleScene extends Phaser.Scene {
     if (this.ultimateActive > 0) {
       this.ultimateActive -= dt;
       // E 超载视觉:在皮肤色和亮青色之间闪烁
-      this.player.setTint(Math.floor(this.ultimateActive * 6) % 2 === 0 ? 0x9ffcff : SKINS[save.equippedSkin].tint);
+      this.player.setTint(Math.floor(this.ultimateActive * 6) % 2 === 0 ? 0x9ffcff : currentSkinVariant().tint);
       if (this.ultimateActive <= 0) {
         this.overdriveDamageMul = 1;
-        this.player.setTint(SKINS[save.equippedSkin].tint);
+        this.player.setTint(currentSkinVariant().tint);
       }
     }
     if (this.player2) {
@@ -6423,7 +6462,7 @@ class BattleScene extends Phaser.Scene {
       this.time.delayedCall(750, () => this.endRun(false));
     } else {
       this.player.setTintFill(0x6d0b8f);
-      this.time.delayedCall(90, () => this.player.active && this.player.setTint(SKINS[save.equippedSkin].tint));
+      this.time.delayedCall(90, () => this.player.active && this.player.setTint(currentSkinVariant().tint));
     }
   }
 
@@ -6465,7 +6504,7 @@ class BattleScene extends Phaser.Scene {
         this.stats.maxHp
       );
       this.player.setTint(0x7f2d9f);
-      this.time.delayedCall(90, () => this.player.active && this.player.setTint(SKINS[save.equippedSkin].tint));
+      this.time.delayedCall(90, () => this.player.active && this.player.setTint(currentSkinVariant().tint));
       if (this.stats.hp <= 0) {
         this.playerExplosion(this.player.x, this.player.y);
         this.player.setVisible(false);
@@ -7104,7 +7143,7 @@ class BattleScene extends Phaser.Scene {
       const clone = this.physics.add
         .image(this.player.x, this.player.y + 38, SHIPS[save.selectedShip].asset)
         .setDisplaySize(this.player.displayWidth * 0.5, this.player.displayHeight * 0.5)
-        .setTint(SKINS[save.equippedSkin].tint)
+        .setTint(currentSkinVariant().tint)
         .setAlpha(0.78)
         .setDepth(9);
       (clone.body as Phaser.Physics.Arcade.Body).enable = false;
@@ -7864,7 +7903,7 @@ class BattleScene extends Phaser.Scene {
     this.player.setTintFill(0xff9b4d);
     this.time.delayedCall(
       90,
-      () => this.player.active && this.player.setTint(SKINS[save.equippedSkin].tint)
+      () => this.player.active && this.player.setTint(currentSkinVariant().tint)
     );
     this.floatText(this.player.x, this.player.y - 50, `友军爆破 -${finalDamage}`, true);
     if (this.stats.hp <= 0) {
@@ -7905,7 +7944,7 @@ class BattleScene extends Phaser.Scene {
     this.player2.setTintFill(0xff9b4d);
     this.time.delayedCall(
       90,
-      () => this.player2?.active && this.player2.setTint(SKINS[save.equippedSkin].tint)
+      () => this.player2?.active && this.player2.setTint(currentSkinVariant().tint)
     );
     this.floatText(this.player2.x, this.player2.y - 50, `友军爆破 -${finalDamage}`, true);
     if (this.player2Hp <= 0) {
@@ -7969,7 +8008,7 @@ class BattleScene extends Phaser.Scene {
     this.player2.setTintFill(0xff4d6d);
     this.time.delayedCall(
       100,
-      () => this.player2?.active && this.player2.setTint(SKINS[save.equippedSkin].tint)
+      () => this.player2?.active && this.player2.setTint(currentSkinVariant().tint)
     );
     this.burst(this.player2.x, this.player2.y, 0xff4d6d, 1.3);
     if (save.settings.screenShake) this.cameras.main.shake(85, 0.004);
@@ -8634,7 +8673,7 @@ class BattleScene extends Phaser.Scene {
           ? 0xffd29a
           : this.bossKind === "shadow" || this.bossKind === "dark_deity"
             ? 0xffffff
-            : SKINS[save.equippedSkin].tint
+            : currentSkinVariant().tint
       )
       .setData({ part: "core", hp: this.bossMaxHp, maxHp: this.bossMaxHp })
       .setDepth(14);
@@ -8728,7 +8767,7 @@ class BattleScene extends Phaser.Scene {
         x: WORLD_WIDTH / 2,
         width: 220,
         height: 220,
-        tint: SKINS[save.equippedSkin].tint
+        tint: currentSkinVariant().tint
       },
       { kind: "usurper", texture: "bossUsurper", x: WORLD_WIDTH - 155, width: 260, height: 260, tint: 0xffffff }
     ];

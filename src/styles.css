@@ -429,6 +429,9 @@ body {
   width: 200px;
   height: 178px;
   margin: 18px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ship-showcase::before,
