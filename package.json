@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-bom.mjs --fix && node scripts/package-release.mjs clean && tsc -b && vite build --configLoader runner && node scripts/prepare-hosting.mjs && node scripts/package-release.mjs pack",
+    "build": "node scripts/check-bom.mjs --fix && node scripts/package-release.mjs clean && tsc -b && vite build --configLoader runner && node scripts/package-release.mjs pack",
     "preview": "vite preview",
     "test": "node scripts/check-bom.mjs --fix && vitest run --configLoader runner",
     "check:bom": "node scripts/check-bom.mjs",

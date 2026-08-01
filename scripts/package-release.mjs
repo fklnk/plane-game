@@ -36,8 +36,7 @@ const rootFiles = [
   "vite.config.ts",
   "README.md",
   "CHANGELOG.md",
-  "项目续作交接说明.md",
-  ".openai/hosting.json"
+  "设计与实现规格.md"
 ];
 
 const archiveEntries = await filesFromDirectory(
