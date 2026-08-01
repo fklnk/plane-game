@@ -1652,7 +1652,7 @@ function showMenu(): void {
     <section class="screen home-screen" aria-label="主菜单">
       <div class="home-hero">
         <div class="menu-logo">
-          <div class="eyebrow">STARGUARD · v0.6.2</div>
+          <div class="eyebrow">STARGUARD · v0.6.5</div>
           <h1>星际守护者</h1>
           <span class="en">NEON ABYSS</span>
         </div>
@@ -1931,7 +1931,7 @@ function showAbout(): void {
     <section class="screen">
       ${screenHeader("ABOUT / FLIGHT MANUAL", "关于与操作")}
       <div class="about-panel">
-        <div class="about-logo">星际守护者 <small>v0.6.2</small></div>
+        <div class="about-logo">星际守护者 <small>v0.6.5</small></div>
         <p>三类空域协议：普通战役最终通关、无尽模式分段存币、九战 Boss 固定终局。</p>
         <div class="key-table">
           <div><kbd>WASD / 方向键</kbd><span>移动战机</span></div>
