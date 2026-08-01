@@ -1,4 +1,125 @@
 export type CampaignBossKind = "titan" | "mirror" | "usurper" | "shadow" | "dark_deity";
+export type CampaignMinionMutation = "homing" | "mine_burst" | "armor" | "dash" | "suppress";
+export type PlayerBossPowerId =
+  | "titan_meteor"
+  | "mirror_copy"
+  | "usurper_lock"
+  | "shadow_rift_blade"
+  | "dark_deity_pact"
+  | "absolute_freeze";
+
+export type PlayerBossPassiveId =
+  | "titan_bulwark"
+  | "titan_meteor_forge"
+  | "titan_gravity_shell"
+  | "mirror_echo"
+  | "mirror_legion"
+  | "mirror_refraction"
+  | "usurper_blight"
+  | "usurper_override"
+  | "usurper_recycle"
+  | "shadow_echo"
+  | "shadow_edge"
+  | "shadow_phase"
+  | "deity_pact"
+  | "deity_hunger"
+  | "deity_abyss";
+
+export const PLAYER_BOSS_POWER_IDS: readonly PlayerBossPowerId[] = [
+  "titan_meteor",
+  "mirror_copy",
+  "usurper_lock",
+  "shadow_rift_blade",
+  "dark_deity_pact",
+  "absolute_freeze"
+];
+
+export const PLAYER_BOSS_PASSIVE_IDS_BY_KIND: Record<
+  CampaignBossKind,
+  readonly PlayerBossPassiveId[]
+> = {
+  titan: ["titan_bulwark", "titan_meteor_forge", "titan_gravity_shell"],
+  mirror: ["mirror_echo", "mirror_legion", "mirror_refraction"],
+  usurper: ["usurper_blight", "usurper_override", "usurper_recycle"],
+  shadow: ["shadow_echo", "shadow_edge", "shadow_phase"],
+  dark_deity: ["deity_pact", "deity_hunger", "deity_abyss"]
+};
+
+export function bossPassiveDropChoices(
+  bossKinds: readonly CampaignBossKind[],
+  owned: readonly PlayerBossPassiveId[],
+  random: () => number = Math.random
+): PlayerBossPassiveId[] {
+  const uniqueKinds = [...new Set(bossKinds)];
+  const availableByKind = uniqueKinds.map((kind) =>
+    PLAYER_BOSS_PASSIVE_IDS_BY_KIND[kind].filter((id) => !owned.includes(id))
+  );
+  if (uniqueKinds.length === 1) return availableByKind[0].slice(0, 3);
+
+  const choices: PlayerBossPassiveId[] = [];
+  availableByKind.forEach((pool) => {
+    if (!pool.length || choices.length >= 3) return;
+    const index = Math.min(pool.length - 1, Math.floor(random() * pool.length));
+    choices.push(pool[index]);
+  });
+  const remaining = availableByKind.flat().filter((id) => !choices.includes(id));
+  while (choices.length < 3 && remaining.length) {
+    const index = Math.min(remaining.length - 1, Math.floor(random() * remaining.length));
+    choices.push(remaining.splice(index, 1)[0]);
+  }
+  return choices;
+}
+
+export function bossPowerDropChoices(
+  primary: PlayerBossPowerId,
+  current: PlayerBossPowerId | null,
+  random: () => number = Math.random
+): PlayerBossPowerId[] {
+  const choices: PlayerBossPowerId[] = [primary];
+  if (current && current !== primary) choices.push(current);
+  const pool = PLAYER_BOSS_POWER_IDS.filter((power) => !choices.includes(power));
+  while (choices.length < 3 && pool.length) {
+    const index = Math.min(pool.length - 1, Math.floor(random() * pool.length));
+    choices.push(pool.splice(index, 1)[0]);
+  }
+  return choices;
+}
+
+export const BOSS_MUTATION_KINDS: readonly CampaignBossKind[] = [
+  "titan",
+  "mirror",
+  "usurper",
+  "shadow",
+  "dark_deity"
+];
+
+export const MINION_MUTATION_KINDS: readonly CampaignMinionMutation[] = [
+  "homing",
+  "mine_burst",
+  "armor",
+  "dash",
+  "suppress"
+];
+
+export function bossMutationCandidates(source: CampaignBossKind): CampaignBossKind[] {
+  return BOSS_MUTATION_KINDS.filter((kind) => kind !== source);
+}
+
+export function rollBossMutationKind(
+  source: CampaignBossKind,
+  random: () => number = Math.random
+): CampaignBossKind {
+  const candidates = bossMutationCandidates(source);
+  return candidates[Math.min(candidates.length - 1, Math.floor(random() * candidates.length))];
+}
+
+export function rollMinionMutationKind(
+  random: () => number = Math.random
+): CampaignMinionMutation {
+  return MINION_MUTATION_KINDS[
+    Math.min(MINION_MUTATION_KINDS.length - 1, Math.floor(random() * MINION_MUTATION_KINDS.length))
+  ];
+}
 
 export type BossCampaignEncounterKind =
   | "boss"
@@ -220,7 +341,7 @@ export function campaignEnemyRoster(bossesDefeated: number): string[] {
 
 export function remainingStoreUnlockCost(
   permanentUpgrades: Record<string, number>,
-  unlockedSkins: string[]
+  _unlockedSkins: string[]
 ): number {
   const caps: Record<string, number> = {
     hull: 12,
@@ -236,15 +357,6 @@ export function remainingStoreUnlockCost(
     for (let level = Math.max(0, permanentUpgrades[id] ?? 0); level < cap; level += 1) {
       cost += 40 + level * 28;
     }
-  }
-  const skinCosts: Record<string, number> = {
-    standard: 0,
-    aurora: 180,
-    inferno: 300,
-    void: 520
-  };
-  for (const [skin, skinCost] of Object.entries(skinCosts)) {
-    if (!unlockedSkins.includes(skin)) cost += skinCost;
   }
   return cost;
 }

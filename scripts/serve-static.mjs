@@ -84,7 +84,7 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`星际守护者已启动：http://127.0.0.1:${port}/`);
+  console.log(`星渊突击已启动：http://127.0.0.1:${port}/`);
   console.log(`静态目录：${rootDirectory}`);
   console.log("按 Ctrl+C 停止服务器。");
 });

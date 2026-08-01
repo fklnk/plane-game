@@ -10,7 +10,7 @@ const releasePath = join(
   projectRoot,
   "public",
   "downloads",
-  "星际守护者-高性能生产构建包.zip"
+  "星渊突击-高性能生产构建包.zip"
 );
 
 const requiredEntries = [
@@ -49,6 +49,13 @@ try {
   }
   if (!packageJson.scripts?.["serve:dist"]) {
     throw new Error("源码构建版缺少免依赖的生产预览命令。");
+  }
+  const buildManifestEntry = entries.find((entry) => entry.name === "构建配置.json");
+  const buildManifest = JSON.parse(buildManifestEntry.contents.toString("utf8"));
+  if (buildManifest.packageVersion !== packageJson.version) {
+    throw new Error(
+      `构建配置版本与 package.json 不一致：${buildManifest.packageVersion} !== ${packageJson.version}`
+    );
   }
 
   const zipStats = await stat(releasePath);

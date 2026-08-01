@@ -9,14 +9,107 @@ export type SpecializationId =
   | "wheelchair";
 export type SkinId =
   | "standard"
-  | "aurora"
-  | "inferno"
-  | "void"
   | "after_storm_skin"
   | "fell_short_skin"
+  | "total_eclipse_skin"
+  | "hollow_custody_skin"
+  | "perfect_vessel_skin"
   | "boss_slayer_skin"
   | "campaign_ace_skin";
+export type ShadowEndingId =
+  | "destroyed_fallen"
+  | "destroyed_consumed"
+  | "destroyed_embraced"
+  | "kept_fallen"
+  | "kept_possessed";
+
+export const SHADOW_ENDING_SKIN_REWARDS: Record<ShadowEndingId, SkinId> = {
+  destroyed_fallen: "fell_short_skin",
+  destroyed_consumed: "total_eclipse_skin",
+  destroyed_embraced: "after_storm_skin",
+  kept_fallen: "hollow_custody_skin",
+  kept_possessed: "perfect_vessel_skin"
+};
+
+export const BOSS_SEQUENCE_LEGENDARY_SKIN: SkinId = "campaign_ace_skin";
 export type PlayVariantId = "single" | "coop" | "score_duel";
+
+export const WHEELCHAIR_ACTIVE_SKILLS = {
+  breachHorn: {
+    cooldownMs: 9000,
+    distance: 380,
+    ramDamageMultiplier: 3,
+    damageTakenMultiplier: 0.3,
+    protectionMs: 700
+  },
+  reactiveArmor: {
+    cooldownMs: 20000,
+    durationMs: 4000,
+    damageTakenMultiplier: 0.35,
+    releaseMultiplier: 3,
+    releaseHealRatio: 0.3
+  },
+  fortressStance: {
+    cooldownMs: 24000,
+    durationMs: 5000,
+    damageTakenMultiplier: 0.5,
+    sizeMultiplier: 1.5,
+    speedMultiplier: 0.8
+  }
+} as const;
+
+export const DEVOUR_SWALLOW_LEVELS = [
+  { sizeThreshold: 0.8, sizeGain: 0.015, maxSizeMultiplier: 2, maxHealthGain: 1.5, damageTakenMultiplier: 1 },
+  { sizeThreshold: 0.9, sizeGain: 0.02, maxSizeMultiplier: 2.15, maxHealthGain: 2.5, damageTakenMultiplier: 0.95 },
+  { sizeThreshold: 1, sizeGain: 0.025, maxSizeMultiplier: 2.3, maxHealthGain: 3.5, damageTakenMultiplier: 0.9 },
+  { sizeThreshold: 1.08, sizeGain: 0.03, maxSizeMultiplier: 2.45, maxHealthGain: 4.5, damageTakenMultiplier: 0.85 },
+  { sizeThreshold: 1.15, sizeGain: 0.035, maxSizeMultiplier: 2.6, maxHealthGain: 6, damageTakenMultiplier: 0.8 }
+] as const;
+
+export function wheelchairActiveDamageTakenMultiplier(
+  breachHornActive: boolean,
+  reactiveArmorActive: boolean,
+  fortressStanceActive: boolean
+): number {
+  const multipliers = [
+    breachHornActive ? WHEELCHAIR_ACTIVE_SKILLS.breachHorn.damageTakenMultiplier : 1,
+    reactiveArmorActive ? WHEELCHAIR_ACTIVE_SKILLS.reactiveArmor.damageTakenMultiplier : 1,
+    fortressStanceActive ? WHEELCHAIR_ACTIVE_SKILLS.fortressStance.damageTakenMultiplier : 1
+  ];
+  // 主动减伤取最强一项，避免同时开启反应装甲和堡垒后出现近乎无敌的乘算。
+  return Math.min(...multipliers);
+}
+
+export function reactiveArmorRelease(storedPreventedDamage: number): {
+  damage: number;
+  healing: number;
+} {
+  const stored = Math.max(0, storedPreventedDamage);
+  const damage = stored * WHEELCHAIR_ACTIVE_SKILLS.reactiveArmor.releaseMultiplier;
+  return {
+    damage,
+    healing: damage * WHEELCHAIR_ACTIVE_SKILLS.reactiveArmor.releaseHealRatio
+  };
+}
+
+export function devourHealingAmount(
+  extraMaxHealth: number,
+  missingHealth: number,
+  swallowedEnemyMaxHealth: number
+): number {
+  const safe = (value: number) => Math.max(0, Number.isFinite(value) ? value : 0);
+  return (
+    safe(extraMaxHealth) * 0.01 +
+    safe(missingHealth) * 0.02 +
+    safe(swallowedEnemyMaxHealth) * 0.04
+  );
+}
+
+export function independentBossHealthAfterDamage(currentHealth: number, rawDamage: number): number {
+  const health = Math.max(0, Number.isFinite(currentHealth) ? currentHealth : 0);
+  const damage = Math.max(0, Number.isFinite(rawDamage) ? rawDamage : 0);
+  return Math.max(0, health - damage);
+}
 
 export interface DailyLoginData {
   lastClaimDay: number | null;
@@ -102,6 +195,28 @@ export const DEFAULT_SAVE: SaveData = {
 
 export const UPGRADE_EXPERIENCE_SCALE = 1.1;
 
+const PERMANENT_UPGRADE_CAPS: Record<string, number> = {
+  hull: 12,
+  firepower: 12,
+  engine: 10,
+  armor: 10,
+  recovery: 8,
+  emergency: 5,
+  reroll: 3
+};
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, Math.floor(finiteNumber(value, fallback))));
+}
+
+function boundedVolume(value: unknown, fallback: number): number {
+  return Math.min(1, Math.max(0, finiteNumber(value, fallback)));
+}
+
 export function xpToNextLevel(level: number): number {
   const originalRequirement = 30 + level * 18 + Math.pow(level, 1.35) * 4;
   return Math.round(originalRequirement * UPGRADE_EXPERIENCE_SCALE);
@@ -123,11 +238,11 @@ export function loadSave(raw: string | null): SaveData {
     ];
     const validSkins: SkinId[] = [
       "standard",
-      "aurora",
-      "inferno",
-      "void",
       "after_storm_skin",
       "fell_short_skin",
+      "total_eclipse_skin",
+      "hollow_custody_skin",
+      "perfect_vessel_skin",
       "boss_slayer_skin",
       "campaign_ace_skin"
     ];
@@ -143,30 +258,111 @@ export function loadSave(raw: string | null): SaveData {
     )
       ? (legacySpecialization as SpecializationId)
       : "power";
-    const unlockedSkins = validSkins.filter((skin) =>
-      (parsed.unlockedSkins ?? ["standard"]).includes(skin)
-    );
+    const rawUnlockedSkins = Array.isArray(parsed.unlockedSkins)
+      ? parsed.unlockedSkins
+      : ["standard"];
+    const unlockedSkins = validSkins.filter((skin) => rawUnlockedSkins.includes(skin));
     if (!unlockedSkins.includes("standard")) unlockedSkins.unshift("standard");
     const equippedSkin =
       validSkins.includes(parsed.equippedSkin as SkinId) &&
       unlockedSkins.includes(parsed.equippedSkin as SkinId)
         ? (parsed.equippedSkin as SkinId)
         : "standard";
+    const rawSettings: Record<string, unknown> =
+      parsed.settings && typeof parsed.settings === "object" ? parsed.settings : {};
+    const rawRecords: Record<string, unknown> =
+      parsed.records && typeof parsed.records === "object" ? parsed.records : {};
+    const rawUpgrades: Record<string, unknown> =
+      parsed.permanentUpgrades && typeof parsed.permanentUpgrades === "object"
+        ? parsed.permanentUpgrades
+        : {};
+    const permanentUpgrades = Object.fromEntries(
+      Object.entries(PERMANENT_UPGRADE_CAPS).map(([id, cap]) => [
+        id,
+        boundedInteger(rawUpgrades[id], DEFAULT_SAVE.permanentUpgrades[id], 0, cap)
+      ])
+    );
+    const rawAchievements: Record<string, unknown> =
+      parsed.achievements && typeof parsed.achievements === "object" && !Array.isArray(parsed.achievements)
+        ? parsed.achievements
+        : {};
+    const achievements = Object.fromEntries(
+      Object.entries(rawAchievements).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
+    const rawDailyLogin: Record<string, unknown> =
+      parsed.dailyLogin && typeof parsed.dailyLogin === "object"
+        ? (parsed.dailyLogin as unknown as Record<string, unknown>)
+        : {};
+    const lastClaimDay =
+      rawDailyLogin.lastClaimDay === null
+        ? null
+        : boundedInteger(rawDailyLogin.lastClaimDay, -1, -1, Number.MAX_SAFE_INTEGER);
     return {
-      ...structuredClone(DEFAULT_SAVE),
-      ...parsed,
-      settings: { ...DEFAULT_SAVE.settings, ...(parsed.settings ?? {}) },
-      records: { ...DEFAULT_SAVE.records, ...(parsed.records ?? {}) },
-      permanentUpgrades: {
-        ...DEFAULT_SAVE.permanentUpgrades,
-        ...(parsed.permanentUpgrades ?? {})
-      },
+      version: 1,
+      starCores: boundedInteger(parsed.starCores, DEFAULT_SAVE.starCores, 0, Number.MAX_SAFE_INTEGER),
       selectedShip,
       selectedSpecialization,
       unlockedSkins,
       equippedSkin,
       unlockedShips: validShips,
-      achievements: { ...(parsed.achievements ?? {}) },
+      permanentUpgrades,
+      settings: {
+        musicVolume: boundedVolume(rawSettings.musicVolume, DEFAULT_SAVE.settings.musicVolume),
+        sfxVolume: boundedVolume(rawSettings.sfxVolume, DEFAULT_SAVE.settings.sfxVolume),
+        screenShake:
+          typeof rawSettings.screenShake === "boolean"
+            ? rawSettings.screenShake
+            : DEFAULT_SAVE.settings.screenShake,
+        damageNumbers:
+          typeof rawSettings.damageNumbers === "boolean"
+            ? rawSettings.damageNumbers
+            : DEFAULT_SAVE.settings.damageNumbers,
+        quality:
+          rawSettings.quality === "low" || rawSettings.quality === "high"
+            ? rawSettings.quality
+            : DEFAULT_SAVE.settings.quality
+      },
+      records: {
+        campaignWins: boundedInteger(
+          rawRecords.campaignWins,
+          DEFAULT_SAVE.records.campaignWins,
+          0,
+          Number.MAX_SAFE_INTEGER
+        ),
+        highestUnlockedLevel: boundedInteger(
+          rawRecords.highestUnlockedLevel,
+          DEFAULT_SAVE.records.highestUnlockedLevel,
+          1,
+          5
+        ),
+        endlessBestSeconds: finiteNumber(
+          rawRecords.endlessBestSeconds,
+          DEFAULT_SAVE.records.endlessBestSeconds
+        ) < 0
+          ? 0
+          : finiteNumber(rawRecords.endlessBestSeconds, DEFAULT_SAVE.records.endlessBestSeconds),
+        endlessBestScore: boundedInteger(
+          rawRecords.endlessBestScore,
+          DEFAULT_SAVE.records.endlessBestScore,
+          0,
+          Number.MAX_SAFE_INTEGER
+        ),
+        bossRushBestMs:
+          typeof rawRecords.bossRushBestMs === "number" &&
+          Number.isFinite(rawRecords.bossRushBestMs)
+            ? boundedInteger(
+                rawRecords.bossRushBestMs,
+                0,
+                0,
+                Number.MAX_SAFE_INTEGER
+              )
+            : null
+      },
+      achievements,
+      seenTutorial:
+        typeof parsed.seenTutorial === "boolean" ? parsed.seenTutorial : DEFAULT_SAVE.seenTutorial,
       lastMode: validModes.includes(parsed.lastMode as GameMode)
         ? (parsed.lastMode as GameMode)
         : DEFAULT_SAVE.lastMode,
@@ -178,8 +374,14 @@ export function loadSave(raw: string | null): SaveData {
         ? (parsed.lastShip2 as ShipId)
         : DEFAULT_SAVE.lastShip2,
       dailyLogin: {
-        ...DEFAULT_SAVE.dailyLogin,
-        ...(parsed.dailyLogin ?? {})
+        lastClaimDay: lastClaimDay === -1 ? null : lastClaimDay,
+        streak: boundedInteger(rawDailyLogin.streak, DEFAULT_SAVE.dailyLogin.streak, 0, 7),
+        totalClaims: boundedInteger(
+          rawDailyLogin.totalClaims,
+          DEFAULT_SAVE.dailyLogin.totalClaims,
+          0,
+          Number.MAX_SAFE_INTEGER
+        )
       }
     };
   } catch {
@@ -304,14 +506,14 @@ const SPECIALIZATION_UPGRADE_PREFIXES = [
   "ram_"
 ] as const;
 
-// 专属强化相对普通强化的权重:出现概率提高 10%
-export const SPECIALIZATION_UPGRADE_WEIGHT = 1.1;
+// 专属强化相对普通强化的权重:在原 +10% 基础上再提高 5%，合计 +15%。
+export const SPECIALIZATION_UPGRADE_WEIGHT = 1.15;
 
 export function isSpecializationUpgradeId(id: string): boolean {
   return SPECIALIZATION_UPGRADE_PREFIXES.some((prefix) => id.startsWith(prefix));
 }
 
-// 带权重的不重复抽取:专属强化权重 1.1,其余为 1
+// 带权重的不重复抽取:专属强化权重 1.15,其余为 1
 export function chooseUniqueWeighted<T extends { id: string }>(
   pool: T[],
   count: number,

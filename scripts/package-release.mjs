@@ -1,11 +1,12 @@
-import { copyFile, mkdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createStoredZip, filesFromDirectory } from "./zip-store.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
-const releaseFileName = "星际守护者-高性能生产构建包.zip";
+const releaseFileName = "星渊突击-高性能生产构建包.zip";
+const legacyReleaseFileName = "星际守护者-高性能生产构建包.zip";
 const publicReleasePath = join(projectRoot, "public", "downloads", releaseFileName);
 const distReleasePath = join(projectRoot, "dist", "downloads", releaseFileName);
 
@@ -15,6 +16,8 @@ if (mode === "clean") {
   // Only remove the two generated release artifacts. Source assets are never touched.
   await rm(publicReleasePath, { force: true });
   await rm(distReleasePath, { force: true });
+  await rm(join(projectRoot, "public", "downloads", legacyReleaseFileName), { force: true });
+  await rm(join(projectRoot, "dist", "downloads", legacyReleaseFileName), { force: true });
   console.log(`[release] 已清理旧构建包：${releaseFileName}`);
   process.exit(0);
 }
@@ -70,7 +73,7 @@ for (const fileName of rootFiles) {
   });
 }
 
-const instructions = `飞机大战：星际守护者
+const instructions = `飞机大战：星渊突击
 高性能生产构建包使用说明
 ================================
 
@@ -105,9 +108,10 @@ const instructions = `飞机大战：星际守护者
 - ZIP 不包含 node_modules，请使用 npm ci 安装依赖。
 `;
 
+const packageJson = JSON.parse(await readFile(join(projectRoot, "package.json"), "utf8"));
 const manifest = {
   name: "starfall-airstrike",
-  packageVersion: "0.6.1",
+  packageVersion: packageJson.version,
   runtimeTarget: "ES2022 modern browsers",
   minifier: "esbuild",
   sourcemap: false,

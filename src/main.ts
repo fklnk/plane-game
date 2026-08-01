@@ -3,10 +3,14 @@ import "./styles.css";
 import {
   DEFAULT_SAVE,
   dailyLoginOffer,
+  BOSS_SEQUENCE_LEGENDARY_SKIN,
+  DEVOUR_SWALLOW_LEVELS,
   type GameMode,
   localDayIndex,
   type PlayVariantId,
   type SaveData,
+  SHADOW_ENDING_SKIN_REWARDS,
+  type ShadowEndingId,
   type SkinId,
   type ShipId,
   type SpecializationId,
@@ -17,19 +21,26 @@ import {
   chooseUniqueWeighted,
   collisionBossDamageScale,
   collisionHullAttackMultiplier,
+  devourHealingAmount,
   agileCritEffectSpeedMultiplier,
   agileCritRateAttackBonus,
   formatRoundedNumberForDisplay,
   formatTime,
+  independentBossHealthAfterDamage,
   loadSave,
   minionHealthDamageMultiplier,
   minionPercentDamageFloor,
+  reactiveArmorRelease,
   roundHealth,
   rewardForRun,
+  WHEELCHAIR_ACTIVE_SKILLS,
+  wheelchairActiveDamageTakenMultiplier,
   xpToNextLevel
 } from "./game-logic";
 import {
   BOSS_CAMPAIGN_ENCOUNTERS,
+  bossPassiveDropChoices,
+  bossPowerDropChoices,
   campaignClearScoreRequirement,
   campaignDifficultyForLevel,
   campaignEncounterAttackScale,
@@ -39,8 +50,13 @@ import {
   chaseRemainingHpRatio,
   finalCampaignReward,
   INCOMPLETE_TRINITY_STAT_SCALE,
+  rollBossMutationKind,
   rollCampaignElite,
   rollCampaignMutation,
+  rollMinionMutationKind,
+  type PlayerBossPassiveId,
+  type PlayerBossPowerId,
+  type CampaignMinionMutation,
   type CampaignBossKind
 } from "./boss-campaign";
 
@@ -130,7 +146,7 @@ const SHIPS: Record<
     tag: "高速机动",
     description: "较快移动速度与短技能冷却,适合擦弹和走位。",
     hp: 78,
-    speed: 423,
+    speed: 400,
     damage: 0.92,
     passive: "闪电协议：主动技能冷却缩短 18%",
     asset: "fighter_lightning"
@@ -169,7 +185,7 @@ const SPECIALIZATIONS: Record<
     name: "力量流派",
     code: "LANCE",
     icon: "▲",
-    description: "直线重火力与暴击成长。暴击处决可恢复舰体，并永久提高本局生命上限。",
+    description: "直线重火力与暴击成长。每次击杀按额外生命上限回复，暴击处决永久提高本局生命上限。",
     hp: 1,
     speed: 0.96,
     damage: 1.18,
@@ -182,9 +198,7 @@ const SPECIALIZATIONS: Record<
       10 * SPECIALIZATION_BASE_STAT_BOOST
     )}% / 效果 ${formatRoundedNumberForDisplay(
       120 * SPECIALIZATION_BASE_STAT_BOOST
-    )}% · 暴击击杀回血 ${formatRoundedNumberForDisplay(
-      5 * SPECIALIZATION_BASE_STAT_BOOST
-    )}% · G 键龙息喷火(专属)`
+    )}% · 每次击杀回复额外生命上限 1.2% · 暴击处决 MAX HP +2 · G 键龙息喷火(专属)`
   },
   agile: {
     name: "敏捷流派",
@@ -231,9 +245,7 @@ const SPECIALIZATIONS: Record<
     damageTaken: 1.11,
     explosionTaken: 1,
     scale: 1,
-    trait: `每次命中回复 ${formatRoundedNumberForDisplay(
-      3 * SPECIALIZATION_BASE_STAT_BOOST
-    )}% 已损生命 · 基础减伤同步强化`
+    trait: "每次命中回复 1.2% 已损生命 · 基础减伤同步强化"
   },
   devour: {
     name: "吞噬流派",
@@ -248,9 +260,7 @@ const SPECIALIZATIONS: Record<
     damageTaken: 1,
     explosionTaken: 1,
     scale: 1,
-    trait: `每次击杀：生命上限 +2% · 回复最大生命 ${formatRoundedNumberForDisplay(
-      1 * SPECIALIZATION_BASE_STAT_BOOST
-    )}%`
+    trait: "成功吞噬：MAX +1.5～6；回复额外生命 1% + 已损生命 2% + 目标最大生命 4% · 后续升级提高体型成长与减伤"
   },
   wheelchair: {
     name: "撞击流派",
@@ -264,7 +274,7 @@ const SPECIALIZATIONS: Record<
     cooldown: 1,
     damageTaken: 0.45,
     explosionTaken: 0.45,
-    scale: 1.12,
+    scale: 1.68,
     trait: `接触 300ms / Boss 325ms · 每新增 500 MAX HP 攻击 +20% · 每 5 秒回复 ${formatRoundedNumberForDisplay(
       5 * SPECIALIZATION_BASE_STAT_BOOST
     )}%`
@@ -284,372 +294,163 @@ for (const specialization of Object.values(SPECIALIZATIONS)) {
   );
 }
 
-type SkinVariant = Record<
-  ShipId,
-  { fighterBase: string; tint: number; cssFilter: string }
->;
+const POWER_FLAME_LENGTHS = [420, 560, 700] as const;
+const POWER_FLAME_WIDTHS = [260, 360, 480] as const;
+// 龙息持续时间在全等级统一延长 30%。
+const POWER_FLAME_DURATIONS = [910, 1040, 1170] as const;
+const POWER_FLAME_DAMAGE = [30, 44, 60] as const;
+const POWER_FLAME_COOLDOWNS = [13, 12, 11] as const;
 
-const SKINS: Record<
-  SkinId,
-  {
-    name: string;
-    code: string;
-    description: string;
-    cost: number;
-    accent: string;
-    variants: SkinVariant;  // 4 架战机各一个变体(系列皮肤)
-    fx: string;
-  }
-> = {
+type SkinRarity = "rare" | "epic" | "mythic" | "legendary";
+type AchievementSkinEffect =
+  | "heartbeat"
+  | "ember"
+  | "gravity"
+  | "seal"
+  | "vessel"
+  | "trophy"
+  | "legendary";
+
+type SkinDefinition = {
+  name: string;
+  code: string;
+  description: string;
+  unlock: string;
+  accent: string;
+  colors: readonly [number, number];
+  rarity?: SkinRarity;
+  asset?: string;
+  bulletAsset?: string;
+  effect?: AchievementSkinEffect;
+};
+
+const SKIN_RARITY_LABELS: Record<SkinRarity, string> = {
+  rare: "稀有",
+  epic: "史诗",
+  mythic: "神话",
+  legendary: "传说"
+};
+
+// 付费换色皮肤已删除；成就皮肤全部使用独立完整模型，不再依赖基础战机换色。
+const SKINS: Record<SkinId, SkinDefinition> = {
   standard: {
-    name: "原型涂装",
+    name: "基础机体",
     code: "ORIGIN",
-    description: "机库标准出厂涂层。",
-    cost: 0,
+    description: "使用当前选择的基础战机。",
+    unlock: "默认可用",
     accent: "#2df4ff",
-    variants: {
-      balanced: { fighterBase: "fighter_balanced", tint: 0xffffff, cssFilter: "none" },
-      bomber: { fighterBase: "fighter_bomber", tint: 0xffffff, cssFilter: "none" },
-      lightning: { fighterBase: "fighter_lightning", tint: 0xffffff, cssFilter: "none" },
-      guardian: { fighterBase: "fighter_guardian", tint: 0xffffff, cssFilter: "none" }
-    },
-    fx: "none"
+    colors: [0x2df4ff, 0xffffff]
   },
-  aurora: {
-    name: "极光脉冲",
-    code: "AURORA",
-    description: "冰蓝离子镀层系列 — 4 架战机统一冰蓝极光风格。",
-    cost: 1800,
-    accent: "#63fff2",
-    variants: {
-      balanced: { fighterBase: "fighter_balanced", tint: 0x6ffcff, cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)" },
-      bomber: { fighterBase: "fighter_bomber", tint: 0x6ffcff, cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)" },
-      lightning: { fighterBase: "fighter_lightning", tint: 0x6ffcff, cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)" },
-      guardian: { fighterBase: "fighter_guardian", tint: 0x6ffcff, cssFilter: "hue-rotate(8deg) saturate(1.35) brightness(1.12)" }
-    },
-    fx: "aurora"
-  },
-  inferno: {
-    name: "熔核天火",
-    code: "INFERNO",
-    description: "高温橙红陶瓷装甲系列 — 4 架战机统一烈焰风格。",
-    cost: 3000,
-    accent: "#ff7a45",
-    variants: {
-      balanced: { fighterBase: "fighter_balanced", tint: 0xff8a4f, cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)" },
-      bomber: { fighterBase: "fighter_bomber", tint: 0xff8a4f, cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)" },
-      lightning: { fighterBase: "fighter_lightning", tint: 0xff8a4f, cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)" },
-      guardian: { fighterBase: "fighter_guardian", tint: 0xff8a4f, cssFilter: "sepia(.5) saturate(2.2) hue-rotate(330deg) brightness(1.08)" }
-    },
-    fx: "inferno"
-  },
-  void: {
-    name: "虚空皇权",
-    code: "VOID CROWN",
-    description: "紫黑暗物质涂层系列 — 4 架战机统一暗紫风格。",
-    cost: 5200,
-    accent: "#bd72ff",
-    variants: {
-      balanced: { fighterBase: "fighter_balanced", tint: 0xb56cff, cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)" },
-      bomber: { fighterBase: "fighter_bomber", tint: 0xb56cff, cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)" },
-      lightning: { fighterBase: "fighter_lightning", tint: 0xb56cff, cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)" },
-      guardian: { fighterBase: "fighter_guardian", tint: 0xb56cff, cssFilter: "hue-rotate(58deg) saturate(1.7) contrast(1.08)" }
-    },
-    fx: "void"
-  },
-  // === 成就/通关皮肤(系列,4 架战机都有变体) ===
   after_storm_skin: {
-    name: "柳暗花明",
-    code: "AFTER STORM",
-    description: "终局净化航线系列 — 哑光黑甲,正中央嵌红色脉冲核。",
-    cost: 0,
-    accent: "#ff3d77",
-    variants: {
-      balanced: { fighterBase: "fighter_balanced", tint: 0xff4d6a, cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)" },
-      bomber: { fighterBase: "fighter_bomber", tint: 0xff4d6a, cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)" },
-      lightning: { fighterBase: "fighter_lightning", tint: 0xff4d6a, cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)" },
-      guardian: { fighterBase: "fighter_guardian", tint: 0xff4d6a, cssFilter: "brightness(0.78) contrast(1.35) hue-rotate(310deg) saturate(1.5)" }
-    },
-    fx: "after_storm"
+    name: "愿意的宿主",
+    code: "WILLING HOST",
+    description: "猩红心核寄生茧体，装甲与活体组织已经无法分离。",
+    unlock: "达成结局「愿意的宿主」",
+    accent: "#ff3d67",
+    colors: [0xff3d67, 0xffa0b8],
+    rarity: "mythic",
+    asset: "assets/skins/achievement/after_storm_skin.png",
+    bulletAsset: "assets/projectiles/achievement/after_storm_skin_bullet.png",
+    effect: "heartbeat"
   },
   fell_short_skin: {
-    name: "功亏一篑",
-    code: "FELL SHORT",
-    description: "终局战损系列 — 星尘战损涂层,边缘迸裂的橙黄火焰。",
-    cost: 0,
-    accent: "#ffa033",
-    variants: {
-      balanced: { fighterBase: "fighter_balanced", tint: 0xffb044, cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)" },
-      bomber: { fighterBase: "fighter_bomber", tint: 0xffb044, cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)" },
-      lightning: { fighterBase: "fighter_lightning", tint: 0xffb044, cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)" },
-      guardian: { fighterBase: "fighter_guardian", tint: 0xffb044, cssFilter: "brightness(0.92) contrast(1.18) saturate(1.7) hue-rotate(348deg) sepia(0.12)" }
-    },
-    fx: "fell_short"
+    name: "碎裂容器",
+    code: "SHATTERED VESSEL",
+    description: "破损圣骸仍靠裂缝中的最后一炉余火维持飞行。",
+    unlock: "达成结局「碎裂容器」",
+    accent: "#ff9b3d",
+    colors: [0xff9b3d, 0xffe6a1],
+    rarity: "rare",
+    asset: "assets/skins/achievement/fell_short_skin.png",
+    bulletAsset: "assets/projectiles/achievement/fell_short_skin_bullet.png",
+    effect: "ember"
+  },
+  total_eclipse_skin: {
+    name: "全然日蚀",
+    code: "TOTAL ECLIPSE",
+    description: "武装黑日以实体装甲包裹微型引力核心。",
+    unlock: "达成结局「全然日蚀」",
+    accent: "#8a43ff",
+    colors: [0x8a43ff, 0xe3cfff],
+    rarity: "epic",
+    asset: "assets/skins/achievement/total_eclipse_skin.png",
+    bulletAsset: "assets/projectiles/achievement/total_eclipse_skin_bullet.png",
+    effect: "gravity"
+  },
+  hollow_custody_skin: {
+    name: "空洞看守",
+    code: "HOLLOW CUSTODY",
+    description: "无人棺卫继续执行已经失去意义的封印协议。",
+    unlock: "达成结局「空洞看守」",
+    accent: "#8edcff",
+    colors: [0x8edcff, 0xe8fbff],
+    rarity: "rare",
+    asset: "assets/skins/achievement/hollow_custody_skin.png",
+    bulletAsset: "assets/projectiles/achievement/hollow_custody_skin_bullet.png",
+    effect: "seal"
+  },
+  perfect_vessel_skin: {
+    name: "完美躯壳",
+    code: "PERFECT VESSEL",
+    description: "黑曜石神像将驾驶者与深渊意志熔成同一副躯壳。",
+    unlock: "达成结局「完美躯壳」",
+    accent: "#ff39c8",
+    colors: [0xff39c8, 0xffffff],
+    rarity: "epic",
+    asset: "assets/skins/achievement/perfect_vessel_skin.png",
+    bulletAsset: "assets/projectiles/achievement/perfect_vessel_skin_bullet.png",
+    effect: "vessel"
   },
   boss_slayer_skin: {
     name: "首领终结",
     code: "BOSS SLAYER",
-    description: "九首领之血系列 — 深紫战衣,边缘渗出磷光。",
-    cost: 0,
-    accent: "#b541ff",
-    variants: {
-      balanced: { fighterBase: "fighter_balanced", tint: 0xc16cff, cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)" },
-      bomber: { fighterBase: "fighter_bomber", tint: 0xc16cff, cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)" },
-      lightning: { fighterBase: "fighter_lightning", tint: 0xc16cff, cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)" },
-      guardian: { fighterBase: "fighter_guardian", tint: 0xc16cff, cssFilter: "hue-rotate(70deg) saturate(1.5) brightness(0.92) contrast(1.12)" }
-    },
-    fx: "boss_slayer"
+    description: "将三类首领核心直接铸入猎杀装甲的战利品兽。",
+    unlock: "获得成就「泰坦终结者」",
+    accent: "#bb63ff",
+    colors: [0xff8a35, 0x61ddff],
+    rarity: "epic",
+    asset: "assets/skins/achievement/boss_slayer_skin.png",
+    bulletAsset: "assets/projectiles/achievement/boss_slayer_skin_bullet.png",
+    effect: "trophy"
   },
   campaign_ace_skin: {
-    name: "战役尖兵",
-    code: "CAMPAIGN ACE",
-    description: "全战役通关系列 — 冰蓝极光脉冲,记录每一次光荣战绩。",
-    cost: 0,
-    accent: "#5fb6ff",
-    variants: {
-      balanced: { fighterBase: "fighter_balanced", tint: 0x6fb6ff, cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)" },
-      bomber: { fighterBase: "fighter_bomber", tint: 0x6fb6ff, cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)" },
-      lightning: { fighterBase: "fighter_lightning", tint: 0x6fb6ff, cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)" },
-      guardian: { fighterBase: "fighter_guardian", tint: 0x6fb6ff, cssFilter: "hue-rotate(170deg) saturate(1.4) brightness(1.05) contrast(1.05)" }
-    },
-    fx: "campaign_ace"
+    name: "九渊弑神",
+    code: "ABYSS LEGEND",
+    description: "黑曜、鎏金与珍珠白共同铸成的传说神机，胸甲刻有帝龙徽记。",
+    unlock: "通关九战 Boss 专属模式",
+    accent: "#ffd66b",
+    colors: [0xffd66b, 0xffffff],
+    rarity: "legendary",
+    asset: "assets/skins/achievement/campaign_ace_skin.png",
+    bulletAsset: "assets/projectiles/achievement/campaign_ace_skin_bullet.png",
+    effect: "legendary"
   }
 };
 
-// 获取当前玩家装备皮肤 + 当前战机 对应的变体
-function currentSkinVariant(): SkinVariant[ShipId] {
-  const skin = SKINS[save.equippedSkin];
-  const shipId: ShipId = (save.selectedShip as ShipId) ?? "balanced";
-  return skin.variants[shipId] ?? skin.variants.balanced;
+const ACHIEVEMENT_SKIN_IDS: SkinId[] = [
+  "after_storm_skin",
+  "fell_short_skin",
+  "total_eclipse_skin",
+  "hollow_custody_skin",
+  "perfect_vessel_skin",
+  "boss_slayer_skin",
+  "campaign_ace_skin"
+];
+
+function achievementSkinTextureKey(id: SkinId): string {
+  return `achievementSkin_${id}`;
 }
 
-// 皮肤解锁条件:返回 string 表示未解锁原因,空串表示已解锁
-function skinUnlockRequirement(skinId: SkinId): string {
-  switch (skinId) {
-    case "after_storm_skin":
-      return save.achievements.after_storm
-        ? ""
-        : "完成终局「柳暗花明又一村」成就后解锁";
-    case "fell_short_skin":
-      return save.achievements.fell_short
-        ? ""
-        : "终局残党阶段被击毁,获得「功亏一篑」成就后解锁";
-    case "boss_slayer_skin":
-      return save.achievements.boss_slayer
-        ? ""
-        : "击败任意首领获得「泰坦终结者」成就后解锁";
-    case "campaign_ace_skin":
-      return save.records.highestUnlockedLevel >= 6
-        ? ""
-        : "完成 5 关战役,解锁所有关卡后开放";
-    default:
-      return "";
-  }
+function achievementSkinBulletTextureKey(id: SkinId): string {
+  return `achievementSkinBullet_${id}`;
 }
 
-// === 商店皮肤预览(使用 fighter_*.png 真实战机图片 + 装饰层) ===
-function skinArtworkSVG(skinId: SkinId, accent: string): string {
-  const skin = SKINS[skinId];
-  const shipId: ShipId = (save.selectedShip as ShipId) ?? "balanced";
-  const variant = skin.variants[shipId] ?? skin.variants.balanced;
-  const base = variant.fighterBase;
-  const filter = variant.cssFilter;
-  // 装饰层根据皮肤类型定制
-  const fx = skinFxLayer(skinId, accent);
-  return `
-    <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <radialGradient id="bg-${skinId}" cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0" stop-color="${accent}" stop-opacity="0.18"/>
-          <stop offset="1" stop-color="${accent}" stop-opacity="0"/>
-        </radialGradient>
-        <filter id="glow-${skinId}">
-          <feGaussianBlur stdDeviation="1.4"/>
-        </filter>
-      </defs>
-      <rect x="0" y="0" width="120" height="120" fill="url(#bg-${skinId})"/>
-      <!-- 真实战机 PNG(头部朝上,匹配参考图) -->
-      <image
-        href="assets/skins/${base}.png"
-        x="0" y="0" width="120" height="120"
-        preserveAspectRatio="xMidYMid meet"
-        style="filter:${filter}"
-      />
-      ${fx}
-    </svg>
-  `;
-}
-
-// === 外圈动态特效层(纯 SVG animate,无需 JS) ===
-function skinFxLayer(skinId: SkinId, accent: string): string {
-  switch (skinId) {
-    case "after_storm_skin":
-      // 黑暗能量:6 颗紫色小光点绕中心旋转,黑色粒子向上飘
-      return `
-        <g opacity="0.95">
-          <g><circle cx="60" cy="60" r="0" fill="${accent}">
-            <animate attributeName="cx" values="60;14;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="60;60;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;3;0" dur="3.2s" repeatCount="indefinite"/>
-          </circle></g>
-          <g><circle cx="60" cy="60" r="0" fill="${accent}">
-            <animate attributeName="cx" values="60;60;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="60;14;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;3;0" dur="3.2s" repeatCount="indefinite"/>
-          </circle></g>
-          <g><circle cx="60" cy="60" r="0" fill="${accent}">
-            <animate attributeName="cx" values="60;106;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="60;60;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;3;0" dur="3.2s" repeatCount="indefinite"/>
-          </circle></g>
-          <g><circle cx="60" cy="60" r="0" fill="${accent}">
-            <animate attributeName="cx" values="60;60;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="60;106;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;3;0" dur="3.2s" repeatCount="indefinite"/>
-          </circle></g>
-        </g>
-        <g opacity="0.7">
-          <circle r="0.8" fill="#1a0010">
-            <animate attributeName="cx" values="40;45;38" dur="2.4s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="108;30;0" dur="2.4s" repeatCount="indefinite"/>
-          </circle>
-          <circle r="0.8" fill="#1a0010">
-            <animate attributeName="cx" values="80;75;82" dur="2.8s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="108;30;0" dur="2.8s" repeatCount="indefinite"/>
-          </circle>
-          <circle r="0.6" fill="#1a0010">
-            <animate attributeName="cx" values="60;58;62" dur="2.6s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="108;30;0" dur="2.6s" repeatCount="indefinite"/>
-          </circle>
-        </g>`;
-    case "fell_short_skin":
-      // 火焰:从底部向上冒火苗(3 颗橙黄火星,旋转消失)
-      return `
-        <g opacity="0.95">
-          <circle cx="60" cy="92" r="0" fill="${accent}">
-            <animate attributeName="cy" values="92;30;0" dur="1.6s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;3.2;0" dur="1.6s" repeatCount="indefinite"/>
-            <animate attributeName="cx" values="60;58;62" dur="1.6s" repeatCount="indefinite"/>
-          </circle>
-          <circle cx="50" cy="92" r="0" fill="#fff5b0">
-            <animate attributeName="cy" values="92;20;0" dur="1.4s" begin="0.3s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;2.4;0" dur="1.4s" begin="0.3s" repeatCount="indefinite"/>
-            <animate attributeName="cx" values="50;48;46" dur="1.4s" begin="0.3s" repeatCount="indefinite"/>
-          </circle>
-          <circle cx="70" cy="92" r="0" fill="${accent}">
-            <animate attributeName="cy" values="92;25;0" dur="1.5s" begin="0.6s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;2.8;0" dur="1.5s" begin="0.6s" repeatCount="indefinite"/>
-            <animate attributeName="cx" values="70;72;74" dur="1.5s" begin="0.6s" repeatCount="indefinite"/>
-          </circle>
-        </g>`;
-    case "boss_slayer_skin":
-      // 赛博朋克:扫描线 + 数字雨
-      return `
-        <line x1="0" y1="20" x2="120" y2="20" stroke="${accent}" stroke-width="0.6" opacity="0.5">
-          <animate attributeName="y1" values="0;120;0" dur="2.4s" repeatCount="indefinite"/>
-          <animate attributeName="y2" values="0;120;0" dur="2.4s" repeatCount="indefinite"/>
-        </line>
-        <g opacity="0.9">
-          <text x="10" y="0" fill="${accent}" font-family="monospace" font-size="6" opacity="0.8">
-            <animate attributeName="y" values="0;120" dur="2.2s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;1;0" dur="2.2s" repeatCount="indefinite"/>
-            0xFF
-          </text>
-          <text x="100" y="0" fill="${accent}" font-family="monospace" font-size="6" opacity="0.7">
-            <animate attributeName="y" values="0;120" dur="2.6s" begin="0.4s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;1;0" dur="2.6s" begin="0.4s" repeatCount="indefinite"/>
-            SYS
-          </text>
-        </g>
-        <g fill="${accent}" opacity="0.85">
-          <circle r="0"><animate attributeName="cx" values="20;20" dur="2s" repeatCount="indefinite"/><animate attributeName="cy" values="20;120" dur="2s" repeatCount="indefinite"/><animate attributeName="r" values="0;1.6;0" dur="2s" repeatCount="indefinite"/></circle>
-          <circle r="0"><animate attributeName="cx" values="100;100" dur="2.4s" begin="0.6s" repeatCount="indefinite"/><animate attributeName="cy" values="20;120" dur="2.4s" begin="0.6s" repeatCount="indefinite"/><animate attributeName="r" values="0;1.6;0" dur="2.4s" begin="0.6s" repeatCount="indefinite"/></circle>
-        </g>`;
-    case "campaign_ace_skin":
-      // 二次元:樱花飘落 + 中心光环
-      return `
-        <circle cx="60" cy="60" r="44" fill="none" stroke="${accent}" stroke-width="0.8" opacity="0.5">
-          <animate attributeName="r" values="42;48;42" dur="2.4s" repeatCount="indefinite"/>
-          <animate attributeName="opacity" values="0.55;0.1;0.55" dur="2.4s" repeatCount="indefinite"/>
-        </circle>
-        <g>
-          <ellipse rx="2.2" ry="1.4" fill="#ffd6e8">
-            <animate attributeName="cx" values="0;120" dur="3.4s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="20;30;18" dur="3.4s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;0.95;0" dur="3.4s" repeatCount="indefinite"/>
-          </ellipse>
-          <ellipse rx="2.2" ry="1.4" fill="#fff5b0">
-            <animate attributeName="cx" values="0;120" dur="3s" begin="0.8s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="40;50;38" dur="3s" begin="0.8s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;0.95;0" dur="3s" begin="0.8s" repeatCount="indefinite"/>
-          </ellipse>
-          <ellipse rx="1.8" ry="1.2" fill="${accent}">
-            <animate attributeName="cx" values="0;120" dur="3.6s" begin="1.4s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="80;72;84" dur="3.6s" begin="1.4s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;0.85;0" dur="3.6s" begin="1.4s" repeatCount="indefinite"/>
-          </ellipse>
-          <ellipse rx="1.6" ry="1" fill="#fff">
-            <animate attributeName="cx" values="0;120" dur="3.2s" begin="2.0s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="10;20;8" dur="3.2s" begin="2.0s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;0.9;0" dur="3.2s" begin="2.0s" repeatCount="indefinite"/>
-          </ellipse>
-        </g>
-        <circle cx="60" cy="60" r="3" fill="none" stroke="#fff" stroke-width="0.8" opacity="0.9">
-          <animate attributeName="r" values="3;9;3" dur="1.6s" repeatCount="indefinite"/>
-          <animate attributeName="opacity" values="0.95;0;0.95" dur="1.6s" repeatCount="indefinite"/>
-        </circle>`;
-    case "inferno":
-      // 火焰:更密集火星
-      return `
-        <g opacity="0.95">
-          <circle cx="50" cy="92" r="0" fill="#ff5500">
-            <animate attributeName="cy" values="92;20;0" dur="1.5s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;3;0" dur="1.5s" repeatCount="indefinite"/>
-            <animate attributeName="cx" values="50;48;46" dur="1.5s" repeatCount="indefinite"/>
-          </circle>
-          <circle cx="70" cy="92" r="0" fill="#ffe1b0">
-            <animate attributeName="cy" values="92;22;0" dur="1.3s" begin="0.5s" repeatCount="indefinite"/>
-            <animate attributeName="r" values="0;2.6;0" dur="1.3s" begin="0.5s" repeatCount="indefinite"/>
-            <animate attributeName="cx" values="70;72;74" dur="1.3s" begin="0.5s" repeatCount="indefinite"/>
-          </circle>
-        </g>`;
-    case "aurora":
-      // 极光:粒子旋转
-      return `
-        <g>
-          <circle cx="0" cy="60" r="1.6" fill="#7be4ff" opacity="0.8">
-            <animate attributeName="cx" values="0;120" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="60;55;60" dur="3.2s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;1;0" dur="3.2s" repeatCount="indefinite"/>
-          </circle>
-          <circle cx="0" cy="65" r="1.4" fill="#bffaff" opacity="0.7">
-            <animate attributeName="cx" values="0;120" dur="3.8s" begin="0.6s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="65;62;65" dur="3.8s" begin="0.6s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;1;0" dur="3.8s" begin="0.6s" repeatCount="indefinite"/>
-          </circle>
-        </g>`;
-    case "void":
-      // 虚空:同心环脉冲
-      return `
-        <circle cx="60" cy="60" r="32" fill="none" stroke="${accent}" stroke-width="0.6" opacity="0.6">
-          <animate attributeName="r" values="30;46;30" dur="3s" repeatCount="indefinite"/>
-          <animate attributeName="opacity" values="0.6;0;0.6" dur="3s" repeatCount="indefinite"/>
-        </circle>
-        <circle cx="60" cy="60" r="32" fill="none" stroke="${accent}" stroke-width="0.6" opacity="0.5">
-          <animate attributeName="r" values="30;46;30" dur="3s" begin="1.5s" repeatCount="indefinite"/>
-          <animate attributeName="opacity" values="0.6;0;0.6" dur="3s" begin="1.5s" repeatCount="indefinite"/>
-        </circle>`;
-    case "standard":
-    default:
-      return `
-        <g opacity="0.7">
-          <circle r="0.6" fill="#5a90bd">
-            <animate attributeName="cx" values="0;120" dur="4.2s" repeatCount="indefinite"/>
-            <animate attributeName="cy" values="100;90;100" dur="4.2s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="0;0.8;0" dur="4.2s" repeatCount="indefinite"/>
-          </circle>
-        </g>`;
-  }
+function achievementSkinBulletDisplaySize(id: SkinId): { width: number; height: number } {
+  const rarity = SKINS[id]?.rarity;
+  if (rarity === "legendary") return { width: 22, height: 48 };
+  if (rarity === "mythic") return { width: 20, height: 44 };
+  if (rarity === "epic") return { width: 18, height: 40 };
+  return { width: 16, height: 36 };
 }
 
 function specializationStats(shipId: ShipId, specializationId: SpecializationId): {
@@ -697,25 +498,33 @@ function distancePointToSegment(
   return Math.hypot(px - cx, py - cy);
 }
 
+// 当前焦点是否落在可输入元素上(输入框/文本域/可编辑区)。
+// 只有这种情况下中文输入法才会真正吞掉按键,游戏才需要暂停响应。
+function isTextEntryFocused(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
 type PlayVariant = PlayVariantId;
 type BossKind = CampaignBossKind;
-type BossPowerId =
-  | "titan_meteor"
-  | "mirror_copy"
-  | "usurper_lock"
-  | "shadow_rift_blade"
-  | "dark_deity_pact";
-type EnemyMutation = "homing" | "mine_burst" | "armor" | "dash" | "suppress";
+type BossPowerId = PlayerBossPowerId;
+type BossPassiveId = PlayerBossPassiveId;
+type EnemyMutation = CampaignMinionMutation;
 type EnemyDamageSource = "minion" | "boss";
 type TemporarySkill = "overdrive" | "prism" | "singularity";
 
-// === 终局四种黑影结局:摧毁/保留 × 阵亡/打完 ===
-type ShadowEnding =
-  | "destroyed_fallen"    // 摧毁核心后被残党击毁
-  | "destroyed_consumed"  // 摧毁核心后侵蚀达到 100%,被黑暗吞没
-  | "destroyed_embraced"  // 摧毁核心后在侵蚀满之前清空残党,主动接下这份黑暗
-  | "kept_fallen"         // 保留核心后被残党击毁
-  | "kept_possessed";     // 保留核心并清空残党,核心自我修复并占据玩家
+const MINION_MUTATION_COLORS: Record<EnemyMutation, number> = {
+  homing: 0xb05cff,
+  mine_burst: 0xff3d8f,
+  armor: 0x65d8ff,
+  dash: 0xffbd3e,
+  suppress: 0xff6b5d
+};
+
+// === 终局五种黑影结局:全部保留为失败结算 ===
+type ShadowEnding = ShadowEndingId;
 
 const SHADOW_ENDINGS: Record<
   ShadowEnding,
@@ -747,6 +556,14 @@ const SHADOW_ENDINGS: Record<
     detail: "航线净空。货舱里的核心不再损坏——它修好了自己，然后换了驾驶者。"
   }
 };
+
+const SHADOW_ENDING_ACHIEVEMENTS: Record<ShadowEnding, string> = {
+  destroyed_fallen: "ending_shattered_vessel",
+  destroyed_consumed: "ending_total_eclipse",
+  destroyed_embraced: "ending_willing_host",
+  kept_fallen: "ending_hollow_custody",
+  kept_possessed: "ending_perfect_vessel"
+};
 // 终局黑暗核心:摧毁后的侵蚀节奏与残党强化
 // 侵蚀满 100% 需 25 段 × 2.6s ≈ 65s;残党 8 波(每波间隔 2.4s)最快约 20s 出完,
 // 所以手速够快能在侵蚀满之前清完 → 走 destroyed_embraced,否则被吞没。
@@ -760,7 +577,6 @@ type AgileTrajectory = "fan" | "arc" | "helix" | "scatter" | "cross" | "circle";
 type AirSupportSkillId =
   | "piercing_bombardment"
   | "stasis_wake"
-  | "absolute_freeze"
   | "phase_escort"
   | "repair_convoy"
   | "hunter_sweep";
@@ -782,59 +598,189 @@ const BOSS_NAMES: Record<BossKind, string> = {
   dark_deity: "黑暗魔神飞机"
 };
 
-// === BOSS 被动护符:击破 boss 后,本局永久获得该 boss 的专属被动 ===
-type BossAmuletDef = {
+// === BOSS 专属被动强化：可在一局内累计，但每次黑影掉落只能选择一项 ===
+type BossPassiveDefinition = {
+  id: BossPassiveId;
+  kind: BossKind;
+  icon: string;
   name: string;
   code: string;
   description: string;
-  apply: (scene: BattleScene) => void;  // 击破时一次性应用
+  apply: (scene: BattleScene) => void;
 };
-const BOSS_AMULETS: Record<BossKind, BossAmuletDef> = {
-  titan: {
+const BOSS_PASSIVE_OPTIONS: BossPassiveDefinition[] = [
+  {
+    id: "titan_bulwark",
+    kind: "titan",
+    icon: "⬡",
     name: "泰坦壁垒",
     code: "TITAN BULWARK",
-    description: "HP 永久 +15%(本局)",
+    description: "本局最大生命永久提高 15%，并立即回复等量生命。",
     apply: (scene) => {
       const gain = Math.round(scene.stats.maxHp * 0.15);
       scene.stats.maxHp += gain;
-      scene.stats.hp += gain;  // 同时加满血
+      scene.stats.hp += gain;
       scene.recordAgileMaxHpGain(gain);
     }
   },
-  mirror: {
+  {
+    id: "titan_meteor_forge",
+    kind: "titan",
+    icon: "☄",
+    name: "陨星熔炉",
+    code: "METEOR FORGE",
+    description: "所有 V 键主动权柄伤害提高 18%，有效范围提高 12%。",
+    apply: (scene) => {
+      scene.bossPowerDamageMultiplier *= 1.18;
+      scene.bossPowerAreaMultiplier *= 1.12;
+    }
+  },
+  {
+    id: "titan_gravity_shell",
+    kind: "titan",
+    icon: "◉",
+    name: "重力壳层",
+    code: "GRAVITY SHELL",
+    description: "受到 Boss 造成的伤害降低 12%。",
+    apply: (scene) => {
+      scene.bossPassiveBossDamageTakenMultiplier *= 0.88;
+    }
+  },
+  {
+    id: "mirror_echo",
+    kind: "mirror",
+    icon: "◫",
     name: "镜像残响",
     code: "MIRROR ECHO",
-    description: "血量 < 30% 时召唤 1 个镜像影分身(无敌,无伤害,1 次/本局)",
+    description: "生命低于 30% 时召唤一个无敌镜像残影，每局触发一次。",
     apply: (scene) => {
-      // 标记解锁;在 player HP < 30% 时触发
       scene.mirrorEchoArmed = true;
     }
   },
-  usurper: {
+  {
+    id: "mirror_legion",
+    kind: "mirror",
+    icon: "♢",
+    name: "镜海军团",
+    code: "MIRROR LEGION",
+    description: "万象镜像权柄额外生成一架僚机，权柄伤害提高 8%。",
+    apply: (scene) => {
+      scene.bossPowerCloneBonus += 1;
+      scene.bossPowerDamageMultiplier *= 1.08;
+    }
+  },
+  {
+    id: "mirror_refraction",
+    kind: "mirror",
+    icon: "◇",
+    name: "折光回路",
+    code: "REFRACTION LOOP",
+    description: "V 键主动权柄冷却缩短 16%。",
+    apply: (scene) => {
+      scene.bossPowerCooldownMultiplier *= 0.84;
+    }
+  },
+  {
+    id: "usurper_blight",
+    kind: "usurper",
+    icon: "⌁",
     name: "权柄污染",
     code: "USURPER BLIGHT",
-    description: "对 Boss 伤害 +20%(本局)",
+    description: "本局对所有 Boss 造成的伤害提高 20%。",
     apply: (scene) => {
       scene.usurperBlight = true;
     }
   },
-  shadow: {
+  {
+    id: "usurper_override",
+    kind: "usurper",
+    icon: "▦",
+    name: "越权协议",
+    code: "ROOT OVERRIDE",
+    description: "主动权柄持续时间提高 25%，冻结与封锁时间同步延长。",
+    apply: (scene) => {
+      scene.bossPowerDurationMultiplier *= 1.25;
+    }
+  },
+  {
+    id: "usurper_recycle",
+    kind: "usurper",
+    icon: "↻",
+    name: "权限回收",
+    code: "AUTHORITY RECYCLE",
+    description: "每次成功启动 V 键权柄，立即回复 10% 最大生命。",
+    apply: (scene) => {
+      scene.bossPowerHealRatio += 0.1;
+    }
+  },
+  {
+    id: "shadow_echo",
+    kind: "shadow",
+    icon: "✦",
     name: "力量残响",
     code: "SHADOW ECHO",
-    description: "暴击率 +8%(本局)",
+    description: "本局暴击率提高 8%。",
     apply: (scene) => {
       scene.stats.critChance += 0.08;
     }
   },
-  dark_deity: {
+  {
+    id: "shadow_edge",
+    kind: "shadow",
+    icon: "╱",
+    name: "裂隙增殖",
+    code: "RIFT PROLIFERATION",
+    description: "裂隙爪刀每轮额外生成两道交错暗刃。",
+    apply: (scene) => {
+      scene.shadowRiftBladeBonus += 2;
+    }
+  },
+  {
+    id: "shadow_phase",
+    kind: "shadow",
+    icon: "◈",
+    name: "黑影相位",
+    code: "SHADOW PHASE",
+    description: "每次启动 V 键权柄额外获得 1.5 秒无敌。",
+    apply: (scene) => {
+      scene.bossPowerInvulnMs += 1500;
+    }
+  },
+  {
+    id: "deity_pact",
+    kind: "dark_deity",
+    icon: "☩",
     name: "魔神契约",
     code: "DEITY PACT",
-    description: "死亡时 25% 概率自动复活并保留 50% HP(本局 1 次)",
+    description: "死亡时有 25% 概率以 50% 生命复活，每局最多一次。",
     apply: (scene) => {
       scene.deityPactArmed = true;
     }
+  },
+  {
+    id: "deity_hunger",
+    kind: "dark_deity",
+    icon: "◉",
+    name: "深渊饥渴",
+    code: "ABYSSAL HUNGER",
+    description: "启动 V 键权柄时额外回复 12% 已损生命。",
+    apply: (scene) => {
+      scene.bossPowerMissingHealRatio += 0.12;
+    }
+  },
+  {
+    id: "deity_abyss",
+    kind: "dark_deity",
+    icon: "◆",
+    name: "魔神升格",
+    code: "DEITY ASCENSION",
+    description: "主动权柄伤害提高 25%，有效范围提高 10%。",
+    apply: (scene) => {
+      scene.bossPowerDamageMultiplier *= 1.25;
+      scene.bossPowerAreaMultiplier *= 1.1;
+    }
   }
-};
+];
 
 const SHADOW_EVOLUTION_TEXTURES = [
   "bossShadow",
@@ -879,43 +825,112 @@ const BOSS_POWER_OPTIONS: Array<{
   name: string;
   source: string;
   description: string;
+  asset: string;
 }> = [
   {
     id: "titan_meteor",
     icon: "☄",
     name: "裂渊陨星权柄",
     source: "裂渊泰坦",
-    description: "V 键召唤持续 7 秒的逆向陨星轰炸，冷却 40 秒。"
+    description: "V 键召唤持续 7 秒的逆向陨星轰炸，玩家版伤害为 Boss 原版 35%，冷却 44 秒。",
+    asset: "assets/effects/generated/boss_power_titan.png"
   },
   {
     id: "mirror_copy",
     icon: "◫",
     name: "万象镜像权柄",
     source: "镜像猎手",
-    description: "V 键复制当前支援与临时强化 7 秒，并生成两架镜像僚机，冷却 40 秒。"
+    description: "V 键生成两架镜像僚机并复制当前支援 7 秒，玩家版伤害为 Boss 原版 35%，冷却 44 秒。",
+    asset: "assets/effects/generated/boss_power_mirror.png"
   },
   {
     id: "usurper_lock",
     icon: "⌁",
     name: "权限篡夺权柄",
     source: "技能篡夺者",
-    description: "V 键封锁全部敌机与 Boss 行动 7 秒，冷却 40 秒。"
+    description: "V 键封锁全部敌机与 Boss 行动 7 秒，冷却 44 秒。",
+    asset: "assets/effects/generated/boss_power_usurper.png"
   },
   {
     id: "shadow_rift_blade",
     icon: "✦",
     name: "裂隙黑暗爪刀",
     source: "力量掠夺者 · 黑影",
-    description: "V 键释放 5 道暗影爪刀横向切割全场，每道造成 0.18 最大生命伤害,持续 4 秒,冷却 40 秒。"
+    description: "V 键释放 5 道暗影爪刀横向切割全场，玩家版伤害为 Boss 原版 35%，持续 4 秒，冷却 44 秒。",
+    asset: "assets/effects/generated/boss_power_shadow.png"
   },
   {
     id: "dark_deity_pact",
     icon: "☩",
     name: "黑暗魔神契约",
     source: "黑暗魔神飞机",
-    description: "V 键 3 秒内免疫所有伤害并向四方释放 12 颗追踪暗影弹幕,冷却 40 秒。"
+    description: "V 键 3 秒内免疫所有伤害并释放追踪暗影弹幕，玩家版伤害为 Boss 原版 35%，冷却 44 秒。",
+    asset: "assets/effects/generated/boss_power_dark_deity.png"
+  },
+  {
+    id: "absolute_freeze",
+    icon: "❄",
+    name: "绝对零度权柄",
+    source: "寒渊核心",
+    description: "V 键冻结全部小兵、Boss 与敌方弹幕 5 秒，冷却 44 秒。",
+    asset: "assets/effects/generated/boss_power_freeze.png"
   }
 ];
+
+const BOSS_POWER_FX_KEYS: Record<BossPowerId, string> = {
+  titan_meteor: "bossPowerFx_titan",
+  mirror_copy: "bossPowerFx_mirror",
+  usurper_lock: "bossPowerFx_usurper",
+  shadow_rift_blade: "bossPowerFx_shadow",
+  dark_deity_pact: "bossPowerFx_dark_deity",
+  absolute_freeze: "bossPowerFx_freeze"
+};
+
+const BOSS_SKILL_FX: Record<string, { texture: string; row: number }> = {
+  "titan:meteor": { texture: "bossSkillFx_titan", row: 0 },
+  "titan:lane": { texture: "bossSkillFx_titan", row: 1 },
+  "titan:fan": { texture: "bossSkillFx_titan", row: 2 },
+  "titan:gravity": { texture: "bossSkillFx_titan", row: 3 },
+  "titan:spiral": { texture: "bossSkillFx_titan", row: 4 },
+  "titan:rage": { texture: "bossSkillFx_titan", row: 5 },
+  "mirror:petal": { texture: "bossSkillFx_mirror", row: 0 },
+  "mirror:lance": { texture: "bossSkillFx_mirror", row: 1 },
+  "mirror:homing": { texture: "bossSkillFx_mirror", row: 2 },
+  "mirror:copy_g": { texture: "bossSkillFx_mirror", row: 0 },
+  "mirror:copy_1": { texture: "bossSkillFx_mirror", row: 1 },
+  "mirror:copy_2": { texture: "bossSkillFx_mirror", row: 2 },
+  "mirror:copy_3": { texture: "bossSkillFx_mirror", row: 0 },
+  "usurper:grid": { texture: "bossSkillFx_usurper", row: 0 },
+  "usurper:emp": { texture: "bossSkillFx_usurper", row: 1 },
+  "usurper:lattice": { texture: "bossSkillFx_usurper", row: 2 },
+  "usurper:drain": { texture: "bossSkillFx_usurper", row: 3 },
+  "usurper:steal": { texture: "bossSkillFx_usurper", row: 4 },
+  "shadow:claw": { texture: "bossSkillFx_shadow", row: 0 },
+  "shadow:barrage": { texture: "bossSkillFx_shadow", row: 0 },
+  "shadow:delayed": { texture: "bossSkillFx_shadow", row: 1 },
+  "shadow:drain": { texture: "bossSkillFx_shadow", row: 2 },
+  "shadow:portal": { texture: "bossSkillFx_shadow", row: 3 },
+  "shadow:charge": { texture: "bossSkillFx_shadow", row: 4 },
+  "shadow:cage": { texture: "bossSkillFx_shadow", row: 5 },
+  "shadow:maw": { texture: "bossSkillFx_dark_deity", row: 5 },
+  "dark_deity:barrage": { texture: "bossSkillFx_dark_deity", row: 0 },
+  "dark_deity:storm": { texture: "bossSkillFx_dark_deity", row: 1 },
+  "dark_deity:charge": { texture: "bossSkillFx_dark_deity", row: 2 },
+  "dark_deity:drain": { texture: "bossSkillFx_dark_deity", row: 3 },
+  "dark_deity:cage": { texture: "bossSkillFx_dark_deity", row: 4 },
+  "dark_deity:maw": { texture: "bossSkillFx_dark_deity", row: 5 },
+  "dark_deity:delayed": { texture: "bossSkillFx_shadow", row: 1 },
+  "dark_deity:portal": { texture: "bossSkillFx_shadow", row: 3 },
+  "dark_aircraft:firework": { texture: "bossSkillFx_dark_aircraft", row: 0 },
+  "dark_aircraft:clone": { texture: "bossSkillFx_dark_aircraft", row: 1 },
+  "dark_aircraft:missile": { texture: "bossSkillFx_dark_aircraft", row: 2 },
+  "dark_aircraft:stealth": { texture: "bossSkillFx_dark_aircraft", row: 3 }
+};
+
+const BOSS_POWER_COOLDOWN_MS = 44000;
+// 原有玩家版权柄为 Boss 伤害的 50%；再次削弱 30% 后统一为 35%。
+const BOSS_POWER_DAMAGE_SCALE = 0.35;
+const BOSS_POWER_FREEZE_MS = 5000;
 
 // 每种 Boss 击破后授予的首领权柄(V 键释放,一直保留到本局结束)
 const BOSS_KIND_TO_POWER: Record<BossKind, BossPowerId> = {
@@ -925,6 +940,7 @@ const BOSS_KIND_TO_POWER: Record<BossKind, BossPowerId> = {
   shadow: "shadow_rift_blade",
   dark_deity: "dark_deity_pact"
 };
+
 
 const DOCTRINE_EVOLUTIONS = [
   {
@@ -987,8 +1003,6 @@ const AIR_SUPPORT_VALUES = {
   // 引力航迹:持续毫秒与减速百分比
   stasisDuration: (level: number) => (5000 + level * 500) * AIR_SUPPORT_NERF,
   stasisSlowPercent: (level: number) => Math.round((65 + level * 3) * AIR_SUPPORT_NERF),
-  // 绝对零度:冻结毫秒
-  freezeDuration: (level: number) => (3200 + level * 350) * AIR_SUPPORT_NERF,
   // 相位护航:无敌毫秒
   escortDuration: (level: number) => (2400 + level * 300) * AIR_SUPPORT_NERF,
   // 维修纵队:回复最大生命占比
@@ -1031,17 +1045,6 @@ const AIR_SUPPORT_SKILLS: Array<{
     cooldown: 16200,
     description: (level) =>
       `阻断机留下 ${formatRoundedNumberForDisplay(AIR_SUPPORT_VALUES.stasisDuration(level) / 1000)} 秒引力航迹，敌机推进速度降低 ${AIR_SUPPORT_VALUES.stasisSlowPercent(level)}%。`
-  },
-  {
-    id: "absolute_freeze",
-    code: "BOTTOM-UP / CRYO",
-    icon: "❄",
-    name: "绝对零度封锁",
-    color: "#79f4ff",
-    colorHex: 0x79f4ff,
-    cooldown: 19800,
-    description: (level) =>
-      `低温支援机冻结全部敌机、Boss 与敌弹 ${formatRoundedNumberForDisplay(AIR_SUPPORT_VALUES.freezeDuration(level) / 1000)} 秒。`
   },
   {
     id: "phase_escort",
@@ -1157,7 +1160,13 @@ const ACHIEVEMENTS = [
   { id: "level_five", icon: "▲", name: "深入星渊", detail: "进入第五关", category: "探索" },
   { id: "coop_wing", icon: "∞", name: "双翼同盟", detail: "完成一局双人合作", category: "协作" },
   { id: "fell_short", icon: "✗", name: "功亏一篑", detail: "终局残党阶段被小兵击毁", category: "终局" },
-  { id: "after_storm", icon: "✺", name: "柳暗花明又一村", detail: "击破终局残党 96 只，净化整条航线", category: "终局" }
+  { id: "after_storm", icon: "✺", name: "柳暗花明又一村", detail: "击破终局残党 96 只，净化整条航线", category: "终局" },
+  { id: "ending_shattered_vessel", icon: "⌁", name: "碎裂容器", detail: "摧毁核心后在残党围攻中阵亡", category: "结局" },
+  { id: "ending_total_eclipse", icon: "●", name: "全然日蚀", detail: "摧毁核心后被侵蚀彻底吞没", category: "结局" },
+  { id: "ending_willing_host", icon: "◉", name: "愿意的宿主", detail: "摧毁核心、清空残党并主动接纳黑暗", category: "结局" },
+  { id: "ending_hollow_custody", icon: "□", name: "空洞看守", detail: "保留核心后在残党围攻中阵亡", category: "结局" },
+  { id: "ending_perfect_vessel", icon: "◆", name: "完美躯壳", detail: "保留核心并清空残党，最终被核心占据", category: "结局" },
+  { id: "boss_campaign_legend", icon: "♛", name: "九渊弑神", detail: "在 Boss 专属模式完成九战序列", category: "传说" }
 ];
 
 const UPGRADES: UpgradeDefinition[] = [
@@ -1345,8 +1354,10 @@ const UPGRADES: UpgradeDefinition[] = [
     name: "龙息喷火",
     icon: "△",
     kind: "weapon",
-    description: (level) =>
-      `G 键喷火锥 · 长 ${60 + level * 30} × 宽 ${80 + level * 25} · 持续 ${600 + level * 100}ms · ${[18, 24, 32][level] || 32} 伤害/帧 · 冷却 ${[8, 7, 6][level] || 6}s`
+    description: (level) => {
+      const tier = Math.min(level, POWER_FLAME_LENGTHS.length - 1);
+      return `G 键巨型龙息 · 长 ${POWER_FLAME_LENGTHS[tier]} × 末端宽 ${POWER_FLAME_WIDTHS[tier]} · 持续 ${POWER_FLAME_DURATIONS[tier]}ms · ${POWER_FLAME_DAMAGE[tier]} 伤害/帧 · 冷却 ${POWER_FLAME_COOLDOWNS[tier]}s`;
+    }
   },
   // === 敏捷流派专属 ===
   {
@@ -1373,14 +1384,34 @@ const UPGRADES: UpgradeDefinition[] = [
       }s 补充 1 个`;
     }
   },
+  {
+    id: "agile_shadow_lunge",
+    name: "万象影袭",
+    icon: "✦",
+    kind: "weapon",
+    description: (level) =>
+      `影分身与影步突刺融合升级 · 额外同步残影 ${level + 1} · 联动伤害 +${Math.round(
+        (level + 1) * 55
+      )}% · 扫掠宽度 +${(level + 1) * 6} · 突刺冷却 -${formatRoundedNumberForDisplay(
+        (level + 1) * 1.5
+      )}s`
+  },
   // === 吞噬流派专属 ===
   {
     id: "devour_swallow",
     name: "深渊吞噬",
     icon: "▼",
     kind: "passive",
-    description: (level) =>
-      `碰撞改为吞噬:敌人比玩家小 ${[0.8, 0.9, 1.0, 1.08, 1.15][level] || 1.15} 倍以下即吞噬,获得 ${[8, 12, 16, 20, 24][level] || 24}% 体型 + ${[5, 8, 12, 16, 20][level] || 20}% 最大生命 · 敌人比玩家大则咬伤(自伤 ${[4, 5, 6, 7, 8][level] || 8} HP · 敌人被击退)`
+    description: (level) => {
+      const tier = DEVOUR_SWALLOW_LEVELS[Math.min(level, DEVOUR_SWALLOW_LEVELS.length - 1)];
+      return `碰撞吞噬阈值 ${tier.sizeThreshold} 倍 · 每只体型 +${formatRoundedNumberForDisplay(
+        tier.sizeGain * 100
+      )}%（本级体型上限为初始机体 ${formatRoundedNumberForDisplay(
+        tier.maxSizeMultiplier * 100
+      )}%）· 最大生命 +${tier.maxHealthGain} · 减伤 ${formatRoundedNumberForDisplay(
+        (1 - tier.damageTakenMultiplier) * 100
+      )}% · 回复额外生命 1% + 已损生命 2% + 目标最大生命 4% · 越级吞噬仍会引爆并折损 50% 额外生命`;
+    }
   },
   // === 防御流派专属 ===
   {
@@ -1389,7 +1420,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "◈",
     kind: "passive",
     description: () =>
-      `反伤:受击时 100% 反馈给攻击者 · 百分比伤害按 100 HP 算 · 累计反伤到 1000 点回 5% 最大生命+5% 已损生命 · 反死敌人: 2% 最大生命回复 + 1.2% 最大生命上限 · 替代默认击杀回血`
+      `反伤:敌人受到玩家实收伤害 3 倍 + 敌人自身最大生命 1.5% · 玩家回复本次反伤的 50% · 累计反伤到 1000 点触发荆棘共鸣`
   },
   // === 吸血流派专属 ===
   {
@@ -1398,7 +1429,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "⌇",
     kind: "passive",
     description: () =>
-      `子弹命中同帧生成 1 条链子锁住敌人(最多 8 条,每个单位最多 1 条)· 链子扣 50% 玩家伤害 · 锚定后按 0.3s 节奏回血 · 单目标 80% · 每多一个 +5%(上限 120%) · 链子持续 1.2s`
+      `子弹命中生成暗红虹吸链(最多 8 条,每个单位最多 1 条) · 链子持续 8s 并可连接 Boss · 每 0.3s 回复 1.2% 已损生命 · 满级额外造成目标自身最大生命 1% 伤害`
   },
   // === 逆航支援协议(原 Boss 击破掉落的强化,削弱后并入通用池,全流派可选) ===
   ...AIR_SUPPORT_SKILLS.map((skill) => ({
@@ -1414,6 +1445,14 @@ const UPGRADES: UpgradeDefinition[] = [
 ];
 
 let save: SaveData = loadSave(localStorage.getItem(SAVE_KEY));
+// 本地测试页向制作人开放全部成就皮肤，方便逐款检查商店与实战效果；生产包仍按成就解锁。
+if (import.meta.env.DEV) {
+  const localPreviewSkins: SkinId[] = ["standard", ...ACHIEVEMENT_SKIN_IDS];
+  if (localPreviewSkins.some((id) => !save.unlockedSkins.includes(id))) {
+    save.unlockedSkins = localPreviewSkins;
+    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+  }
+}
 if (localStorage.getItem(PERFORMANCE_MIGRATION_KEY) !== "1") {
   save.settings.quality = "low";
   localStorage.setItem(SAVE_KEY, JSON.stringify(save));
@@ -1631,13 +1670,19 @@ function shipMarkup(): string {
   `;
 }
 
-function fighterPreview(shipId: ShipId, className = ""): string {
+function fighterPreview(shipId: ShipId, className = "", showEquippedSkin = false): string {
   const ship = SHIPS[shipId];
-  const skin = SKINS[save.equippedSkin];
-  const variant = skin.variants[shipId] ?? skin.variants.balanced;
+  const equippedSkin = SKINS[save.equippedSkin];
+  const skinAvailable =
+    showEquippedSkin &&
+    save.equippedSkin !== "standard" &&
+    save.unlockedSkins.includes(save.equippedSkin) &&
+    Boolean(equippedSkin.asset);
+  const source = skinAvailable ? equippedSkin.asset! : `assets/fighters/${ship.asset}.png`;
+  const label = skinAvailable ? equippedSkin.name : ship.name;
   return `
-    <div class="fighter-preview ${className}" style="--skin-accent:${skin.accent}">
-      <img src="/assets/fighters/${ship.asset}.png" alt="${ship.name}" style="filter:${variant.cssFilter}" onerror="this.style.display='none';this.nextElementSibling.style.display='block'" />
+    <div class="fighter-preview ${className} ${skinAvailable ? "achievement-skin-equipped" : ""}">
+      <img src="${source}" alt="${label}" onerror="this.style.display='none';this.nextElementSibling.style.display='block'" />
       <div class="fighter-fallback" style="display:none">${shipMarkup()}</div>
     </div>
   `;
@@ -1652,11 +1697,11 @@ function showMenu(): void {
     <section class="screen home-screen" aria-label="主菜单">
       <div class="home-hero">
         <div class="menu-logo">
-          <div class="eyebrow">STARGUARD · v0.6.5</div>
-          <h1>星际守护者</h1>
+          <div class="eyebrow">STAR ABYSS · v0.6.5</div>
+          <h1>星渊突击</h1>
           <span class="en">NEON ABYSS</span>
         </div>
-        <div class="ship-showcase">${fighterPreview(save.selectedShip, "hero-fighter")}</div>
+        <div class="ship-showcase">${fighterPreview(save.selectedShip, "hero-fighter", true)}</div>
       </div>
       <button class="primary-button home-start-button" id="start-button">开始游戏</button>
       <section class="daily-login-card ${dailyOffer.available ? "available" : "claimed"}">
@@ -1714,7 +1759,7 @@ function showPilotSelect(): void {
   uiRoot.innerHTML = `
     <section class="screen">
       ${screenHeader("STEP 01 / FRAME & ROLE", "选择战机与专精")}
-      <div class="pilot-flow-hint">先选择机体，再装载一种战斗流派。五种流派拥有完全不同的弹道、成长和生存机制。</div>
+      <div class="pilot-flow-hint">先选择机体，再装载一种战斗流派。六种流派拥有完全不同的弹道、成长和生存机制。</div>
       <div class="pilot-select-grid">
         ${Object.entries(SHIPS)
           .map(
@@ -1931,12 +1976,12 @@ function showAbout(): void {
     <section class="screen">
       ${screenHeader("ABOUT / FLIGHT MANUAL", "关于与操作")}
       <div class="about-panel">
-        <div class="about-logo">星际守护者 <small>v0.6.5</small></div>
+        <div class="about-logo">星渊突击 <small>v0.6.5</small></div>
         <p>三类空域协议：普通战役最终通关、无尽模式分段存币、九战 Boss 固定终局。</p>
         <div class="key-table">
           <div><kbd>WASD / 方向键</kbd><span>移动战机</span></div>
           <div><kbd>SPACE</kbd><span>按住持续开火</span></div>
-          <div><kbd>1 / 2 / 3</kbd><span>激光、导弹、无人机技能（撞击流派禁用）</span></div>
+          <div><kbd>1 / 2 / 3</kbd><span>激光、导弹、无人机；撞击流派为破阵冲角、反应装甲、堡垒姿态</span></div>
           <div><kbd>Q</kbd><span>EMP 一键清屏</span></div>
           <div><kbd>E</kbd><span>星核超载；撞击流派为破阵冲刺</span></div>
           <div><kbd>G</kbd><span>流派专属主动技能：力量龙息喷火、敏捷影步突刺、撞击全速推进</span></div>
@@ -2037,7 +2082,7 @@ function showHangar(restoredScrollTop = 0): void {
         ${permanentDefinitions
           .map((item) => {
             const level = save.permanentUpgrades[item.id] ?? 0;
-            const cost = (40 + level * 28) * 5;
+            const cost = 40 + level * 28;
             const maxed = level >= item.max;
             return `
               <div class="shop-item">
@@ -2053,37 +2098,32 @@ function showHangar(restoredScrollTop = 0): void {
           })
           .join("")}
       </div>
-      <div class="skin-shop">
-        <div class="shop-title">涂装市场 <span>已拥有 ${save.unlockedSkins.length}/${Object.keys(SKINS).length}</span></div>
-        <div class="skin-grid">
-          ${Object.entries(SKINS)
-            .map(([id, skin]) => {
-              const owned = save.unlockedSkins.includes(id as SkinId);
-              const equipped = save.equippedSkin === id;
-              const unlockReq = skinUnlockRequirement(id as SkinId);
-              const isAchievementSkin = unlockReq !== "";
-              const locked = isAchievementSkin && !owned;
-              let buttonText: string;
-              if (equipped) buttonText = "已装备";
-              else if (owned) buttonText = "装备";
-              else if (locked) buttonText = "未解锁";
-              else buttonText = `◆ ${skin.cost}`;
-              return `
-                <article class="skin-card ${equipped ? "equipped" : ""} ${locked ? "locked" : ""}" style="--skin-color:${skin.accent}">
-                  <div class="skin-preview skin-preview-${id}">
-                    ${skinArtworkSVG(id as SkinId, skin.accent)}
-                    <span>${skin.code}</span>
-                  </div>
-                  <h3>${skin.name}</h3>
-                  <p>${skin.description}</p>
-                  <small class="skin-requirement">${locked ? unlockReq : owned && isAchievementSkin ? "✓ 成就解锁" : ""}</small>
-                  <button class="buy-button" data-skin="${id}" ${
-                    (!owned && save.starCores < skin.cost) || locked ? "disabled" : ""
-                  }>${buttonText}</button>
-                </article>
-              `;
-            })
-            .join("")}
+      <div class="achievement-skin-shop">
+        <div class="shop-title">成就皮肤 <span>已解锁 ${save.unlockedSkins.filter((id) => id !== "standard").length}/${ACHIEVEMENT_SKIN_IDS.length}</span></div>
+        <p class="achievement-skin-note">这里只保留结局与 Boss 成就奖励，不消耗星核币。所有模型均为独立主体，不是基础战机换色。</p>
+        <button class="skin-base-button ${save.equippedSkin === "standard" ? "equipped" : ""}" data-achievement-skin="standard">
+          <span>基础机体</span><small>恢复当前所选战机的原始模型</small><strong>${save.equippedSkin === "standard" ? "使用中" : "装备"}</strong>
+        </button>
+        <div class="achievement-skin-grid">
+          ${ACHIEVEMENT_SKIN_IDS.map((id) => {
+            const skin = SKINS[id];
+            const owned = save.unlockedSkins.includes(id);
+            const equipped = save.equippedSkin === id;
+            return `
+              <article class="achievement-skin-card rarity-${skin.rarity} ${owned ? "owned" : "locked"} ${equipped ? "equipped" : ""}" style="--skin-accent:${skin.accent}">
+                <div class="achievement-skin-model effect-${skin.effect}">
+                  <img class="achievement-skin-airframe" src="${skin.asset}" alt="${skin.name}" loading="lazy" />
+                  <img class="achievement-skin-projectile" src="${skin.bulletAsset}" alt="${skin.name}专属子弹" loading="lazy" />
+                </div>
+                <span class="achievement-skin-rarity">${SKIN_RARITY_LABELS[skin.rarity!]}</span>
+                <h3>${skin.name}</h3>
+                <small>${skin.code}</small>
+                <p>${skin.description}</p>
+                <em>${owned ? `✓ ${skin.unlock}` : `未解锁 · ${skin.unlock}`}</em>
+                <button class="buy-button" data-achievement-skin="${id}" ${owned ? "" : "disabled"}>${equipped ? "已装备" : owned ? "装备" : "未解锁"}</button>
+              </article>
+            `;
+          }).join("")}
         </div>
       </div>
     </section>
@@ -2116,22 +2156,15 @@ function showHangar(restoredScrollTop = 0): void {
       showHangar(scrollTop);
     });
   });
-  document.querySelectorAll<HTMLButtonElement>("[data-skin]").forEach((button) => {
+  document.querySelectorAll<HTMLButtonElement>("[data-achievement-skin]").forEach((button) => {
     button.addEventListener("click", () => {
+      const id = button.dataset.achievementSkin as SkinId;
+      if (id !== "standard" && !save.unlockedSkins.includes(id)) return;
       const scrollTop = document.querySelector<HTMLElement>(".screen")?.scrollTop ?? 0;
-      const id = button.dataset.skin as SkinId;
-      const skin = SKINS[id];
-      if (!save.unlockedSkins.includes(id)) {
-        if (save.starCores < skin.cost) return;
-        save.starCores -= skin.cost;
-        save.unlockedSkins.push(id);
-        showToast(`已购买涂装 · ${skin.name}`);
-      } else {
-        showToast(`已装备 · ${skin.name}`);
-      }
       save.equippedSkin = id;
       persist();
       sfx("upgrade");
+      showToast(id === "standard" ? "已恢复基础机体" : `已装备 · ${SKINS[id].name}`);
       showHangar(scrollTop);
     });
   });
@@ -2301,6 +2334,10 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
       (!upgrade.id.startsWith("vampire_") || save.selectedSpecialization === "vampire") &&
       (!upgrade.id.startsWith("devour_") || save.selectedSpecialization === "devour") &&
       (!upgrade.id.startsWith("wheelchair_") || save.selectedSpecialization === "wheelchair")
+      &&
+      (upgrade.id !== "agile_shadow_lunge" ||
+        ((scene.upgradeLevels.agile_lunge ?? 0) > 0 &&
+          (scene.upgradeLevels.agile_shadow_clone ?? 0) > 0))
   );
   const draw = (): void => {
     const options = chooseUniqueWeighted(available, 3);
@@ -2416,6 +2453,104 @@ function showDoctrineEvolution(scene: BattleScene, onComplete: () => void): void
   });
 }
 
+function showBossPowerChoice(
+  scene: BattleScene,
+  powers: BossPowerId[],
+  onComplete: () => void,
+  newlyRecovered?: BossPowerId
+): void {
+  const options = BOSS_POWER_OPTIONS.filter((option) => powers.includes(option.id));
+  if (!options.length) {
+    onComplete();
+    return;
+  }
+  scene.isModal = true;
+  scene.physics.world.pause();
+  overlayRoot.innerHTML = `
+    <div class="overlay boss-power-overlay">
+      <div class="overlay-panel boss-power-panel">
+        <div class="eyebrow">BOSS AUTHORITY RECOVERED</div>
+        <h2>首领主动技能三选一</h2>
+        <p>当前 Boss 的本源主动必定进入候选。主动权柄只能装备一个；选择后会替换当前 <kbd>V</kbd> 键技能，被动强化不会被替换。</p>
+        <div class="upgrade-grid boss-power-grid">
+          ${options.map((option, index) => `
+            <button class="upgrade-card boss-power-card ${scene.bossPower === option.id ? "equipped" : ""}" data-boss-power="${option.id}">
+              <span class="boss-power-vfx" style="--boss-power-image:url('${option.asset}')"></span>
+              <span class="upgrade-icon"><span>${option.icon}</span></span>
+              <span class="upgrade-level">${option.id === newlyRecovered ? "首领本源" : scene.bossPower === option.id ? "V · 当前装备" : `候选 ${index + 1}`}</span>
+              <span class="boss-power-source">来源 · ${option.source}</span>
+              <h3>${option.name}</h3>
+              <p>${option.description}</p>
+            </button>
+          `).join("")}
+        </div>
+        <div class="evolution-note">本界面只选择主动权柄 · 一次选择一项 · 同时只能装备一个 V 键技能。</div>
+      </div>
+    </div>
+  `;
+  document.querySelectorAll<HTMLButtonElement>("[data-boss-power]").forEach((button) => {
+    button.addEventListener("click", () => {
+      scene.setBossPower(button.dataset.bossPower as BossPowerId);
+      overlayRoot.innerHTML = "";
+      scene.isModal = false;
+      scene.physics.world.resume();
+      sfx("upgrade");
+      onComplete();
+    });
+  });
+}
+
+function showBossPassiveChoice(
+  scene: BattleScene,
+  bossKinds: readonly BossKind[],
+  onComplete: () => void
+): void {
+  const passiveIds = bossPassiveDropChoices(bossKinds, scene.bossPassives);
+  const options = passiveIds
+    .map((id) => BOSS_PASSIVE_OPTIONS.find((option) => option.id === id))
+    .filter((option): option is BossPassiveDefinition => Boolean(option));
+  if (!options.length) {
+    scene.showBanner("该 Boss 的专属被动已全部获得", 1000);
+    onComplete();
+    return;
+  }
+  scene.isModal = true;
+  scene.physics.world.pause();
+  overlayRoot.innerHTML = `
+    <div class="overlay boss-power-overlay boss-passive-overlay">
+      <div class="overlay-panel boss-power-panel boss-passive-panel">
+        <div class="eyebrow">EXCLUSIVE BOSS AUGMENT</div>
+        <h2>专属被动强化三选一</h2>
+        <p>这是黑影夺走的 Boss 专属强化。被动可以累计很多项，不占用 <kbd>V</kbd> 键，但本次掉落只能选择一项。</p>
+        <div class="upgrade-grid boss-power-grid boss-passive-grid">
+          ${options.map((option, index) => `
+            <button class="upgrade-card boss-power-card boss-passive-card" data-boss-passive="${option.id}" style="--passive-index:${index}">
+              <span class="boss-passive-emblem">${option.icon}</span>
+              <span class="upgrade-icon"><span>${option.icon}</span></span>
+              <span class="upgrade-level">专属被动 · 候选 ${index + 1}</span>
+              <span class="boss-power-source">来源 · ${BOSS_NAMES[option.kind]}</span>
+              <h3>${option.name}</h3>
+              <small>${option.code}</small>
+              <p>${option.description}</p>
+            </button>
+          `).join("")}
+        </div>
+        <div class="evolution-note">已累计 ${scene.bossPassives.length} 项专属被动 · 选择后永久保留到本局结束。</div>
+      </div>
+    </div>
+  `;
+  document.querySelectorAll<HTMLButtonElement>("[data-boss-passive]").forEach((button) => {
+    button.addEventListener("click", () => {
+      scene.grantBossPassive(button.dataset.bossPassive as BossPassiveId);
+      overlayRoot.innerHTML = "";
+      scene.isModal = false;
+      scene.physics.world.resume();
+      sfx("upgrade");
+      onComplete();
+    });
+  });
+}
+
 // === 终局抉择:损坏的黑暗核心 —— 摧毁还是保留 ===
 function showDarkCoreChoice(
   scene: BattleScene,
@@ -2483,6 +2618,8 @@ function showPause(scene: BattleScene): void {
     scene.isModal = false;
     scene.scene.resume();
     scene.physics.world.resume();
+    scene.game.loop.resetDelta();
+    scene.resumeFromManualPause();
     sfx("click");
   });
   document.querySelector("#restart-run")!.addEventListener("click", () => {
@@ -2514,13 +2651,6 @@ function finishRun(result: RunResult): void {
   save.starCores += result.reward;
   if (playVariant === "coop" && result.victory) {
     if (!save.achievements.coop_wing) save.achievements.coop_wing = new Date().toISOString();
-  }
-  // === 通关解锁「战役尖兵」皮肤 ===
-  if (result.victory && result.mode === "campaign" && save.records.highestUnlockedLevel >= 6) {
-    if (!save.unlockedSkins.includes("campaign_ace_skin")) {
-      save.unlockedSkins.push("campaign_ace_skin");
-      showToast(`🏅 解锁皮肤 · ${SKINS.campaign_ace_skin.name}`);
-    }
   }
   persist();
   sfx(result.victory ? "victory" : "hurt");
@@ -2627,6 +2757,7 @@ class BattleScene extends Phaser.Scene {
   cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   wasd!: Record<string, Phaser.Input.Keyboard.Key>;
   actionKeys!: Record<string, Phaser.Input.Keyboard.Key>;
+  domInputAbortController?: AbortController;
   upgradeLevels: Record<string, number> = { cannon: 1 };
   stats = {
     maxHp: 100,
@@ -2659,9 +2790,11 @@ class BattleScene extends Phaser.Scene {
   // === 力量流派:龙息喷火 ===
   flamethrowerActiveUntil = 0;
   flamethrowerNextReadyAt = 0;
+  nextFlamethrowerFxAt = 0;
   flamethrowerLength = 80;
   flamethrowerWidth = 80;
   flamethrowerDmgPerFrame = 18;
+  flamethrowerVisual?: Phaser.GameObjects.Image;
   // === 敏捷流派:影步突刺 ===
   lungingUntil = 0;
   lungingStartedAt = 0;
@@ -2686,6 +2819,7 @@ class BattleScene extends Phaser.Scene {
   deityPactTriggered = false;
   // === 吞噬流派:吞噬(动态体型) ===
   devourSizeMul = 1;          // 玩家当前体积倍数(从吞噬累加)
+  devourBonusMaxHp = 0;       // 仅记录吞噬得到的额外生命，用于越级吞噬反噬
   devourSizeLossNextAt = 0;   // 下次缓慢损失(回归基础,避免无限膨胀)
   devourKillCount = 0;        // 累计吞噬数(每 10 触发光环)
   // === 防御流派:荆棘护甲(反伤) ===
@@ -2701,8 +2835,11 @@ class BattleScene extends Phaser.Scene {
     maxLife: number;
     anchor?: Phaser.Physics.Arcade.Image;  // 锚定敌人
     angle: number;                 // 飞行方向(只对未锚定链子有意义)
+    visual?: Phaser.GameObjects.Image;
   }> = [];
   siphonChainsCooldownUntil = 0;  // 内部防同帧刷屏
+  nextSiphonHealAt = 0;
+  nextSiphonGroupFxAt = 0;
   // === 中文输入法状态(防止拼音键触发游戏) ===
   imeActive = false;
   invulnerableUntil = 0;
@@ -2739,6 +2876,8 @@ class BattleScene extends Phaser.Scene {
   nextBladeDamage = 0;
   nextTaunt = 2600;
   nextTrail = 0;
+  nextAchievementSkinFx = 0;
+  visualEffectsReadyAt = 0;
   levelCompleteTriggered = false;
   playerWasHit = false;
   skillReadyAt: Record<string, number> = { laser: 0, missile: 0, drone: 0, emp: 0 };
@@ -2754,12 +2893,34 @@ class BattleScene extends Phaser.Scene {
   wheelchairInitialMaxHp = 0;
   nextWheelchairHeal = 0;
   wheelchairOverdriveUntil = 0;
+  wheelchairBreachUntil = 0;
+  wheelchairReactiveArmorUntil = 0;
+  wheelchairReactiveStoredDamage = 0;
+  wheelchairFortressUntil = 0;
+  wheelchairFortressBaseWidth = 0;
+  wheelchairFortressBaseHeight = 0;
+  wheelchairFortressApplied = false;
+  wheelchairReactiveArmorVisual?: Phaser.GameObjects.Arc;
+  wheelchairFortressVisual?: Phaser.GameObjects.Arc;
   nextRamShockwave = 0;
   bossPower: BossPowerId | null = null;
+  recoveredBossPowers: BossPowerId[] = [];
+  bossPassives: BossPassiveId[] = [];
+  bossPowerDamageMultiplier = 1;
+  bossPowerAreaMultiplier = 1;
+  bossPowerCooldownMultiplier = 1;
+  bossPowerDurationMultiplier = 1;
+  bossPowerHealRatio = 0;
+  bossPowerMissingHealRatio = 0;
+  bossPowerCloneBonus = 0;
+  bossPowerInvulnMs = 0;
+  bossPassiveBossDamageTakenMultiplier = 1;
+  shadowRiftBladeBonus = 0;
   bossPowerActiveUntil = 0;
   bossPowerReadyAt = 0;
   bossPowerClones: Phaser.GameObjects.Image[] = [];
   nextBossPowerPulse = 0;
+  mirrorMimicIndex = 0;
   campaignEncounterIndex = 0;
   campaignBossesDefeated = 0;
   campaignInterludeActive = false;
@@ -2785,6 +2946,7 @@ class BattleScene extends Phaser.Scene {
   darkDotPerSecond = 0;
   darkDotUntil = 0;
   nextDarkDotTick = 0;
+  nextDarkEnergyFxAt = 0;
   darkStormUntil = 0;
   nextDarkStormTick = 0;
   strippedAbilities: string[] = [];
@@ -2806,12 +2968,11 @@ class BattleScene extends Phaser.Scene {
   darkAircraftNextHealAt = 0;
   darkAircraftNextAttack = 0;
   darkAircraftPhase: "idle" | "firework" | "clone" | "missile" | "stealth" | "enraged" = "idle";
-  darkAircraftStealthVisibleUntil = 0;
   darkAircraftClones: Phaser.Physics.Arcade.Image[] = [];
   darkAircraftEnraged = false;
   darkAircraftEnrageUntil = 0;
   darkAircraftDamageWindow: number[] = []; // 时间戳数组(用于检测 1s 内 27.5% 伤害)
-  darkDeityInvulnUntil = 0;               // 黑暗契约 G 键无敌窗口
+  darkDeityInvulnUntil = 0;               // 黑暗契约 V 键无敌窗口
   darkAircraftMaxHpBeforeLock = 0;        // 被锁 3000 之前玩家的真实 maxHp(用于突破时还原)
   originalPlayerMaxHp = 0;                // 玩家开局原始最大血量
   bossShattered = false;                  // 支离破碎：boss 释放同归于尽
@@ -2831,6 +2992,8 @@ class BattleScene extends Phaser.Scene {
   nextAirSupportAt: Partial<Record<AirSupportSkillId, number>> = {};
   enemySlowUntil = 0;
   enemyFreezeUntil = 0;
+  enemyFreezeStartedAt = 0;
+  enemyFreezeMotionOffset = 0;
   wingClones: Phaser.Physics.Arcade.Image[] = [];
   nextCloneShot = 0;
   bloodHitCounter = 0;
@@ -2838,6 +3001,8 @@ class BattleScene extends Phaser.Scene {
   player2CollisionReadyAt = 0;
   targetReticle?: Phaser.GameObjects.Container;
   horizonGlow?: Phaser.GameObjects.Graphics;
+  bossTransientEffects = new Set<Phaser.GameObjects.GameObject>();
+  activeBossAttackTypes = new Map<string, number>();
   hud!: {
     graphics: Phaser.GameObjects.Graphics;
     hp: Phaser.GameObjects.Text;
@@ -2852,35 +3017,129 @@ class BattleScene extends Phaser.Scene {
     super("battle");
   }
 
+  resumeFromManualPause(): void {
+    const now = this.time.now;
+    this.visualEffectsReadyAt = Math.max(this.visualEffectsReadyAt, now + 320);
+    this.nextTrail = Math.max(this.nextTrail, now + 90);
+    this.nextShot = Math.max(this.nextShot, now + 45);
+    this.nextLaser = Math.max(this.nextLaser, now + 100);
+    this.nextMissile = Math.max(this.nextMissile, now + 150);
+    this.nextDroneShot = Math.max(this.nextDroneShot, now + 190);
+    if (!this.bossActive) this.nextSpawn = Math.max(this.nextSpawn, now + 160);
+    this.nextBossAttack = Math.max(this.nextBossAttack, now + 220);
+    Object.keys(this.nextAirSupportAt).forEach((id, index) => {
+      const key = id as AirSupportSkillId;
+      if ((this.nextAirSupportAt[key] ?? 0) <= now) {
+        this.nextAirSupportAt[key] = now + 260 + index * 70;
+      }
+    });
+  }
+
+  trackBossEffect<T extends Phaser.GameObjects.GameObject>(effect: T, lifetime = 3200): T {
+    this.bossTransientEffects.add(effect);
+    effect.once("destroy", () => this.bossTransientEffects.delete(effect));
+    this.time.delayedCall(lifetime, () => {
+      if (!effect.active) return;
+      this.tweens.killTweensOf(effect);
+      effect.destroy();
+    });
+    return effect;
+  }
+
+  clearBossAttackEffects(): void {
+    for (const effect of this.bossTransientEffects) {
+      this.tweens.killTweensOf(effect);
+      if (effect.active) effect.destroy();
+    }
+    this.bossTransientEffects.clear();
+    this.activeBossAttackTypes.clear();
+  }
+
+  startBossAttackType(type: string, attack: () => void, lifetime = 7000): boolean {
+    const now = this.time.now;
+    for (const [activeType, expiresAt] of this.activeBossAttackTypes) {
+      if (expiresAt <= now) this.activeBossAttackTypes.delete(activeType);
+    }
+    if (!this.activeBossAttackTypes.has(type) && this.activeBossAttackTypes.size >= 4) {
+      return false;
+    }
+    this.activeBossAttackTypes.set(type, now + lifetime);
+    attack();
+    return true;
+  }
+
   preload(): void {
     Object.values(SHIPS).forEach((ship) => {
-      this.load.image(ship.asset, `/assets/fighters/${ship.asset}.png`);
+      this.load.image(ship.asset, `assets/fighters/${ship.asset}.png`);
     });
-    this.load.image("bossTitan", "/assets/enemies/boss_titan.png");
-    this.load.image("bossUsurper", "/assets/enemies/boss_usurper.png");
-    this.load.image("bossShadow", "/assets/enemies/boss_shadow.png");
-    this.load.image("bossShadowStage1", "/assets/enemies/boss_shadow_stage1.png");
-    this.load.image("bossShadowStage2", "/assets/enemies/boss_shadow_stage2.png");
-    this.load.image("bossShadowStage3", "/assets/enemies/boss_shadow_stage3.png");
-    this.load.image("bossShadowComplete", "/assets/enemies/boss_shadow_complete.png");
-    this.load.image("bossDarkDeity", "/assets/enemies/boss_dark_deity.png");
-    this.load.image("enemyScoutArt", "/assets/enemies/enemy_scout.png");
-    this.load.image("enemyInterceptorArt", "/assets/enemies/enemy_interceptor.png");
-    this.load.image("enemyStrikerArt", "/assets/enemies/enemy_striker.png");
-    this.load.image("enemySuppressorArt", "/assets/enemies/enemy_suppressor.png");
-    this.load.image("enemyMineLayerArt", "/assets/enemies/enemy_mine_layer.png");
-    this.load.image("enemyGunshipArt", "/assets/enemies/enemy_gunship.png");
-    this.load.image("enemyEliteArt", "/assets/enemies/enemy_elite_gunship.png");
-    this.load.image("enemyBomberArt", "/assets/enemies/enemy_bomber.png");
-    this.load.image("enemyCourierArt", "/assets/enemies/enemy_courier.png");
-    this.load.image("enemyEliteScoutArt", "/assets/enemies/enemy_elite_scout.png");
-    this.load.image("enemyEliteInterceptorArt", "/assets/enemies/enemy_elite_interceptor.png");
-    this.load.image("enemyEliteStrikerArt", "/assets/enemies/enemy_elite_striker.png");
-    this.load.image("enemyEliteSuppressorArt", "/assets/enemies/enemy_elite_suppressor.png");
-    this.load.image("enemyEliteMineLayerArt", "/assets/enemies/enemy_elite_mine_layer.png");
-    this.load.image("enemyEliteBomberArt", "/assets/enemies/enemy_elite_bomber.png");
-    this.load.image("enemyEliteCourierArt", "/assets/enemies/enemy_elite_courier.png");
-    this.load.image("starCoreTokenArt", "/assets/pickups/star_core_token.png");
+    // 战斗场景只把当前装备的一款成就皮肤上传到显存；商店图不重复载入 Phaser。
+    const equippedSkin = save.unlockedSkins.includes(save.equippedSkin)
+      ? SKINS[save.equippedSkin]
+      : SKINS.standard;
+    if (equippedSkin.asset) {
+      this.load.image(achievementSkinTextureKey(save.equippedSkin), equippedSkin.asset);
+    }
+    if (equippedSkin.bulletAsset) {
+      this.load.image(
+        achievementSkinBulletTextureKey(save.equippedSkin),
+        equippedSkin.bulletAsset
+      );
+    }
+    this.load.spritesheet(
+      "siphonChainFx",
+      "assets/effects/generated/siphon_chain_strip.png",
+      { frameWidth: 512, frameHeight: 64 }
+    );
+    this.load.spritesheet(
+      "flamethrowerFx",
+      "assets/effects/generated/flamethrower_strip.png",
+      { frameWidth: 256, frameHeight: 256 }
+    );
+    const animatedBossFx: Array<[string, string]> = [
+      ["bossPowerFx_titan", "boss_power_titan.png"],
+      ["bossPowerFx_mirror", "boss_power_mirror.png"],
+      ["bossPowerFx_usurper", "boss_power_usurper.png"],
+      ["bossPowerFx_shadow", "boss_power_shadow.png"],
+      ["bossPowerFx_dark_deity", "boss_power_dark_deity.png"],
+      ["bossPowerFx_freeze", "boss_power_freeze.png"],
+      ["bossSkillFx_titan", "boss_skills_titan.png"],
+      ["bossSkillFx_mirror", "boss_skills_mirror.png"],
+      ["bossSkillFx_usurper", "boss_skills_usurper.png"],
+      ["bossSkillFx_shadow", "boss_skills_shadow.png"],
+      ["bossSkillFx_dark_deity", "boss_skills_dark_deity.png"],
+      ["bossSkillFx_dark_aircraft", "boss_skills_dark_aircraft.png"]
+    ];
+    animatedBossFx.forEach(([key, filename]) => {
+      this.load.spritesheet(key, `assets/effects/generated/${filename}`, {
+        frameWidth: 256,
+        frameHeight: 256
+      });
+    });
+    this.load.image("bossTitan", "assets/enemies/boss_titan.png");
+    this.load.image("bossUsurper", "assets/enemies/boss_usurper.png");
+    this.load.image("bossShadow", "assets/enemies/boss_shadow.png");
+    this.load.image("bossShadowStage1", "assets/enemies/boss_shadow_stage1.png");
+    this.load.image("bossShadowStage2", "assets/enemies/boss_shadow_stage2.png");
+    this.load.image("bossShadowStage3", "assets/enemies/boss_shadow_stage3.png");
+    this.load.image("bossShadowComplete", "assets/enemies/boss_shadow_complete.png");
+    this.load.image("bossDarkDeity", "assets/enemies/boss_dark_deity.png");
+    this.load.image("enemyScoutArt", "assets/enemies/enemy_scout.png");
+    this.load.image("enemyInterceptorArt", "assets/enemies/enemy_interceptor.png");
+    this.load.image("enemyStrikerArt", "assets/enemies/enemy_striker.png");
+    this.load.image("enemySuppressorArt", "assets/enemies/enemy_suppressor.png");
+    this.load.image("enemyMineLayerArt", "assets/enemies/enemy_mine_layer.png");
+    this.load.image("enemyGunshipArt", "assets/enemies/enemy_gunship.png");
+    this.load.image("enemyEliteArt", "assets/enemies/enemy_elite_gunship.png");
+    this.load.image("enemyBomberArt", "assets/enemies/enemy_bomber.png");
+    this.load.image("enemyCourierArt", "assets/enemies/enemy_courier.png");
+    this.load.image("enemyEliteScoutArt", "assets/enemies/enemy_elite_scout.png");
+    this.load.image("enemyEliteInterceptorArt", "assets/enemies/enemy_elite_interceptor.png");
+    this.load.image("enemyEliteStrikerArt", "assets/enemies/enemy_elite_striker.png");
+    this.load.image("enemyEliteSuppressorArt", "assets/enemies/enemy_elite_suppressor.png");
+    this.load.image("enemyEliteMineLayerArt", "assets/enemies/enemy_elite_mine_layer.png");
+    this.load.image("enemyEliteBomberArt", "assets/enemies/enemy_elite_bomber.png");
+    this.load.image("enemyEliteCourierArt", "assets/enemies/enemy_elite_courier.png");
+    this.load.image("starCoreTokenArt", "assets/pickups/star_core_token.png");
   }
 
   create(): void {
@@ -3036,7 +3295,11 @@ class BattleScene extends Phaser.Scene {
             .map((bullet) => ({
               weapon: bullet.getData("weapon"),
               damage: bullet.getData("damage"),
-              owner: bullet.getData("owner")
+              owner: bullet.getData("owner"),
+              texture: bullet.texture.key,
+              achievementSkinBullet: Boolean(bullet.getData("achievementSkinBullet")),
+              displayWidth: bullet.displayWidth,
+              displayHeight: bullet.displayHeight
             })),
           nextBossScore: this.nextBossScore,
           player2: Boolean(this.player2?.active),
@@ -3359,7 +3622,7 @@ class BattleScene extends Phaser.Scene {
       if (!save.seenTutorial) {
         this.showBanner(
           save.selectedSpecialization === "wheelchair"
-            ? "撞击协议 · E 破阵冲刺 · 1/2/3 禁用 · 后续武装自动释放"
+            ? "撞击协议 · [1]破阵冲角 · [2]反应装甲 · [3]堡垒姿态 · [E]破阵冲刺"
             : "驾驶战机 · SPACE 开火 · F 相位闪避 · R 纳米修复",
           2100
         );
@@ -3373,15 +3636,15 @@ class BattleScene extends Phaser.Scene {
     if (this.textures.exists("player")) return;
     const g = this.add.graphics();
     g.fillStyle(0x2df4ff, 0.2);
-    g.fillTriangle(48, 4, 3, 86, 93, 86);
+    g.fillEllipse(48, 55, 92, 66);
     g.fillStyle(0x163a57, 1);
-    g.fillTriangle(48, 7, 10, 80, 86, 80);
+    g.fillRoundedRect(10, 48, 76, 32, 14);
     g.fillStyle(0xdffcff, 1);
-    g.fillTriangle(48, 4, 32, 91, 64, 91);
+    g.fillRoundedRect(36, 4, 24, 87, 12);
     g.fillStyle(0x3478ff, 1);
-    g.fillTriangle(48, 20, 39, 73, 57, 73);
+    g.fillEllipse(48, 43, 16, 38);
     g.lineStyle(3, 0x2df4ff, 0.9);
-    g.strokeTriangle(48, 4, 10, 80, 86, 80);
+    g.strokeRoundedRect(10, 48, 76, 32, 14);
     g.generateTexture("player", 96, 98);
     g.clear();
 
@@ -3407,9 +3670,10 @@ class BattleScene extends Phaser.Scene {
     g.clear();
 
     g.fillStyle(0xffbd3e, 1);
-    g.fillTriangle(12, 0, 2, 28, 22, 28);
+    g.fillRoundedRect(4, 0, 16, 30, 8);
+    g.fillCircle(12, 5, 8);
     g.fillStyle(0xff3dbb, 1);
-    g.fillRect(7, 22, 10, 14);
+    g.fillRoundedRect(7, 24, 10, 14, 5);
     g.generateTexture("missile", 24, 38);
     g.clear();
 
@@ -3421,36 +3685,36 @@ class BattleScene extends Phaser.Scene {
     g.clear();
 
     g.fillStyle(0x8a2e5d, 1);
-    g.fillTriangle(42, 70, 4, 15, 80, 15);
+    g.fillRoundedRect(4, 15, 76, 40, 18);
     g.fillStyle(0xff4d6d, 1);
-    g.fillTriangle(42, 66, 25, 8, 59, 8);
+    g.fillRoundedRect(29, 8, 26, 58, 12);
     g.lineStyle(2, 0xff8ab7, 0.8);
-    g.strokeTriangle(42, 70, 4, 15, 80, 15);
+    g.strokeRoundedRect(4, 15, 76, 40, 18);
     g.generateTexture("enemyScout", 84, 74);
     g.clear();
 
     g.fillStyle(0x3f285f, 1);
     g.fillRoundedRect(5, 6, 88, 52, 8);
     g.fillStyle(0x9b5cff, 1);
-    g.fillTriangle(49, 66, 27, 9, 71, 9);
+    g.fillRoundedRect(33, 9, 32, 57, 12);
     g.lineStyle(2, 0xf084ff, 0.7);
     g.strokeRoundedRect(5, 6, 88, 52, 8);
     g.generateTexture("enemyGunship", 98, 72);
     g.clear();
 
     g.fillStyle(0x203d73, 1);
-    g.fillTriangle(38, 70, 2, 18, 74, 18);
+    g.fillRoundedRect(2, 18, 72, 38, 18);
     g.fillStyle(0x49b8ff, 1);
-    g.fillTriangle(38, 64, 27, 4, 49, 4);
+    g.fillRoundedRect(27, 4, 22, 60, 11);
     g.lineStyle(2, 0xa7e7ff, 0.8);
-    g.strokeTriangle(38, 70, 2, 18, 74, 18);
+    g.strokeRoundedRect(2, 18, 72, 38, 18);
     g.generateTexture("enemyInterceptor", 76, 72);
     g.clear();
 
     g.fillStyle(0x4f2318, 1);
     g.fillRoundedRect(5, 14, 104, 52, 12);
     g.fillStyle(0xff8a3d, 1);
-    g.fillTriangle(57, 2, 32, 72, 82, 72);
+    g.fillRoundedRect(36, 2, 42, 70, 17);
     g.fillCircle(57, 40, 11);
     g.lineStyle(3, 0xffcf70, 0.8);
     g.strokeRoundedRect(5, 14, 104, 52, 12);
@@ -3460,23 +3724,23 @@ class BattleScene extends Phaser.Scene {
     g.fillStyle(0x234637, 1);
     g.fillRoundedRect(4, 10, 86, 48, 18);
     g.fillStyle(0x43ff9a, 1);
-    g.fillTriangle(47, 2, 25, 66, 69, 66);
+    g.fillRoundedRect(30, 2, 34, 64, 15);
     g.lineStyle(3, 0xb9ffdc, 0.9);
     g.strokeRoundedRect(4, 10, 86, 48, 18);
     g.generateTexture("enemyCourier", 94, 70);
     g.clear();
 
     g.fillStyle(0x19344d, 1);
-    g.fillTriangle(24, 0, 1, 35, 47, 35);
+    g.fillEllipse(24, 20, 46, 34);
     g.lineStyle(2, 0x2df4ff, 0.8);
-    g.strokeTriangle(24, 0, 1, 35, 47, 35);
+    g.strokeEllipse(24, 20, 46, 34);
     g.generateTexture("drone", 48, 38);
     g.clear();
 
     g.fillStyle(0x2df4ff, 0.18);
     g.fillCircle(18, 18, 17);
     g.lineStyle(3, 0x2df4ff, 0.95);
-    g.strokeTriangle(18, 1, 3, 29, 33, 29);
+    g.strokeCircle(18, 18, 13);
     g.generateTexture("blade", 36, 36);
     g.clear();
 
@@ -3502,7 +3766,7 @@ class BattleScene extends Phaser.Scene {
     g.lineStyle(4, 0xff7de3, 0.95);
     g.strokeCircle(24, 24, 20);
     g.lineStyle(3, 0x2df4ff, 1);
-    g.strokeTriangle(24, 7, 9, 34, 39, 34);
+    g.strokeCircle(24, 24, 12);
     g.fillStyle(0xffd95e, 1);
     g.fillCircle(24, 24, 5);
     g.generateTexture("skillPickup", 48, 48);
@@ -3521,7 +3785,7 @@ class BattleScene extends Phaser.Scene {
     g.fillStyle(0x6f1c50, 1);
     g.fillRoundedRect(0, 20, 360, 170, 28);
     g.fillStyle(0x240c2d, 1);
-    g.fillTriangle(180, 0, 70, 190, 290, 190);
+    g.fillEllipse(180, 94, 220, 176);
     g.fillStyle(0xff3dbb, 1);
     g.fillCircle(180, 108, 40);
     g.lineStyle(5, 0xff6cc8, 0.75);
@@ -3593,37 +3857,37 @@ class BattleScene extends Phaser.Scene {
       1 + (save.permanentUpgrades.firepower ?? 0) * 0.03 * ATTACK_BONUS_SCALE;
     const speedBoost = 1 + (save.permanentUpgrades.engine ?? 0) * 0.025;
     const armorBoost = 1 - Math.min(0.3, (save.permanentUpgrades.armor ?? 0) * 0.015);
-    // === 通用强化 ===
-    const endLv = this.upgradeLevels.endurance ?? 0;
-    const velLv = this.upgradeLevels.velocity ?? 0;
-    const ocLv = this.upgradeLevels.overcharge ?? 0;
-    const magLv = this.upgradeLevels.magnetism ?? 0;
-    const endHpMul = 1 + (endLv + 1) * 0.08;
-    const endArmor = 1 - Math.min(0.6, (endLv + 1) * 0.02);
-    const velSpeed = 1 + (velLv + 1) * 0.04;
-    const velFire = 1 + (velLv + 1) * 0.04;
-    const ocDmg = 1 + (ocLv + 1) * 0.06;
-    const magXp = 1 + (magLv + 1) * 0.06;
-    this.stats.maxHp = Math.round(ship.hp * specialization.hp * hpBoost * endHpMul);
+    this.stats.maxHp = Math.round(ship.hp * specialization.hp * hpBoost);
     this.stats.hp = this.stats.maxHp;
     this.originalPlayerMaxHp = this.stats.maxHp;
     this.wheelchairInitialMaxHp = this.stats.maxHp;
-    this.stats.speed = ship.speed * specialization.speed * speedBoost * velSpeed;
+    this.stats.speed = ship.speed * specialization.speed * speedBoost;
     this.stats.damageMultiplier =
-      damageBoost * ship.damage * specialization.damage * ocDmg;
+      damageBoost * ship.damage * specialization.damage;
     this.stats.cooldownMultiplier = specialization.cooldown;
-    this.stats.damageTakenMultiplier = specialization.damageTaken * armorBoost * endArmor;
-    this.stats.fireRateMultiplier = specialization.fireRate * velFire;
+    this.stats.damageTakenMultiplier = specialization.damageTaken * armorBoost;
+    this.stats.fireRateMultiplier = specialization.fireRate;
     this.stats.critChance =
       (save.selectedSpecialization === "power" ? 0.1 : 0.05) *
-      SPECIALIZATION_BASE_STAT_BOOST *
-      (1 + (ocLv + 1) * 0.02);
-    this.xpMultiplier = magXp;
+      SPECIALIZATION_BASE_STAT_BOOST;
+    this.xpMultiplier = 1;
     this.stats.explosionTakenMultiplier = specialization.explosionTaken;
     this.nextWheelchairHeal = this.time.now + 5000;
+    this.wheelchairBreachUntil = 0;
+    this.wheelchairReactiveArmorUntil = 0;
+    this.wheelchairReactiveStoredDamage = 0;
+    this.wheelchairFortressUntil = 0;
+    this.wheelchairFortressApplied = false;
+    this.wheelchairReactiveArmorVisual?.destroy();
+    this.wheelchairReactiveArmorVisual = undefined;
+    this.wheelchairFortressVisual?.destroy();
+    this.wheelchairFortressVisual = undefined;
     this.nextAgileBloom = this.time.now + 1350;
     this.nextShadowCloneAt = this.time.now + 12000;
+    // 先让核心贴图进入显存，再逐步开启高频粒子，避免开局首秒卡顿。
+    this.visualEffectsReadyAt = this.time.now + 650;
     this.devourKillCount = 0;
+    this.devourBonusMaxHp = 0;
     this.rerolls = 1 + save.permanentUpgrades.reroll;
     // === BOSS 护符:每局重置 ===
     this.mirrorEchoArmed = false;
@@ -3631,22 +3895,16 @@ class BattleScene extends Phaser.Scene {
     this.usurperBlight = false;
     this.deityPactArmed = false;
     this.deityPactTriggered = false;
-    // === 玩家战机贴图:皮肤系列中当前战机对应的 fighter_*.png > 战机默认 ===
-    const equippedSkin = SKINS[save.equippedSkin];
-    const currentShipId: ShipId = (save.selectedShip as ShipId) ?? "balanced";
-    const skinVariant = equippedSkin.variants[currentShipId] ?? equippedSkin.variants.balanced;
-    const skinFighter = skinVariant.fighterBase;
-    const skinKey = skinFighter ? `skin_${skinFighter}` : null;
-    if (skinKey && !this.textures.exists(skinKey)) {
-      this.load.image(skinKey, `assets/skins/${skinFighter}.png`);
-      this.load.once("filecomplete-image-" + skinKey, () => {
-        if (this.player?.active) this.player.setTexture(skinKey!);
-      });
-      this.load.start();
-    }
-    const playerTexture = skinKey && this.textures.exists(skinKey)
-      ? skinKey
-      : (this.textures.exists(ship.asset) ? ship.asset : "player");
+    const equippedSkin = save.unlockedSkins.includes(save.equippedSkin)
+      ? SKINS[save.equippedSkin]
+      : SKINS.standard;
+    const achievementTexture = achievementSkinTextureKey(save.equippedSkin);
+    const playerTexture =
+      equippedSkin.asset && this.textures.exists(achievementTexture)
+        ? achievementTexture
+        : this.textures.exists(ship.asset)
+          ? ship.asset
+          : "player";
     this.player = this.physics.add.image(
       playVariant === "single" ? WORLD_WIDTH / 2 : WORLD_WIDTH * 0.37,
       WORLD_HEIGHT - 180,
@@ -3656,14 +3914,20 @@ class BattleScene extends Phaser.Scene {
       .setDisplaySize(98 * specialization.scale, 98 * specialization.scale)
       .setDepth(10)
       .setCollideWorldBounds(true)
-      .setData("owner", 1)
-      .setTint(currentSkinVariant().tint);
+      .setData("owner", 1);
+    this.wheelchairFortressBaseWidth = this.player.displayWidth;
+    this.wheelchairFortressBaseHeight = this.player.displayHeight;
     this.configurePlayerBody(this.player);
     this.targetX = this.player.x;
     this.targetY = this.player.y;
     if (playVariant !== "single") {
       const ship2 = SHIPS[selectedShip2];
-      const texture2 = this.textures.exists(ship2.asset) ? ship2.asset : "player";
+      const texture2 =
+        equippedSkin.asset && this.textures.exists(achievementTexture)
+          ? achievementTexture
+          : this.textures.exists(ship2.asset)
+            ? ship2.asset
+            : "player";
       this.player2 = this.physics.add.image(WORLD_WIDTH * 0.63, WORLD_HEIGHT - 180, texture2);
       this.player2
         .setDisplaySize(98 * specialization.scale, 98 * specialization.scale)
@@ -3671,15 +3935,14 @@ class BattleScene extends Phaser.Scene {
         .setCollideWorldBounds(true)
         .setData("owner", 2);
       this.configurePlayerBody(this.player2);
-      this.player2.setTint(currentSkinVariant().tint);
       this.player2MaxHp = Math.round(ship2.hp * specialization.hp * hpBoost);
       this.player2Hp = this.player2MaxHp;
     }
   }
 
-  configurePlayerBody(player: Phaser.Physics.Arcade.Image): void {
+  configurePlayerBody(player: Phaser.Physics.Arcade.Image, worldDiameter = 28): void {
     const scale = player.displayWidth / player.width;
-    const bodySourceSize = 28 / scale;
+    const bodySourceSize = worldDiameter / scale;
     player.body!.setSize(bodySourceSize, bodySourceSize);
     player.body!.setOffset((player.width - bodySourceSize) / 2, (player.height - bodySourceSize) / 2);
   }
@@ -3687,13 +3950,13 @@ class BattleScene extends Phaser.Scene {
   createHud(): void {
     const cockpit = this.add.graphics().setDepth(48);
     cockpit.fillStyle(0x020713, 0.94);
-    cockpit.fillTriangle(0, 0, 58, 0, 0, WORLD_HEIGHT);
-    cockpit.fillTriangle(WORLD_WIDTH, 0, WORLD_WIDTH - 58, 0, WORLD_WIDTH, WORLD_HEIGHT);
-    cockpit.fillTriangle(0, WORLD_HEIGHT, 170, WORLD_HEIGHT, 0, WORLD_HEIGHT - 210);
-    cockpit.fillTriangle(WORLD_WIDTH, WORLD_HEIGHT, WORLD_WIDTH - 170, WORLD_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT - 210);
+    cockpit.fillRect(0, 0, 18, WORLD_HEIGHT);
+    cockpit.fillRect(WORLD_WIDTH - 18, 0, 18, WORLD_HEIGHT);
+    cockpit.fillRoundedRect(0, WORLD_HEIGHT - 56, 170, 56, 18);
+    cockpit.fillRoundedRect(WORLD_WIDTH - 170, WORLD_HEIGHT - 56, 170, 56, 18);
     cockpit.lineStyle(4, 0x183f5c, 0.95);
-    cockpit.lineBetween(0, WORLD_HEIGHT - 210, 170, WORLD_HEIGHT);
-    cockpit.lineBetween(WORLD_WIDTH, WORLD_HEIGHT - 210, WORLD_WIDTH - 170, WORLD_HEIGHT);
+    cockpit.lineBetween(0, WORLD_HEIGHT - 56, 170, WORLD_HEIGHT - 56);
+    cockpit.lineBetween(WORLD_WIDTH, WORLD_HEIGHT - 56, WORLD_WIDTH - 170, WORLD_HEIGHT - 56);
     cockpit.lineStyle(1, 0x2df4ff, 0.4);
     cockpit.lineBetween(12, 0, 12, WORLD_HEIGHT - 180);
     cockpit.lineBetween(WORLD_WIDTH - 12, 0, WORLD_WIDTH - 12, WORLD_HEIGHT - 180);
@@ -3757,7 +4020,7 @@ class BattleScene extends Phaser.Scene {
         WORLD_HEIGHT - 40,
         playVariant === "single"
           ? save.selectedSpecialization === "wheelchair"
-            ? "撞击歼敌  [E]破阵冲刺  [Q]EMP  [G]全速推进  [V]首领权柄  [1/2/3]禁用  后续武装自动释放"
+            ? "撞击歼敌  [1]破阵冲角  [2]反应装甲  [3]堡垒姿态  [E]破阵冲刺  [G]全速推进  [V]权柄"
             : "SPACE 开火  [1]激光 [2]导弹 [3]无人机  [Q]清屏 [E]超载  [F]相位闪避 [R]纳米修复"
           : "P1 WASD/SPACE/1-3/Q/E  ·  P2 方向键/ENTER/J/K/L  ·  友军爆破开启",
         { ...font, fontSize: "11px", color: "#6fa0b4", backgroundColor: "#04111fcc" }
@@ -3856,21 +4119,19 @@ class BattleScene extends Phaser.Scene {
       const stolenKind = value as BossKind;
       item.disableBody(true, true);
       this.pickupEffect(collector.x, collector.y, true);
-      // 黑影抢走的 Boss 专属强化在此归还:护符(被动) + 权柄(V 键主动)
-      const amulet = BOSS_AMULETS[stolenKind];
-      amulet.apply(this);
-      this.setBossPower(BOSS_KIND_TO_POWER[stolenKind]);
       this.cameras.main.flash(160, 230, 255, 255);
       this.showBanner(
-        `◆ 夺回 ${BOSS_NAMES[stolenKind]}强化: ${amulet.code} · ${amulet.description}`,
+        `◆ 夺回 ${BOSS_NAMES[stolenKind]}专属强化 · 被动三选一`,
         2000
       );
-      this.floatText(WORLD_WIDTH / 2, 340, `${amulet.name} 已嵌入战机`, true);
+      this.floatText(WORLD_WIDTH / 2, 340, "黑影强化核心已回收", true);
       this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.6);
-      // 额外再给一次通用强化三选一
+      // 当前 Boss 的主动权柄已在原 Boss 击破时选择；黑影只归还其专属被动。
       this.time.delayedCall(1200, () => {
-        showUpgrade(this, () => {
-          onCollected?.();
+        showBossPassiveChoice(this, [stolenKind], () => {
+          showUpgrade(this, () => {
+            onCollected?.();
+          });
         });
       });
       return;
@@ -3892,15 +4153,14 @@ class BattleScene extends Phaser.Scene {
     const maxHp = enemy.getData("maxHp") ?? enemy.getData("hp") ?? 30;
     if (owner === 1 && save.selectedSpecialization === "wheelchair") {
       const overdriveActive = now < this.wheelchairOverdriveUntil;
-      this.collisionReadyAt = now + (overdriveActive ? 163 : 300);
+      const fortressActive = now < this.wheelchairFortressUntil;
+      this.collisionReadyAt = now + (fortressActive ? 145 : overdriveActive ? 163 : 300);
       const isElite = Boolean(enemy.getData("elite"));
       const baseRamDamage = this.wheelchairRamDamage() * (isElite ? 1.25 : 1);
-      const ramDamage =
+      let ramDamage =
         type === "scout" && !isElite
           ? Math.max(baseRamDamage, enemy.getData("hp") ?? maxHp)
           : baseRamDamage;
-      const remainingHp = (enemy.getData("hp") ?? maxHp) - ramDamage;
-      enemy.setData("hp", remainingHp);
       this.damagePlayer(
         isElite || type === "gunship" || type === "bomber"
           ? 24
@@ -3910,6 +4170,9 @@ class BattleScene extends Phaser.Scene {
         "collision",
         "minion"
       );
+      ramDamage += this.consumeWheelchairReactiveCharge(enemy.x, enemy.y);
+      const remainingHp = (enemy.getData("hp") ?? maxHp) - ramDamage;
+      enemy.setData("hp", remainingHp);
       if (remainingHp <= 0) {
         enemy.setData("lastOwner", 1);
         enemy.setData("wheelchairRamKill", true);
@@ -3920,11 +4183,14 @@ class BattleScene extends Phaser.Scene {
         const dx = enemy.x - this.player.x;
         const dy = enemy.y - (this.player.y - 20);
         const len = Math.hypot(dx, dy) || 1;
-        const knockVx = (dx / len) * 1080;
-        const knockVy = (dy / len) * 1080 - 60; // 略微向上飘
+        const knockSpeed = fortressActive ? 1380 : 1080;
+        const knockVx = (dx / len) * knockSpeed;
+        const knockVy = (dy / len) * knockSpeed - 60; // 略微向上飘
         enemy.setVelocity(knockVx, knockVy);
-        enemy.setData("wheelchairKnockedUntil", this.time.now + 1400);
+        enemy.setData("wheelchairKnockedUntil", this.time.now + (fortressActive ? 1850 : 1400));
         enemy.setData("wheelchairKnockDamage", ramDamage);
+        // 可用的边缘反弹次数
+        enemy.setData("billiardBounceLeft", fortressActive ? 6 : 4);
         this.spawnKnockedFx(enemy, 0xffd54a, 0xffe5a3);
         enemy.setTint(0xffe5a3);
         this.floatText(enemy.x, enemy.y, `碾压 ${Math.round(ramDamage)}`, true);
@@ -3941,7 +4207,9 @@ class BattleScene extends Phaser.Scene {
         const playerSize = this.player.displayWidth * this.player.displayHeight;
         const enemySize = enemy.displayWidth * enemy.displayHeight;
         const ratio = enemySize / playerSize;
-        const sizeThreshold = [0.8, 0.9, 1.0, 1.08, 1.15][devourLevel - 1] ?? 1.15;
+        const sizeThreshold =
+          DEVOUR_SWALLOW_LEVELS[Math.min(devourLevel, DEVOUR_SWALLOW_LEVELS.length) - 1]
+            .sizeThreshold;
         if (ratio <= sizeThreshold) {
           // 体积 ≤ 阈值 → 吞噬
           this.collisionReadyAt = now + 200;
@@ -3950,11 +4218,10 @@ class BattleScene extends Phaser.Scene {
           this.floatText(enemy.x, enemy.y, `吞噬 +${(this.devourSizeMul * 100 - 100).toFixed(0)}%`, true);
           return;
         } else {
-          // 体积 > 阈值 → 咬伤(自伤 + 敌人击退)
+          // 体积 > 阈值 → 越级吞噬爆炸并承受额外生命反噬
           this.collisionReadyAt = now + 600;
-          const selfDamage = [4, 5, 6, 7, 8][devourLevel - 1] ?? 8;
-          this.biteEnemy(enemy, selfDamage);
-          this.floatText(enemy.x, enemy.y, `咬不动 · 体积 ${(ratio * 100).toFixed(0)}%`, true);
+          this.devourOversizedEnemy(enemy);
+          this.floatText(enemy.x, enemy.y, `越级吞噬 · 体积 ${(ratio * 100).toFixed(0)}%`, true);
           return;
         }
       }
@@ -3982,23 +4249,29 @@ class BattleScene extends Phaser.Scene {
     const readyAt = owner === 1 ? this.collisionReadyAt : this.player2CollisionReadyAt;
     if (now < readyAt) return;
     const wheelchairRam = owner === 1 && save.selectedSpecialization === "wheelchair";
+    const fortressActive = wheelchairRam && now < this.wheelchairFortressUntil;
     if (owner === 1) {
-      this.collisionReadyAt = now + (wheelchairRam ? 325 : 950);
+      this.collisionReadyAt = now + (fortressActive ? 165 : wheelchairRam ? 325 : 950);
       this.damagePlayer(38, "collision", "boss");
     } else {
       this.player2CollisionReadyAt = now + 950;
       this.damagePlayer2(38, "collision", "boss");
     }
     const hullAttackMultiplier = wheelchairRam ? this.wheelchairHullAttackMultiplier() : 1;
-    const bossRamDamage = wheelchairRam
+    const reactiveBonus = wheelchairRam
+      ? this.consumeWheelchairReactiveCharge(part.x, part.y)
+      : 0;
+    const bossRamDamage = (wheelchairRam
       ? this.bossMaxHp * 0.02 * hullAttackMultiplier
-      : 75;
+      : 75) + reactiveBonus;
+    let displayedDamage = bossRamDamage;
     if (part.getData("part") === "raid-core") {
-      const raidDamage = wheelchairRam
+      const raidDamage = (wheelchairRam
         ? (part.getData("maxHp") ?? this.bossMaxHp / 3) *
           0.02 *
           hullAttackMultiplier
-        : 75;
+        : 75) + reactiveBonus;
+      displayedDamage = raidDamage;
       part.setData("collisionFinisher", wheelchairRam);
       this.damageBossPart(part, raidDamage);
     } else {
@@ -4008,8 +4281,9 @@ class BattleScene extends Phaser.Scene {
     }
     this.checkBossPhase();
     if (this.bossHp <= 0 && this.trinityAlive <= 0) this.defeatBoss();
-    this.floatText(part.x, part.y + 35, `冲撞 ${Math.round(bossRamDamage)}`, true);
+    this.floatText(part.x, part.y + 35, `冲撞 ${Math.round(displayedDamage)}`, true);
     this.impactBurst(part.x, part.y, 0xffbd3e);
+    if (fortressActive) this.triggerRamShockwave(part.x, part.y, part, true);
   }
 
   wheelchairRamDamage(): number {
@@ -4033,13 +4307,19 @@ class BattleScene extends Phaser.Scene {
   triggerRamShockwave(
     x: number,
     y: number,
-    primaryTarget?: Phaser.Physics.Arcade.Image
+    primaryTarget?: Phaser.Physics.Arcade.Image,
+    inheritedImpact = false
   ): void {
     const level = this.upgradeLevels.ram_shockwave ?? 0;
-    if (level <= 0 || this.time.now < this.nextRamShockwave) return;
-    this.nextRamShockwave = this.time.now + Math.max(520, 1100 - level * 90);
-    const radius = 145 + (level - 1) * 18;
-    const damage = this.wheelchairRamDamage() * (0.24 + level * 0.06);
+    if (level <= 0 || (!inheritedImpact && this.time.now < this.nextRamShockwave)) return;
+    if (!inheritedImpact) {
+      this.nextRamShockwave = this.time.now + Math.max(520, 1100 - level * 90);
+    }
+    const radius = (145 + (level - 1) * 18) * (inheritedImpact ? 0.82 : 1);
+    const damage =
+      this.wheelchairRamDamage() *
+      (0.24 + level * 0.06) *
+      (inheritedImpact ? 0.72 : 1);
     const targets = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[])
       .filter(
         (enemy) =>
@@ -4053,16 +4333,37 @@ class BattleScene extends Phaser.Scene {
       this.dealDirectDamage(target, damage, target.x, target.y);
     }
     const wave = this.add
-      .circle(x, y, 24, 0xffbd3e, 0.05)
-      .setStrokeStyle(7, 0xffe5a3, 0.9)
+      .circle(x, y, 52, 0xff8a2d, 0.08)
+      .setStrokeStyle(7, 0xffe5a3, 0.94)
       .setDepth(25);
     this.tweens.add({
       targets: wave,
-      radius,
+      scale: radius / 38,
+      rotation: Math.PI / 3,
       alpha: 0,
       duration: 340,
       onComplete: () => wave.destroy()
     });
+    for (let index = 0; index < 12; index += 1) {
+      const angle = (Math.PI * 2 * index) / 12;
+      const plate = this.add.rectangle(
+        x + Math.cos(angle) * 32,
+        y + Math.sin(angle) * 32,
+        28,
+        8,
+        index % 2 ? 0xffffff : 0xffbd3e,
+        0.86
+      ).setRotation(angle).setDepth(26).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: plate,
+        x: x + Math.cos(angle) * radius,
+        y: y + Math.sin(angle) * radius,
+        scaleX: 0.18,
+        alpha: 0,
+        duration: 300 + index * 8,
+        onComplete: () => plate.destroy()
+      });
+    }
   }
 
   // 撞击流派专属:被碰飞敌人拖尾(明显台球视觉)
@@ -4125,6 +4426,54 @@ class BattleScene extends Phaser.Scene {
     );
     if (!knocked.length) return;
     for (const ball of knocked) {
+      // === 撞到地图边缘反弹,继续当台球飞 ===
+      const body = ball.body as Phaser.Physics.Arcade.Body | null;
+      if (body) {
+        const half = Math.max(ball.displayWidth, ball.displayHeight) * 0.5;
+        let bounced = false;
+        let vx = body.velocity.x;
+        let vy = body.velocity.y;
+        if (ball.x <= half && vx < 0) {
+          ball.x = half;
+          vx = -vx;
+          bounced = true;
+        } else if (ball.x >= WORLD_WIDTH - half && vx > 0) {
+          ball.x = WORLD_WIDTH - half;
+          vx = -vx;
+          bounced = true;
+        }
+        if (ball.y <= half && vy < 0) {
+          ball.y = half;
+          vy = -vy;
+          bounced = true;
+        } else if (ball.y >= WORLD_HEIGHT - half && vy > 0) {
+          ball.y = WORLD_HEIGHT - half;
+          vy = -vy;
+          bounced = true;
+        }
+        if (bounced) {
+          const left = (ball.getData("billiardBounceLeft") as number) ?? 0;
+          if (left > 0) {
+            // 反弹保留 88% 速度,并延长寿命让它能撞到下一个目标
+            ball.setVelocity(vx * 0.88, vy * 0.88);
+            ball.setData("billiardBounceLeft", left - 1);
+            ball.setData(
+              "wheelchairKnockedUntil",
+              Math.max((ball.getData("wheelchairKnockedUntil") as number) ?? 0, time + 700)
+            );
+            this.impactBurst(ball.x, ball.y, 0xffd54a);
+            if (save.settings.screenShake) this.cameras.main.shake(90, 0.004);
+          } else {
+            // 反弹次数用尽,停止台球状态
+            ball.setData("wheelchairKnockedUntil", 0);
+            (ball.getData("wheelchairKnockTrail") as Phaser.Time.TimerEvent | undefined)?.remove();
+            ball.setData("wheelchairKnockTrail", undefined);
+            ball.setVelocity(0, 0);
+            ball.clearTint();
+            continue;
+          }
+        }
+      }
       // 撞到其他敌人
       const hit = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).find(
         (e) =>
@@ -4135,6 +4484,8 @@ class BattleScene extends Phaser.Scene {
       if (hit) {
         const dmg = (ball.getData("wheelchairKnockDamage") as number) ?? 0;
         const before = hit.getData("hp") ?? 1;
+        this.renderBilliardChainImpact(ball, hit);
+        this.triggerRamShockwave(hit.x, hit.y, hit, true);
         hit.setData("lastOwner", 1);
         if (before - dmg <= 0) {
           hit.setData("wheelchairRamKill", true);
@@ -4150,6 +4501,7 @@ class BattleScene extends Phaser.Scene {
           hit.setVelocity((dx / len) * 800, (dy / len) * 800 - 40);
           hit.setData("wheelchairKnockedUntil", time + 1100);
           hit.setData("wheelchairKnockDamage", dmg * 0.85);
+          hit.setData("billiardBounceLeft", 4);
           this.spawnKnockedFx(hit, 0xffd54a, 0xffe5a3);
           hit.setTint(0xffe5a3);
           this.floatText(hit.x, hit.y, `弹碰 ${Math.round(dmg)}`, true);
@@ -4163,7 +4515,7 @@ class BattleScene extends Phaser.Scene {
         ball.setTint(0xff5450);
         continue;
       }
-      // 撞到 boss 核心
+      // 撞到 boss:台球对 boss 完全无效,只是被弹开(不造成伤害)
       const partHit = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
         (p) =>
           p.active &&
@@ -4171,15 +4523,124 @@ class BattleScene extends Phaser.Scene {
           Phaser.Math.Distance.Between(ball.x, ball.y, p.x, p.y) < 80
       );
       if (partHit) {
-        const dmg = (ball.getData("wheelchairKnockDamage") as number) ?? 0;
-        this.damageBossPart(partHit, dmg);
-        this.impactBurst(partHit.x, partHit.y, 0xffd54a);
-        ball.setData("wheelchairKnockedUntil", 0);
-        (ball.getData("wheelchairKnockTrail") as Phaser.Time.TimerEvent | undefined)?.remove();
-        ball.setData("wheelchairKnockTrail", undefined);
-        ball.setVelocity(0, 0);
-        ball.setTint(0xff5450);
+        const awayX = ball.x - partHit.x;
+        const awayY = ball.y - partHit.y;
+        const awayLen = Math.hypot(awayX, awayY) || 1;
+        const left = (ball.getData("billiardBounceLeft") as number) ?? 0;
+        if (left > 0) {
+          ball.setVelocity((awayX / awayLen) * 700, (awayY / awayLen) * 700);
+          ball.setData("billiardBounceLeft", left - 1);
+        } else {
+          ball.setData("wheelchairKnockedUntil", 0);
+          (ball.getData("wheelchairKnockTrail") as Phaser.Time.TimerEvent | undefined)?.remove();
+          ball.setData("wheelchairKnockTrail", undefined);
+          ball.setVelocity(0, 0);
+          ball.clearTint();
+        }
       }
+    }
+  }
+
+  renderDevourMaw(targetX: number, targetY: number, resisted = false): void {
+    const vortex = this.add.ellipse(targetX, targetY, 150, 58, 0x18001f, 0.72)
+      .setStrokeStyle(8, resisted ? 0xff5a3d : 0x9b18ff, 0.92)
+      .setDepth(26)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: vortex,
+      rotation: Math.PI,
+      scaleX: resisted ? 1.35 : 0.12,
+      scaleY: resisted ? 0.7 : 1.5,
+      alpha: 0,
+      duration: resisted ? 360 : 520,
+      onComplete: () => vortex.destroy()
+    });
+    for (let index = 0; index < 12; index += 1) {
+      const angle = (Math.PI * 2 * index) / 12;
+      const radius = resisted ? 86 : 112;
+      const tooth = this.add.rectangle(
+        targetX + Math.cos(angle) * radius,
+        targetY + Math.sin(angle) * radius * 0.48,
+        24,
+        7,
+        index % 2 ? 0xd55cff : 0xffffff,
+        0.94
+      ).setRotation(angle).setDepth(27).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: tooth,
+        x: resisted ? targetX + Math.cos(angle) * 54 : targetX,
+        y: resisted ? targetY + Math.sin(angle) * 26 : targetY,
+        scale: resisted ? 1.4 : 0.2,
+        alpha: 0,
+        duration: resisted ? 260 : 410,
+        delay: index * 10,
+        onComplete: () => tooth.destroy()
+      });
+    }
+  }
+
+  renderBilliardChainImpact(
+    source: Phaser.Physics.Arcade.Image,
+    target: Phaser.Physics.Arcade.Image
+  ): void {
+    const angle = Phaser.Math.Angle.Between(source.x, source.y, target.x, target.y);
+    const beamLength = Math.max(
+      42,
+      Phaser.Math.Distance.Between(source.x, source.y, target.x, target.y)
+    );
+    const collisionLine = this.add
+      .rectangle(
+        (source.x + target.x) / 2,
+        (source.y + target.y) / 2,
+        beamLength,
+        10,
+        0xffd45a,
+        0.72
+      )
+      .setRotation(angle)
+      .setDepth(25)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const rack = this.add
+      .circle(target.x, target.y, 62, 0xff7a22, 0.08)
+      .setStrokeStyle(6, 0xfff3ba, 0.94)
+      .setRotation(angle)
+      .setDepth(26)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: collisionLine,
+      scaleX: 1.3,
+      scaleY: 0.15,
+      alpha: 0,
+      duration: 230,
+      onComplete: () => collisionLine.destroy()
+    });
+    this.tweens.add({
+      targets: rack,
+      scale: 2.2,
+      rotation: angle + Math.PI / 3,
+      alpha: 0,
+      duration: 390,
+      ease: "Cubic.Out",
+      onComplete: () => rack.destroy()
+    });
+    for (let index = 0; index < 10; index += 1) {
+      const shardAngle = angle + Math.PI + Phaser.Math.FloatBetween(-1.1, 1.1);
+      const shard = this.add
+        .rectangle(target.x, target.y, 9, 19, index % 2 ? 0xffffff : 0xffa51f, 0.92)
+        .setRotation(shardAngle + Math.PI / 4)
+        .setDepth(27)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      const distance = Phaser.Math.Between(70, 145);
+      this.tweens.add({
+        targets: shard,
+        x: target.x + Math.cos(shardAngle) * distance,
+        y: target.y + Math.sin(shardAngle) * distance,
+        rotation: shardAngle + Phaser.Math.FloatBetween(-1.5, 1.5),
+        scale: 0.2,
+        alpha: 0,
+        duration: 280 + index * 18,
+        onComplete: () => shard.destroy()
+      });
     }
   }
 
@@ -4187,9 +4648,17 @@ class BattleScene extends Phaser.Scene {
   devourEnemy(enemy: Phaser.Physics.Arcade.Image, mul: number): void {
     if (!enemy.active) return;
     enemy.setData("lastOwner", 1);
+    const swallowedEnemyMaxHp = Math.max(
+      0,
+      Number(enemy.getData("maxHp") ?? enemy.getData("hp") ?? 0)
+    );
+    const extraMaxHp = Math.max(0, this.stats.maxHp - this.originalPlayerMaxHp);
+    const missingHp = Math.max(0, this.stats.maxHp - this.stats.hp);
+    const devourHealing = devourHealingAmount(extraMaxHp, missingHp, swallowedEnemyMaxHp);
     // 吞噬视觉:敌人从大到小被吸入玩家
     const targetX = this.player.x;
     const targetY = this.player.y;
+    this.renderDevourMaw(enemy.x, enemy.y);
     this.tweens.add({
       targets: enemy,
       x: targetX,
@@ -4207,16 +4676,26 @@ class BattleScene extends Phaser.Scene {
     this.burst(this.player.x, this.player.y, 0x9b18ff, 1.2);
     this.bigExplosion(enemy.x, enemy.y, 0x9b18ff, 0.4);
     this.impactBurst(enemy.x, enemy.y, 0xc16cff);
-    // 体积 +8%~+24%
-    this.devourSizeMul = Math.min(2.0, this.devourSizeMul + 0.08 * mul);
+    const tier = DEVOUR_SWALLOW_LEVELS[Math.min(Math.max(1, mul), DEVOUR_SWALLOW_LEVELS.length) - 1];
+    // Lv.1 上限为初始机体 200%；满级上限是 Lv.1 上限的 1.3 倍，即初始机体 260%。
+    this.devourSizeMul = Math.min(
+      tier.maxSizeMultiplier,
+      this.devourSizeMul + tier.sizeGain
+    );
     this.applyDevourSize();
-    // 最大生命 +5%~+20%(实时加成)
-    const hpBonus = 0.05 * mul;
-    const maxHpGain = Math.round(this.stats.maxHp * hpBonus);
+    const maxHpGain = tier.maxHealthGain;
     this.stats.maxHp += maxHpGain;
-    this.stats.hp = roundHealth(this.stats.hp + maxHpGain, this.stats.maxHp);
+    this.devourBonusMaxHp += maxHpGain;
+    const hpBeforeHealing = this.stats.hp;
+    this.healPlayer(devourHealing);
+    const actualHealing = Math.max(0, this.stats.hp - hpBeforeHealing);
     this.recordAgileMaxHpGain(maxHpGain);
-    this.floatText(this.player.x, this.player.y - 50, `+${maxHpGain} HP · 体型 ×${this.devourSizeMul.toFixed(2)}`, true);
+    this.floatText(
+      this.player.x,
+      this.player.y - 50,
+      `MAX +${maxHpGain} · 回复 ${formatRoundedNumberForDisplay(actualHealing)} · 体型 ×${this.devourSizeMul.toFixed(2)}`,
+      true
+    );
     // 累计吞噬计数 — 每 10 触发全屏吞噬光环
     this.devourKillCount += 1;
     if (this.devourKillCount >= 10) {
@@ -4240,10 +4719,32 @@ class BattleScene extends Phaser.Scene {
     // 华丽特效:深紫漩涡爆发
     this.triggerSpecialtyFX(0x4a0070, {
       ring: 0x9b00d0,
+      style: "vortex",
       flash: [220, 0, 130, 80],
       shake: 320,
       count: 60,
     });
+    for (let index = 0; index < 4; index += 1) {
+      const spiral = this.add.ellipse(
+        this.player.x,
+        this.player.y,
+        180 + index * 85,
+        55 + index * 24,
+        0x09000f,
+        0.18
+      ).setStrokeStyle(8 - index, index % 2 ? 0xc16cff : 0x6a0a9f, 0.8)
+        .setDepth(62)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: spiral,
+        rotation: (index % 2 ? -1 : 1) * Math.PI * 2,
+        scaleX: 0.08,
+        scaleY: 2.8,
+        alpha: 0,
+        duration: duration * (0.7 + index * 0.08),
+        onComplete: () => spiral.destroy()
+      });
+    }
     // 全屏暗紫光罩
     const aura = this.add
       .rectangle(0, 0, WORLD_WIDTH * 2, WORLD_HEIGHT * 2, 0x4a0070, 0.55)
@@ -4316,6 +4817,7 @@ class BattleScene extends Phaser.Scene {
     const dx = enemy.x - this.player.x;
     const dy = enemy.y - this.player.y;
     const len = Math.hypot(dx, dy) || 1;
+    this.renderDevourMaw(enemy.x, enemy.y, true);
     enemy.setVelocity((dx / len) * 420, (dy / len) * 420 - 220);
     const biteDmg = this.computePlayerDamage() * 0.3;
     const before = enemy.getData("hp") ?? 1;
@@ -4359,16 +4861,113 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  renderThornCounter(source: Phaser.Physics.Arcade.Image, lethal: boolean): void {
+    const barrier = this.add.circle(
+      this.player.x,
+      this.player.y,
+      this.player.displayWidth * 0.76,
+      0x43106d,
+      0.08
+    ).setStrokeStyle(lethal ? 6 : 3, lethal ? 0xff7de3 : 0xc16cff, 0.86)
+      .setDepth(24)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: barrier,
+      rotation: lethal ? Math.PI : Math.PI / 3,
+      scale: lethal ? 1.9 : 1.35,
+      alpha: 0,
+      duration: lethal ? 620 : 360,
+      onComplete: () => barrier.destroy()
+    });
+    const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, source.x, source.y);
+    for (let index = -2; index <= 2; index += 1) {
+      const spread = angle + index * 0.1;
+      const thorn = this.add.rectangle(
+        this.player.x,
+        this.player.y,
+        42,
+        8,
+        index === 0 ? 0xffffff : 0x9b5cff,
+        0.92
+      ).setRotation(spread).setDepth(25).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: thorn,
+        x: source.x + Math.cos(spread) * index * 7,
+        y: source.y + Math.sin(spread) * index * 7,
+        scaleX: lethal ? 1.8 : 1.2,
+        alpha: 0,
+        duration: 220 + Math.abs(index) * 35,
+        onComplete: () => thorn.destroy()
+      });
+    }
+  }
+
+  devourOversizedEnemy(enemy: Phaser.Physics.Arcade.Image): void {
+    if (!enemy.active) return;
+    const x = enemy.x;
+    const y = enemy.y;
+    const bonusBefore = Math.max(0, this.devourBonusMaxHp);
+    const explosionDamage = bonusBefore * 2;
+    const missingBefore = Math.max(0, this.stats.maxHp - this.stats.hp);
+    const emergencyHeal = missingBefore * 0.05;
+    const lostBonus = bonusBefore * 0.5;
+    enemy.setData("lastOwner", 1);
+    this.renderDevourMaw(x, y);
+    this.destroyEnemy(enemy, true);
+    this.devourBonusMaxHp = Math.max(0, bonusBefore - lostBonus);
+    this.stats.maxHp = Math.max(this.originalPlayerMaxHp, this.stats.maxHp - lostBonus);
+    this.stats.hp = roundHealth(Math.min(this.stats.maxHp, this.stats.hp), this.stats.maxHp);
+    this.healPlayer(emergencyHeal, "越级吞噬急救");
+    if (explosionDamage > 0) {
+      for (const target of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
+        if (
+          target.active &&
+          Phaser.Math.Distance.Between(x, y, target.x, target.y) <= 260
+        ) {
+          this.dealDirectDamage(target, explosionDamage, target.x, target.y);
+        }
+      }
+      for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
+        if (
+          part.active &&
+          ["core", "raid-core"].includes(part.getData("part")) &&
+          Phaser.Math.Distance.Between(x, y, part.x, part.y) <= 320
+        ) {
+          this.damageBossPart(part, explosionDamage);
+        }
+      }
+    }
+    this.bigExplosion(x, y, 0xd91cff, 1.7);
+    this.triggerSpecialtyFX(0x7a0db5, {
+      ring: 0xff4dbb,
+      style: "vortex",
+      shake: 300,
+      count: save.settings.quality === "high" ? 34 : 18
+    });
+    this.floatText(
+      this.player.x,
+      this.player.y - 68,
+      `爆炸 ${Math.round(explosionDamage)} · 额外生命 -${lostBonus.toFixed(1)}`,
+      true
+    );
+  }
+
   // === 防御流派:荆棘护甲 — 受击时反伤给攻击者 ===
   applyThorns(damageAmount: number, isPercent: boolean, source: Phaser.Physics.Arcade.Image | null): void {
     if (save.selectedSpecialization !== "defender") return;
     if ((this.upgradeLevels.defender_thorns ?? 0) <= 0) return;
-    // 反伤值:整数伤害照搬,百分比伤害按 100
-    const reflect = isPercent ? 100 : Math.max(1, Math.round(damageAmount));
+    void isPercent;
+    const receivedDamage = Math.max(0, damageAmount);
+    const targetMaxHp = source?.active
+      ? ((source.getData("maxHp") as number) ?? (source.getData("hp") as number) ?? 0)
+      : 0;
+    const reflect = Math.max(1, Math.round(receivedDamage * 3 + targetMaxHp * 0.015));
     this.thornsAccumulator += reflect;
+    this.healPlayer(reflect * 0.5, "荆棘回流");
     if (source && source.active) {
       source.setData("lastOwner", 1);
       const before = source.getData("hp") ?? 1;
+      this.renderThornCounter(source, before - reflect <= 0);
       if (before - reflect <= 0) {
         // 反死:回 2% 最大生命 + 1.2% 最大生命上限
         const hpHeal = this.stats.maxHp * 0.02;
@@ -4386,6 +4985,7 @@ class BattleScene extends Phaser.Scene {
         // 华丽特效:深紫反死爆发
         this.triggerSpecialtyFX(0x6a0a3a, {
           ring: 0x9b5cff,
+          style: "thorns",
           flash: [140, 60, 30, 100],
           shake: 160,
           count: 28,
@@ -4397,7 +4997,7 @@ class BattleScene extends Phaser.Scene {
         source.setData("hp", before - reflect);
         this.burst(source.x, source.y, 0xc16cff, 0.5);
       }
-      this.floatText(source.x, source.y, `反伤 ${reflect}`, true);
+      this.floatText(source.x, source.y, `反伤 ${reflect} · 回流 ${Math.round(reflect * 0.5)}`, true);
     }
     // 累计 1000 触发回血(5% maxHp + 5% 已损)
     if (this.thornsAccumulator >= 1000) {
@@ -4412,6 +5012,7 @@ class BattleScene extends Phaser.Scene {
       // 华丽特效:深紫荆棘爆发
       this.triggerSpecialtyFX(0x9b5cff, {
         ring: 0x6a0a3a,
+        style: "thorns",
         flash: [180, 100, 30, 80],
         shake: 280,
         count: 50,
@@ -4433,6 +5034,32 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  damageSiphonTarget(target: Phaser.Physics.Arcade.Image, damage: number): void {
+    if (!target.active || damage <= 0) return;
+    target.setData("lastOwner", 1);
+    if (this.bossParts.contains(target)) {
+      this.damageBossPart(target, damage);
+      return;
+    }
+    const before = (target.getData("hp") as number) ?? 1;
+    if (before - damage <= 0) {
+      target.setData("wheelchairRamKill", true);
+      this.destroyEnemy(target, true);
+    } else {
+      target.setData("hp", before - damage);
+    }
+  }
+
+  clearSiphonChains(): void {
+    this.siphonChains.forEach((chain) => chain.visual?.destroy());
+    this.siphonChains = [];
+  }
+
+  removeSiphonChain(index: number): void {
+    this.siphonChains[index]?.visual?.destroy();
+    this.siphonChains.splice(index, 1);
+  }
+
   // 单条虹吸链(子弹命中同帧触发,每个单位最多 1 条,链长 100px,有实体)
   spawnSiphonChain(enemy: Phaser.Physics.Arcade.Image): void {
     if (save.selectedSpecialization !== "vampire") return;
@@ -4451,7 +5078,13 @@ class BattleScene extends Phaser.Scene {
     const dx = enemy.x - this.player.x;
     const dy = enemy.y - (this.player.y - 10);
     const dist = Math.hypot(dx, dy) || 1;
-    const maxLength = Math.min(100, dist); // 100px 上限
+    const maxLength = Math.min(1100, dist);
+    const visual = this.add
+      .image(this.player.x, this.player.y, "siphonChainFx")
+      .setOrigin(0.5)
+      .setDepth(13)
+      .setBlendMode(Phaser.BlendModes.NORMAL)
+      .setAlpha(0.82);
     this.siphonChains.push({
       sx: this.player.x,
       sy: this.player.y - 10,
@@ -4459,21 +5092,15 @@ class BattleScene extends Phaser.Scene {
       hy: this.player.y - 10 + (dy / dist) * maxLength,
       length: maxLength,
       maxLength,
-      life: 1200,
-      maxLife: 1200,
+      life: 8000,
+      maxLife: 8000,
       anchor: enemy,
-      angle: Math.atan2(dy, dx)
+      angle: Math.atan2(dy, dx),
+      visual
     });
     // 锚定瞬间扣 50% 玩家伤害
     const dmg = this.computePlayerDamage() * 0.5;
-    enemy.setData("lastOwner", 1);
-    const before = enemy.getData("hp") ?? 1;
-    if (before - dmg <= 0) {
-      enemy.setData("wheelchairRamKill", true);
-      this.destroyEnemy(enemy, true);
-    } else {
-      enemy.setData("hp", before - dmg);
-    }
+    this.damageSiphonTarget(enemy, dmg);
     this.burst(enemy.x, enemy.y, 0xff3d7f, 0.8);
     this.applySiphon(enemy);
     this.siphonChainsCooldownUntil = this.time.now + 200;
@@ -4485,24 +5112,24 @@ class BattleScene extends Phaser.Scene {
   updateSiphon(time: number, dt: number): void {
     if (save.selectedSpecialization !== "vampire") {
       this.siphonedEnemies = [];
-      this.siphonChains = [];
+      this.clearSiphonChains();
       return;
     }
     if ((this.upgradeLevels.vampire_siphon ?? 0) <= 0) {
       this.siphonedEnemies = [];
-      this.siphonChains = [];
+      this.clearSiphonChains();
       return;
     }
     for (let i = this.siphonChains.length - 1; i >= 0; i -= 1) {
       const c = this.siphonChains[i];
       c.life -= dt * 1000;
       if (c.life <= 0) {
-        this.siphonChains.splice(i, 1);
+        this.removeSiphonChain(i);
         continue;
       }
       if (c.anchor) {
         if (!c.anchor.active) {
-          this.siphonChains.splice(i, 1);
+          this.removeSiphonChain(i);
           continue;
         }
         // 链头 = 锚定敌人当前位置
@@ -4537,7 +5164,7 @@ class BattleScene extends Phaser.Scene {
           c.hx < -20 || c.hx > WORLD_WIDTH + 20 ||
           c.hy < -20 || c.hy > WORLD_HEIGHT + 20
         ) {
-          this.siphonChains.splice(i, 1);
+          this.removeSiphonChain(i);
           continue;
         }
         // 飞行链子:碰到敌人立刻锚定
@@ -4549,14 +5176,7 @@ class BattleScene extends Phaser.Scene {
         if (hit) {
           // 锚定瞬间扣 50% 玩家伤害(再扣一次)
           const dmg = this.computePlayerDamage() * 0.5;
-          hit.setData("lastOwner", 1);
-          const before = hit.getData("hp") ?? 1;
-          if (before - dmg <= 0) {
-            hit.setData("wheelchairRamKill", true);
-            this.destroyEnemy(hit, true);
-          } else {
-            hit.setData("hp", before - dmg);
-          }
+          this.damageSiphonTarget(hit, dmg);
           c.anchor = hit;
           c.hx = hit.x;
           c.hy = hit.y;
@@ -4579,14 +5199,7 @@ class BattleScene extends Phaser.Scene {
         if (time - last >= 500) {
           chainHit.setData("siphonSweepLast", time);
           const dmg = this.computePlayerDamage() * 0.3;
-          chainHit.setData("lastOwner", 1);
-          const before = chainHit.getData("hp") ?? 1;
-          if (before - dmg <= 0) {
-            chainHit.setData("wheelchairRamKill", true);
-            this.destroyEnemy(chainHit, true);
-          } else {
-            chainHit.setData("hp", before - dmg);
-          }
+          this.damageSiphonTarget(chainHit, dmg);
           this.floatText(chainHit.x, chainHit.y - 12, `扫 ${Math.round(dmg)}`, true);
         }
       }
@@ -4596,7 +5209,8 @@ class BattleScene extends Phaser.Scene {
         c.sy,
         c.hx,
         c.hy,
-        c.life / c.maxLife
+        c.life / c.maxLife,
+        c.visual
       );
     }
     // 吸血池:每 0.3s 一次回血
@@ -4610,24 +5224,41 @@ class BattleScene extends Phaser.Scene {
     if (this.siphonedEnemies.length === 0) return;
     const count = this.siphonedEnemies.length;
     const ratio = Math.min(1.2, 0.8 + (count - 1) * 0.05);
-    const baseHealRatio = 0.03 * SPECIALIZATION_BASE_STAT_BOOST;
+    const baseHealRatio = 0.012;
     const healRatio = baseHealRatio * ratio;
+    if (time < this.nextSiphonHealAt) return;
+    this.nextSiphonHealAt = time + 300;
+    const missing = Math.max(0, this.stats.maxHp - this.stats.hp);
+    if (missing > 0) this.healPlayer(missing * healRatio);
     for (const s of this.siphonedEnemies) {
-      const last = (s.enemy.getData("siphonLast") as number) ?? 0;
-      if (time - last >= 300) {
-        s.enemy.setData("siphonLast", time);
-        const missing = Math.max(0, this.stats.maxHp - this.stats.hp);
-        if (missing > 0) {
-          this.healPlayer(missing * healRatio);
+        if ((this.upgradeLevels.vampire_siphon ?? 0) >= 5 && s.enemy.active) {
+          const targetMaxHp =
+            (s.enemy.getData("maxHp") as number) ??
+            (this.bossParts.contains(s.enemy) ? this.bossMaxHp : 1);
+          const maxHealthDamage = Math.max(1, targetMaxHp * 0.01);
+          this.damageSiphonTarget(s.enemy, maxHealthDamage);
+          if (save.settings.damageNumbers) {
+            this.floatText(
+              s.enemy.x,
+              s.enemy.y - 18,
+              `虹吸 ${Math.round(maxHealthDamage)}`,
+              true
+            );
+          }
         }
         // 紫红脉动环 + 能量粒子(动态被吸视觉)
-        // === 华丽特效:4+ 目标时触发全屏紫红光波 + 震动 ===
-        if (count >= 4) {
-          this.triggerSpecialtyFX(0xff3d7f, {
-            ring: 0xffaaff,
-            flash: [80, 255, 61, 127],
-            shake: 90,
-            count: 18,
+        if (count >= 4 && time >= this.nextSiphonGroupFxAt) {
+          this.nextSiphonGroupFxAt = time + 900;
+          const groupRing = this.add
+            .circle(this.player.x, this.player.y, 36, 0xff3d7f, 0.06)
+            .setStrokeStyle(4, 0xffaaff, 0.72)
+            .setDepth(14);
+          this.tweens.add({
+            targets: groupRing,
+            radius: 86,
+            alpha: 0,
+            duration: 520,
+            onComplete: () => groupRing.destroy()
           });
         }
         const ring = this.add
@@ -4658,63 +5289,27 @@ class BattleScene extends Phaser.Scene {
             onComplete: () => particle.destroy()
           });
         }
-      }
     }
   }
 
-  // 画虹吸链:多节金属链(链节 SVG + 紫红能量线)
+  // 画虹吸链:复用单张生成纹理，只更新位置/旋转/拉伸，不再每帧创建 Graphics。
   drawSiphonChain(
     x1: number, y1: number,
     x2: number, y2: number,
-    alpha = 1
+    alpha = 1,
+    visual?: Phaser.GameObjects.Image
   ): void {
-    const g = this.add.graphics();
-    g.setBlendMode(Phaser.BlendModes.ADD);
-    g.setDepth(15);
-    const lifeFactor = alpha;
-    // 链子总长
+    if (!visual?.active) return;
     const dx = x2 - x1;
     const dy = y2 - y1;
     const total = Math.hypot(dx, dy) || 1;
-    // 链节数:每 14px 一个
-    const segLen = 14;
-    const segCount = Math.max(1, Math.floor(total / segLen));
-    // 1) 紫红能量背景线
-    g.lineStyle(6, 0xff3d7f, 0.18 * lifeFactor);
-    g.lineBetween(x1, y1, x2, y2);
-    // 2) 链节:交替方向的椭圆(像真链子的节)
-    const phase = this.time.now / 130;
-    for (let i = 0; i < segCount; i += 1) {
-      const t = (i + 0.5) / segCount;
-      const cx = x1 + dx * t + Math.sin(phase + i * 0.7) * 1.5;
-      const cy = y1 + dy * t + Math.cos(phase + i * 0.7) * 1.5;
-      // 链节主体(暗紫红金属)
-      g.fillStyle(0x6a0a3a, 0.7 * lifeFactor);
-      g.fillEllipse(cx, cy, 14, 9);
-      // 链节高光(亮粉)
-      g.fillStyle(0xff3d7f, 0.65 * lifeFactor);
-      g.fillEllipse(cx - 2, cy - 1, 7, 4);
-      // 链节中央亮核
-      g.fillStyle(0xffaaff, 0.85 * lifeFactor);
-      g.fillCircle(cx, cy, 1.6);
-    }
-    // 3) 链头能量球
-    g.fillStyle(0xff3d7f, 0.55 * lifeFactor);
-    g.fillCircle(x2, y2, 9);
-    g.fillStyle(0xffaaff, 0.9 * lifeFactor);
-    g.fillCircle(x2, y2, 4);
-    // 4) 链尾连接点(玩家端)
-    g.fillStyle(0xff3d7f, 0.7 * lifeFactor);
-    g.fillCircle(x1, y1, 5);
-    g.fillStyle(0xffd0e8, 0.9 * lifeFactor);
-    g.fillCircle(x1, y1, 2.4);
-    // 渐隐
-    this.tweens.add({
-      targets: g,
-      alpha: 0,
-      duration: 200,
-      onComplete: () => g.destroy()
-    });
+    const pulse = 1 + Math.sin(this.time.now * 0.018 + total * 0.01) * 0.08;
+    visual
+      .setFrame(Math.floor(this.time.now / 95) % 4)
+      .setPosition((x1 + x2) / 2, (y1 + y2) / 2)
+      .setRotation(Math.atan2(dy, dx))
+      .setDisplaySize(total, 22 * pulse)
+      .setAlpha(Phaser.Math.Clamp(alpha * (0.68 + pulse * 0.12), 0, 0.86));
   }
 
   grantCollisionBossKillGrowth(allowAdditionalBoss = false): void {
@@ -4736,13 +5331,29 @@ class BattleScene extends Phaser.Scene {
     this.actionKeys = this.input.keyboard!.addKeys(
       "SPACE,ENTER,ONE,TWO,THREE,Q,E,F,G,R,J,K,L,X"
     ) as Record<string, Phaser.Input.Keyboard.Key>;
-    // 全局 IME 监听:中文输入法激活期间,游戏暂停接收键盘输入
-    document.addEventListener("compositionstart", () => { this.imeActive = true; });
-    document.addEventListener("compositionend", () => { this.imeActive = false; });
-    // 兜底:keyCode 229(IME 转换中)时立即标记
-    document.addEventListener("keydown", (e) => {
-      if (e.keyCode === 229) this.imeActive = true;
+    // 全局 IME 监听:中文输入法激活期间,游戏暂停接收键盘输入。
+    // Scene 销毁时必须解绑，否则每次重开都会保留一组旧 Scene 闭包。
+    this.domInputAbortController?.abort();
+    this.domInputAbortController = new AbortController();
+    const domInputSignal = this.domInputAbortController.signal;
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.domInputAbortController?.abort();
+      this.domInputAbortController = undefined;
     });
+    // 只有真正在输入框里打字时才停住玩家。
+    // 注意:不能用 compositionstart/keyCode229 一刀切,因为中文输入法激活但没有
+    // 输入焦点时不会触发 compositionend,会让 imeActive 永久卡死导致完全无法操作。
+    document.addEventListener(
+      "compositionstart",
+      () => {
+        if (isTextEntryFocused()) this.imeActive = true;
+      },
+      { signal: domInputSignal }
+    );
+    document.addEventListener("compositionend", () => { this.imeActive = false; }, { signal: domInputSignal });
+    // 焦点离开输入框时立即解除,防止卡死
+    document.addEventListener("focusout", () => { this.imeActive = false; }, { signal: domInputSignal });
+    window.addEventListener("blur", () => { this.imeActive = false; }, { signal: domInputSignal });
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (playVariant !== "single") return;
       if (pointer.x > WORLD_WIDTH - 170 && pointer.y > WORLD_HEIGHT - 250) return;
@@ -4830,19 +5441,23 @@ class BattleScene extends Phaser.Scene {
       () => {
         if (activeScene === this && !this.isModal && !this.ended) showPause(this);
       },
-      { once: true }
+      { once: true, signal: domInputSignal }
     );
   }
 
   update(time: number, delta: number): void {
     if (this.ended || this.isModal) return;
-    const dt = delta / 1000;
+    this.updateEnemyFreezeLifecycle(time);
+    // 标签页/暂停恢复时 Phaser 可能送来一帧异常大的 delta；限制模拟步长，
+    // 避免恢复首帧把移动、生成和碰撞一次性补算完。
+    const dt = Math.min(delta, 34) / 1000;
     this.elapsedSeconds += dt;
     this.comboTimer -= dt;
     if (this.comboTimer <= 0) this.combo = 0;
     this.updateStars(dt);
     this.updatePlayer(time, dt);
     this.updateWheelchairRecovery(time);
+    this.updateWheelchairActiveSkills(time);
     this.updateFlightExperience(time);
     this.updateTemporarySkill(time);
     this.updateAirSupport(time);
@@ -4877,6 +5492,7 @@ class BattleScene extends Phaser.Scene {
       this.completeCampaignInterlude();
     }
     this.updateBoss(time, dt);
+    this.lockFrozenHostiles(time);
     this.updateHud();
     this.updateDebug();
     if (!this.bossActive && time >= this.nextFlightToken) {
@@ -4908,35 +5524,10 @@ class BattleScene extends Phaser.Scene {
       this.levelCompleteTriggered = true;
       this.playBossArrivalCG();
     }
-    // === 皮肤弹道特效(尾迹 + 光环 跟随子弹) ===
-    this.updateSkinBulletTrail();
     // === 突刺联动:影分身突刺 ===
     this.updateLungeShadowClones(time);
     // === 镜像残响护符:HP < 30% 时召唤 1 个镜像影分身(无敌) ===
     this.checkMirrorEcho();
-  }
-
-  updateSkinBulletTrail(): void {
-    const bullets = this.playerBullets.getChildren() as Phaser.Physics.Arcade.Image[];
-    for (const b of bullets) {
-      if (!b.active) {
-        // 销毁附属特效
-        this.releaseSkinBulletFx(b);
-        continue;
-      }
-      const halo = b.getData("skinHalo") as Phaser.GameObjects.Ellipse | null;
-      const trail = b.getData("skinTrail") as Phaser.GameObjects.Ellipse | null;
-      if (halo && halo.active) {
-        halo.setPosition(b.x, b.y);
-        halo.setRotation(b.rotation);
-      }
-      if (trail && trail.active) {
-        // 拖尾:在 bullet 后 1-2px 画渐弱小点
-        trail.setPosition(b.x, b.y + 2);
-        trail.setRotation(b.rotation);
-        trail.setAlpha(0.55);
-      }
-    }
   }
 
   updateCampaignMysteryFeedback(): void {
@@ -5015,13 +5606,17 @@ class BattleScene extends Phaser.Scene {
         this.targetReticle.setAlpha(Phaser.Math.Linear(this.targetReticle.alpha, 0, 0.1));
       }
     }
+    // 开局和暂停恢复后的几帧只更新位置，不集中创建拖尾与环境粒子。
+    if (time < this.visualEffectsReadyAt) return;
+    this.spawnAchievementSkinFx(time);
     if (time >= this.nextTrail) {
-      this.nextTrail = time + (save.settings.quality === "high" ? 32 : 60);
+      this.nextTrail = time + (save.settings.quality === "high" ? 45 : 75);
       for (const offset of [-18, 18]) {
         const spark = this.engineTrails.get(
           this.player.x + offset,
           this.player.y + this.player.displayHeight * 0.35,
-          "engineSpark"
+          "flamethrowerFx",
+          Math.floor(time / 72) % 4
         ) as Phaser.GameObjects.Image | null;
         if (!spark) continue;
         this.tweens.killTweensOf(spark);
@@ -5029,18 +5624,20 @@ class BattleScene extends Phaser.Scene {
           .setActive(true)
           .setVisible(true)
           .setPosition(this.player.x + offset, this.player.y + this.player.displayHeight * 0.35)
-          .setTexture("engineSpark")
-          .setTint(currentSkinVariant().tint)
+          .setTexture("flamethrowerFx", Math.floor(time / 72) % 4)
+          .setDisplaySize(30, 66)
+          .setFlipY(true)
+          .setTint(offset < 0 ? 0xffd27a : 0xffffff)
           .setBlendMode(Phaser.BlendModes.ADD)
           .setDepth(6)
-          .setAlpha(1)
-          .setScale(Phaser.Math.FloatBetween(0.5, 1.1));
+          .setAlpha(0.74);
         this.tweens.add({
           targets: spark,
-          y: spark.y + Phaser.Math.Between(55, 105),
+          y: spark.y + Phaser.Math.Between(36, 58),
           alpha: 0,
-          scale: 0.1,
-          duration: Phaser.Math.Between(220, 420),
+          scaleX: spark.scaleX * 0.55,
+          scaleY: spark.scaleY * 0.72,
+          duration: Phaser.Math.Between(170, 250),
           onComplete: () => spark.setActive(false).setVisible(false)
         });
       }
@@ -5120,7 +5717,7 @@ class BattleScene extends Phaser.Scene {
       })
       .setVelocity(0, 95)
       .setAngularVelocity(110);
-    this.showBanner(`${BOSS_NAMES[defeatedKind]}强化掉落 · 正在回收`, 1200);
+    this.showBanner(`${BOSS_NAMES[defeatedKind]}专属强化掉落 · 接触后被动三选一`, 1400);
   }
 
   activateTemporarySkill(skill: TemporarySkill): void {
@@ -5195,10 +5792,15 @@ class BattleScene extends Phaser.Scene {
   }
 
   updatePlayer(time: number, dt: number): void {
-    // 中文输入法激活时,玩家停住(防止拼音键误触移动)
+    // 仅在输入框内打字时停住玩家。若焦点已离开输入框则立即自愈,
+    // 避免任何漏掉的 compositionend 导致操作被永久锁死。
     if (this.imeActive) {
-      this.player.setVelocity(0, 0);
-      return;
+      if (!isTextEntryFocused()) {
+        this.imeActive = false;
+      } else {
+        this.player.setVelocity(0, 0);
+        return;
+      }
     }
     const left = this.wasd.A.isDown || (playVariant === "single" && this.cursors.left.isDown);
     const right = this.wasd.D.isDown || (playVariant === "single" && this.cursors.right.isDown);
@@ -5213,6 +5815,9 @@ class BattleScene extends Phaser.Scene {
       (save.selectedSpecialization === "agile" ? this.agileSpeedMultiplier() : 1) *
       (save.selectedSpecialization === "wheelchair" && time < this.wheelchairOverdriveUntil
         ? 1.9
+        : 1) *
+      (save.selectedSpecialization === "wheelchair" && time < this.wheelchairFortressUntil
+        ? WHEELCHAIR_ACTIVE_SKILLS.fortressStance.speedMultiplier
         : 1);
     if (left || right || up || down) {
       const direction = new Phaser.Math.Vector2(Number(right) - Number(left), Number(down) - Number(up))
@@ -5256,11 +5861,11 @@ class BattleScene extends Phaser.Scene {
     this.player.setAlpha(time < this.invulnerableUntil && Math.floor(time / 80) % 2 === 0 ? 0.28 : 1);
     if (this.ultimateActive > 0) {
       this.ultimateActive -= dt;
-      // E 超载视觉:在皮肤色和亮青色之间闪烁
-      this.player.setTint(Math.floor(this.ultimateActive * 6) % 2 === 0 ? 0x9ffcff : currentSkinVariant().tint);
+      // E 超载视觉：基础机体在亮青色和原色之间闪烁。
+      this.player.setTint(Math.floor(this.ultimateActive * 6) % 2 === 0 ? 0x9ffcff : 0xffffff);
       if (this.ultimateActive <= 0) {
         this.overdriveDamageMul = 1;
-        this.player.setTint(currentSkinVariant().tint);
+        this.player.clearTint();
       }
     }
     if (this.player2) {
@@ -5578,76 +6183,149 @@ class BattleScene extends Phaser.Scene {
     weapon: string,
     owner = 1
   ): Phaser.Physics.Arcade.Image {
-    const bullet = this.playerBullets.get(x, y, texture) as Phaser.Physics.Arcade.Image;
+    const skinBulletKey = achievementSkinBulletTextureKey(save.equippedSkin);
+    const useAchievementSkinBullet =
+      owner === 1 &&
+      texture === "playerBullet" &&
+      Boolean(SKINS[save.equippedSkin]?.bulletAsset) &&
+      this.textures.exists(skinBulletKey);
+    const resolvedTexture = useAchievementSkinBullet ? skinBulletKey : texture;
+    const bullet = this.playerBullets.get(x, y, resolvedTexture) as Phaser.Physics.Arcade.Image;
     bullet.enableBody(true, x, y, true, true);
     bullet
-      .setTexture(texture)
+      .setTexture(resolvedTexture)
       .setActive(true)
       .setVisible(true)
       .setDepth(8)
       .setScale(1)
       .setAngle(0)
       .clearTint();
-    (bullet.body as Phaser.Physics.Arcade.Body).setSize(bullet.width, bullet.height, true);
+    if (useAchievementSkinBullet) {
+      const size = achievementSkinBulletDisplaySize(save.equippedSkin);
+      bullet.setDisplaySize(size.width, size.height);
+    }
+    const body = bullet.body as Phaser.Physics.Arcade.Body;
+    if (useAchievementSkinBullet) {
+      // 品质只改变视觉，不改变基础机炮的碰撞面积与实战强度。
+      body.setSize(
+        12 / Math.max(0.001, Math.abs(bullet.scaleX)),
+        32 / Math.max(0.001, Math.abs(bullet.scaleY)),
+        true
+      );
+    } else {
+      body.setSize(bullet.width, bullet.height, true);
+    }
+    bullet.setData("achievementSkinBullet", useAchievementSkinBullet);
     bullet.setData("damage", damage * this.currentDamageMultiplier());
     bullet.setData("weapon", weapon);
     bullet.setData("owner", owner);
     bullet.setData("pierce", 0);
     bullet.setVelocity(0, velocityY);
-    // === 皮肤弹道特效(尾迹 + 中心高光) ===
-    this.applySkinBulletFx(bullet, owner);
     return bullet;
   }
 
-  // 释放子弹上挂的皮肤特效(光环 + 尾迹),对象池复用与销毁前都必须调用
-  releaseSkinBulletFx(bullet: Phaser.Physics.Arcade.Image): void {
-    (bullet.getData("skinHalo") as Phaser.GameObjects.Ellipse | null)?.destroy();
-    (bullet.getData("skinTrail") as Phaser.GameObjects.Ellipse | null)?.destroy();
-    bullet.setData("skinHalo", null);
-    bullet.setData("skinTrail", null);
-  }
-
-  // 清空玩家子弹:必须先释放挂在子弹上的特效,否则光环会永久留在原地
   clearPlayerBullets(): void {
-    for (const child of this.playerBullets.getChildren() as Phaser.Physics.Arcade.Image[]) {
-      this.releaseSkinBulletFx(child);
-    }
     this.playerBullets.clear(true, true);
   }
 
-  // 皮肤弹道特效:每个皮肤给玩家子弹加 1-2 个附加视觉(尾迹粒子 / 光环 / 中心高光)
-  applySkinBulletFx(bullet: Phaser.Physics.Arcade.Image, owner: number): void {
-    // 子弹来自对象池,先清掉上一发残留的特效,否则旧椭圆会永久留在原地
-    this.releaseSkinBulletFx(bullet);
-    const fx = (SKINS[save.equippedSkin].fx ?? "none") as string;
-    if (fx === "none") return;
-    // 给 bullet 加:中心高亮 + 不同尺寸发光椭圆,跟随子弹移动
-    const accent = SKINS[save.equippedSkin].accent;
-    const tintMap: Record<string, number> = {
-      aurora: 0x6ffcff,
-      inferno: 0xff8a4f,
-      void: 0xb56cff,
-      after_storm: 0xff4d6a,
-      fell_short: 0xffb044,
-      boss_slayer: 0xc16cff,
-      campaign_ace: 0x6fb6ff
-    };
-    const color = tintMap[fx] ?? 0xffffff;
-    // 中心高光(白色)
-    bullet.setTint(color);
-    // 外发光(更大半透明)
-    const halo = this.add.ellipse(bullet.x, bullet.y, bullet.displayWidth * 1.6, bullet.displayHeight * 1.6, color, 0.55)
-      .setDepth(7)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    bullet.setData("skinHalo", halo);
-    // 尾迹(每帧创建一个小点)
-    const trail = this.add.ellipse(bullet.x, bullet.y + 2, bullet.displayWidth * 0.6, bullet.displayHeight * 0.6, color, 0.85)
-      .setDepth(6)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    bullet.setData("skinTrail", trail);
-    // 周期更新:在 update 里统一处理
-    void accent; // 暂不使用
-    void owner; // 暂不使用
+  spawnAchievementSkinFx(time: number): void {
+    const skin = SKINS[save.equippedSkin];
+    if (!skin?.effect || time < this.nextAchievementSkinFx || !this.player.active) return;
+    this.nextAchievementSkinFx = time + (save.settings.quality === "high" ? 95 : 145);
+    const [primary, secondary] = skin.colors;
+    const baseX = this.player.x;
+    const baseY = this.player.y;
+    let mark: Phaser.GameObjects.Shape;
+    let targetX = baseX;
+    let targetY = baseY + 44;
+    let targetScale = 0.22;
+    let duration = 360;
+
+    if (skin.effect === "heartbeat") {
+      mark = this.add.circle(baseX, baseY + 3, 7, primary, 0.14).setStrokeStyle(2, primary, 0.52);
+      targetY = baseY + 3;
+      targetScale = 1.75;
+      duration = 300;
+    } else if (skin.effect === "ember") {
+      mark = this.add.rectangle(
+        baseX + Phaser.Math.Between(-22, 22),
+        baseY + 18,
+        3,
+        9,
+        Math.random() > 0.35 ? primary : secondary,
+        0.62
+      ).setRotation(Phaser.Math.FloatBetween(-0.35, 0.35));
+      targetX = mark.x + Phaser.Math.Between(-8, 8);
+      targetY = mark.y + 48;
+    } else if (skin.effect === "gravity") {
+      const angle = time * 0.006 + Phaser.Math.FloatBetween(-0.5, 0.5);
+      mark = this.add.circle(
+        baseX + Math.cos(angle) * 34,
+        baseY + Math.sin(angle) * 28,
+        3,
+        primary,
+        0.56
+      ).setStrokeStyle(1, secondary, 0.48);
+      targetX = baseX;
+      targetY = baseY + 4;
+      targetScale = 0.08;
+      duration = 330;
+    } else if (skin.effect === "seal") {
+      mark = this.add.rectangle(
+        baseX + (Math.floor(time / 145) % 2 ? -24 : 24),
+        baseY + 10,
+        4,
+        13,
+        Math.floor(time / 290) % 2 ? primary : secondary,
+        0.54
+      );
+      targetX = mark.x;
+      targetY = mark.y + 42;
+    } else if (skin.effect === "vessel") {
+      const side = Math.floor(time / 145) % 2 ? -1 : 1;
+      mark = this.add.ellipse(baseX + side * 18, baseY + 14, 5, 11, primary, 0.54)
+        .setStrokeStyle(1, secondary, 0.42);
+      targetX = mark.x + side * 11;
+      targetY = mark.y + 40;
+    } else if (skin.effect === "trophy") {
+      const phase = Math.floor(time / 145) % 3;
+      const trophyColors = [primary, secondary, 0xb95cff];
+      mark = this.add.rectangle(
+        baseX + [-21, 0, 21][phase],
+        baseY + 18,
+        4,
+        9,
+        trophyColors[phase],
+        0.58
+      ).setRotation((phase - 1) * 0.18);
+      targetX = mark.x + (phase - 1) * 5;
+      targetY = mark.y + 44;
+    } else {
+      const side = Math.floor(time / 95) % 2 ? -1 : 1;
+      mark = this.add.ellipse(
+        baseX + side * 13,
+        baseY + 28,
+        4,
+        15,
+        side > 0 ? primary : secondary,
+        0.58
+      );
+      targetX = mark.x + side * 4;
+      targetY = mark.y + 46;
+      duration = 390;
+    }
+
+    mark.setDepth(7).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: mark,
+      x: targetX,
+      y: targetY,
+      scale: targetScale,
+      alpha: 0,
+      duration,
+      ease: "Sine.easeOut",
+      onComplete: () => mark.destroy()
+    });
   }
 
   currentDamageMultiplier(): number {
@@ -5736,6 +6414,82 @@ class BattleScene extends Phaser.Scene {
     return agileCritEffectSpeedMultiplier(this.doctrineCritEffect());
   }
 
+  updateEnemyFreezeLifecycle(time: number): void {
+    const frozen = time < this.enemyFreezeUntil;
+    if (frozen) {
+      if (this.enemyFreezeStartedAt <= 0) this.enemyFreezeStartedAt = time;
+      return;
+    }
+    if (this.enemyFreezeStartedAt <= 0) return;
+    const frozenDuration = Math.max(0, time - this.enemyFreezeStartedAt);
+    this.enemyFreezeMotionOffset += frozenDuration;
+    const restoreEntity = (entity: Phaser.Physics.Arcade.Image): void => {
+      if (!entity.active) return;
+      const values = entity.data?.values as Record<string, unknown> | undefined;
+      if (values) {
+        Object.entries(values).forEach(([key, value]) => {
+          if (
+            typeof value === "number" &&
+            Number.isFinite(value) &&
+            (key === "born" || key.startsWith("next") || key.endsWith("At") || key.endsWith("Until"))
+          ) {
+            entity.setData(key, value + frozenDuration);
+          }
+        });
+      }
+      const pausedTweens = entity.getData("freezePausedTweens") as Phaser.Tweens.Tween[] | undefined;
+      pausedTweens?.forEach((tween) => {
+        if (tween.isPaused()) tween.resume();
+      });
+      entity.setData("freezePausedTweens", undefined);
+      entity.setData("freezeLockedX", undefined);
+      entity.setData("freezeLockedY", undefined);
+    };
+    (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).forEach(restoreEntity);
+    (this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]).forEach(restoreEntity);
+    (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).forEach(restoreEntity);
+    if (this.darkAircraft?.active) restoreEntity(this.darkAircraft);
+    this.darkAircraftClones.forEach(restoreEntity);
+    const shiftTimer = (value: number): number =>
+      Number.isFinite(value) && value > 0 ? value + frozenDuration : value;
+    this.nextBossAttack = shiftTimer(this.nextBossAttack);
+    this.nextBossMinionSummon = shiftTimer(this.nextBossMinionSummon);
+    this.nextTrinityAttack = shiftTimer(this.nextTrinityAttack);
+    this.nextUsurperDisableAt = shiftTimer(this.nextUsurperDisableAt);
+    this.nextUsurperDrainAt = shiftTimer(this.nextUsurperDrainAt);
+    this.darkAircraftNextAttack = shiftTimer(this.darkAircraftNextAttack);
+    this.enemyFreezeStartedAt = 0;
+  }
+
+  lockFrozenHostiles(time: number): void {
+    if (time >= this.enemyFreezeUntil) return;
+    if (this.enemyFreezeStartedAt <= 0) this.enemyFreezeStartedAt = time;
+    const lockEntity = (entity: Phaser.Physics.Arcade.Image): void => {
+      if (!entity.active) return;
+      if (entity.getData("freezeLockedX") === undefined) {
+        entity.setData("freezeLockedX", entity.x);
+        entity.setData("freezeLockedY", entity.y);
+        const activeTweens = this.tweens.getTweensOf(entity).filter((tween) => tween.isPlaying());
+        activeTweens.forEach((tween) => tween.pause());
+        entity.setData("freezePausedTweens", activeTweens);
+      }
+      entity.setPosition(
+        entity.getData("freezeLockedX") as number,
+        entity.getData("freezeLockedY") as number
+      );
+      entity.setVelocity(0, 0);
+    };
+    (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).forEach(lockEntity);
+    (this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]).forEach(lockEntity);
+    (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).forEach(lockEntity);
+    if (this.darkAircraft?.active) lockEntity(this.darkAircraft);
+    this.darkAircraftClones.forEach(lockEntity);
+  }
+
+  hostileMotionTime(time: number): number {
+    return time - this.enemyFreezeMotionOffset;
+  }
+
   updateProjectiles(time: number): void {
     this.playerBullets.children.each((child) => {
       const bullet = child as Phaser.Physics.Arcade.Image;
@@ -5812,6 +6566,7 @@ class BattleScene extends Phaser.Scene {
             this.damagePlayerFriendly(friendlyDamage, explosive);
             if (playVariant === "score_duel") this.score2 += 75;
           }
+          if (weapon.includes("missile")) this.renderMissileExplosion(bullet.x, bullet.y);
           this.impactBurst(
             opponent.x,
             opponent.y,
@@ -5917,7 +6672,7 @@ class BattleScene extends Phaser.Scene {
     // 突变独立于精英:普通小兵也可以突变,精英同样可以叠加突变
     const mutated = rollCampaignMutation(selectedLevel);
     const mutation: EnemyMutation | null = mutated
-      ? Phaser.Utils.Array.GetRandom(["homing", "mine_burst", "armor", "dash", "suppress"] as EnemyMutation[])
+      ? rollMinionMutationKind()
       : null;
     const eliteClass = eliteVariant || type === "gunship" || type === "bomber";
     const textures: Record<EnemyType, string> = {
@@ -6068,6 +6823,7 @@ class BattleScene extends Phaser.Scene {
     }
     if (mutated) {
       enemy.setScale(enemy.scaleX * 1.06, enemy.scaleY * 1.06);
+      enemy.setTint(MINION_MUTATION_COLORS[mutation!]);
       this.floatText(enemy.x, 76, `MUTATION // ${mutation?.toUpperCase()}`, true);
     }
     return enemy;
@@ -6215,6 +6971,7 @@ class BattleScene extends Phaser.Scene {
 
   fireMutationPattern(enemy: Phaser.Physics.Arcade.Image, mutation: EnemyMutation): void {
     const damage = 14 * (enemy.getData("damageScale") ?? 1);
+    this.renderMinionMutationCue(enemy, mutation);
     if (mutation === "homing") {
       for (let index = -1; index <= 1; index += 1) {
         this.fireEnemyAngle(enemy.x + index * 20, enemy.y + 28, Math.PI / 2, 205, damage)
@@ -6418,6 +7175,13 @@ class BattleScene extends Phaser.Scene {
 
   hitEnemy(bullet: Phaser.Physics.Arcade.Image, enemy: Phaser.Physics.Arcade.Image): void {
     if (!bullet.active || !enemy.active) return;
+    const weapon = String(bullet.getData("weapon") ?? "");
+    if (weapon.includes("missile")) {
+      this.renderMissileExplosion(bullet.x, bullet.y);
+    }
+    if (weapon === "titan-authority") {
+      this.renderBossPowerPulse("titan_meteor", bullet.x, bullet.y, 160, 460);
+    }
     enemy.setData("lastOwner", bullet.getData("owner") ?? 1);
     this.dealDirectDamage(enemy, bullet.getData("damage"), bullet.x, bullet.y);
     if ((bullet.getData("owner") ?? 1) === 1) this.applyHitTrait();
@@ -6442,6 +7206,46 @@ class BattleScene extends Phaser.Scene {
     else bullet.disableBody(true, true);
   }
 
+  renderMissileExplosion(x: number, y: number): void {
+    const primary = 0xff8a38;
+    const secondary = 0xffe49a;
+    const flash = this.add.circle(x, y, 18, 0xffffff, 0.92)
+      .setDepth(31)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const shockwave = this.add.circle(x, y, 22, primary, 0.14)
+      .setStrokeStyle(6, secondary, 0.94)
+      .setDepth(30)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const scorch = this.add.ellipse(x, y, 78, 28, 0x110807, 0.42)
+      .setStrokeStyle(2, primary, 0.42)
+      .setDepth(5);
+    this.tweens.add({ targets: flash, scale: 3.2, alpha: 0, duration: 170, onComplete: () => flash.destroy() });
+    this.tweens.add({ targets: shockwave, scale: 5.4, alpha: 0, duration: 540, ease: "Cubic.Out", onComplete: () => shockwave.destroy() });
+    this.tweens.add({ targets: scorch, scaleX: 1.45, alpha: 0, duration: 1050, onComplete: () => scorch.destroy() });
+    for (let index = 0; index < 14; index += 1) {
+      const angle = (Math.PI * 2 * index) / 14 + Phaser.Math.FloatBetween(-0.12, 0.12);
+      const distance = Phaser.Math.Between(58, 132);
+      const shard = this.add.rectangle(
+        x,
+        y,
+        Phaser.Math.Between(5, 11),
+        Phaser.Math.Between(16, 32),
+        index % 3 === 0 ? 0xffffff : primary,
+        0.92
+      ).setRotation(angle + Math.PI / 2).setDepth(32).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: shard,
+        x: x + Math.cos(angle) * distance,
+        y: y + Math.sin(angle) * distance,
+        scaleY: 0.15,
+        alpha: 0,
+        duration: Phaser.Math.Between(320, 620),
+        onComplete: () => shard.destroy()
+      });
+    }
+    if (save.settings.screenShake) this.cameras.main.shake(90, 0.0035);
+  }
+
   dealDirectDamage(target: Phaser.Physics.Arcade.Image, baseDamage: number, x: number, y: number): void {
     if (!target.active) return;
     const critical = Math.random() < this.actualCritChance();
@@ -6455,7 +7259,9 @@ class BattleScene extends Phaser.Scene {
       target.setTintFill(critical ? 0xffb4ef : 0xffffff);
       this.time.delayedCall(55, () => {
         if (!target.active) return;
-        target.clearTint();
+        const mutation = target.getData("mutation") as EnemyMutation | null;
+        if (target.getData("mutated") && mutation) target.setTint(MINION_MUTATION_COLORS[mutation]);
+        else target.clearTint();
       });
       if (hp <= 0) this.destroyEnemy(target, true);
     }
@@ -6500,11 +7306,14 @@ class BattleScene extends Phaser.Scene {
         (enemy.getData("lastOwner") ?? 1) === 1
       ) {
         this.stats.maxHp += 2;
-        this.healPlayer(
-          this.stats.maxHp * 0.05 * SPECIALIZATION_BASE_STAT_BOOST,
-          "暴击处决"
-        );
         this.floatText(x, y - 48, "MAX HP +2", true);
+      }
+      if (
+        save.selectedSpecialization === "power" &&
+        (enemy.getData("lastOwner") ?? 1) === 1
+      ) {
+        const extraMaxHp = Math.max(0, this.stats.maxHp - this.originalPlayerMaxHp);
+        if (extraMaxHp > 0) this.healPlayer(extraMaxHp * 0.012, "力量回流");
       }
       if (
         save.selectedSpecialization === "wheelchair" &&
@@ -6583,13 +7392,7 @@ class BattleScene extends Phaser.Scene {
     if (save.selectedSpecialization === "defender") {
       return;
     } else if (save.selectedSpecialization === "devour") {
-      this.stats.maxHp = Math.ceil(this.stats.maxHp * 1.02);
-      this.healPlayer(
-        this.stats.maxHp * 0.01 * SPECIALIZATION_BASE_STAT_BOOST
-      );
-      if (this.kills % 4 === 0) {
-        this.showBanner(`吞噬进化 · 最大生命 ${this.stats.maxHp}`, 600);
-      }
+      return;
     }
     // 敏捷流派基础机炮击杀不给奖励(只有突刺 / 影分身 / 突刺联动击杀给)
   }
@@ -6623,12 +7426,7 @@ class BattleScene extends Phaser.Scene {
       }
     }
     if (save.selectedSpecialization !== "vampire" || this.stats.hp >= this.stats.maxHp) return;
-    const healed = Math.max(
-      0.15,
-      (this.stats.maxHp - this.stats.hp) *
-        0.03 *
-        SPECIALIZATION_BASE_STAT_BOOST
-    );
+    const healed = Math.max(0.15, (this.stats.maxHp - this.stats.hp) * 0.012);
     this.healPlayer(healed);
     if (Math.random() > 0.72) {
       const mote = this.add
@@ -6707,11 +7505,12 @@ class BattleScene extends Phaser.Scene {
       save.selectedSpecialization === "wheelchair"
         ? 1 - Math.min(0.25, (this.upgradeLevels.ram_armor ?? 0) * 0.05)
         : 1;
-    const damage = Math.max(
+    const preSkillDamage = Math.max(
       1,
       Math.ceil(
         (flatDamage + this.stats.maxHp * maxHpRatio) *
           this.currentBossEncounterAttackScale() *
+          this.bossPassiveBossDamageTakenMultiplier *
           damageReduction *
           collisionBossDamageScale(
             this.stats.maxHp,
@@ -6721,11 +7520,16 @@ class BattleScene extends Phaser.Scene {
           ramArmorReduction
       )
     );
+    const damage = Math.max(
+      1,
+      Math.ceil(preSkillDamage * this.wheelchairActiveDefenseMultiplier(now))
+    );
+    this.recordWheelchairReactiveAbsorption(preSkillDamage, damage);
     this.stats.hp = Math.max(0, this.stats.hp - damage);
     this.playerWasHit = true;
     this.invulnerableUntil = now + 480;
     // === 防御流派:荆棘护甲 — 百分比伤害按 100 HP 反伤 ===
-    this.applyThorns(0, true, null);
+    this.applyThorns(damage, true, null);
     this.floatText(this.player.x, this.player.y - 56, `${label} -${damage}`, true);
     this.burst(this.player.x, this.player.y, 0x6d0b8f, 1.6);
     this.cameras.main.flash(95, 60, 0, 80);
@@ -6736,7 +7540,9 @@ class BattleScene extends Phaser.Scene {
       this.time.delayedCall(750, () => this.endRun(false));
     } else {
       this.player.setTintFill(0x6d0b8f);
-      this.time.delayedCall(90, () => this.player.active && this.player.setTint(currentSkinVariant().tint));
+      this.time.delayedCall(90, () => {
+        if (this.player.active) this.player.clearTint();
+      });
     }
   }
 
@@ -6754,7 +7560,56 @@ class BattleScene extends Phaser.Scene {
     this.showBanner(`${label} · ${formatRoundedNumberForDisplay(duration)} 秒禁止回血`, 900);
   }
 
+  renderDarkEnergyEffect(x: number, y: number, intensity = 1): void {
+    const core = this.add.circle(x, y, 22 * intensity, 0x030006, 0.82)
+      .setStrokeStyle(5, 0xb316ff, 0.9)
+      .setDepth(23);
+    const rupture = this.add.circle(x, y, 56 * intensity, 0x24002f, 0.08)
+      .setStrokeStyle(3, 0xff2d8f, 0.8)
+      .setDepth(24)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: core,
+      scale: 1.7,
+      alpha: 0,
+      duration: 420,
+      onComplete: () => core.destroy()
+    });
+    this.tweens.add({
+      targets: rupture,
+      rotation: Math.PI / 2,
+      scale: 1.9,
+      alpha: 0,
+      duration: 560,
+      onComplete: () => rupture.destroy()
+    });
+    for (let index = 0; index < 6; index += 1) {
+      const angle = (Math.PI * 2 * index) / 6 + this.time.now * 0.002;
+      const radius = 58 * intensity;
+      const mote = this.add.circle(
+        x + Math.cos(angle) * radius,
+        y + Math.sin(angle) * radius,
+        5 * intensity,
+        index % 2 ? 0xff2d8f : 0x7b20ff,
+        0.92
+      ).setStrokeStyle(2, 0x050008, 1).setDepth(25).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: mote,
+        x,
+        y,
+        scale: 0.15,
+        alpha: 0,
+        duration: 380 + index * 30,
+        onComplete: () => mote.destroy()
+      });
+    }
+  }
+
   updateDarkEffects(time: number): void {
+    if (this.darkDotRemaining > 0 && time < this.darkDotUntil && time >= this.nextDarkEnergyFxAt) {
+      this.nextDarkEnergyFxAt = time + 180;
+      this.renderDarkEnergyEffect(this.player.x, this.player.y, 0.72);
+    }
     if (this.darkDotRemaining > 0 && time < this.darkDotUntil && time >= this.nextDarkDotTick) {
       this.nextDarkDotTick = time + 250;
       const tick = Math.min(this.darkDotRemaining, this.darkDotPerSecond * 0.25);
@@ -6778,7 +7633,9 @@ class BattleScene extends Phaser.Scene {
         this.stats.maxHp
       );
       this.player.setTint(0x7f2d9f);
-      this.time.delayedCall(90, () => this.player.active && this.player.setTint(currentSkinVariant().tint));
+      this.time.delayedCall(90, () => {
+        if (this.player.active) this.player.clearTint();
+      });
       if (this.stats.hp <= 0) {
         this.playerExplosion(this.player.x, this.player.y);
         this.player.setVisible(false);
@@ -6794,8 +7651,9 @@ class BattleScene extends Phaser.Scene {
       const centerY = WORLD_HEIGHT * 0.42;
       const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, centerX, centerY);
       if (distance > 45) {
-        this.player.x = Phaser.Math.Linear(this.player.x, centerX, 0.0045);
-        this.player.y = Phaser.Math.Linear(this.player.y, centerY, 0.0045);
+        // 黑影大漩涡的拖拽减速减半：保留吸入感，但不再明显压制走位。
+        this.player.x = Phaser.Math.Linear(this.player.x, centerX, 0.00225);
+        this.player.y = Phaser.Math.Linear(this.player.y, centerY, 0.00225);
       }
       if (time >= this.nextDarkStormTick && distance < 285) {
         this.nextDarkStormTick = time + 1000;
@@ -6809,6 +7667,258 @@ class BattleScene extends Phaser.Scene {
       this.skillsConfiscated = false;
       this.skillsConfiscatedUntil = 0;
       this.showBanner("技能权限已恢复", 760);
+    }
+  }
+
+  wheelchairActiveDefenseMultiplier(now = this.time.now): number {
+    if (save.selectedSpecialization !== "wheelchair") return 1;
+    return wheelchairActiveDamageTakenMultiplier(
+      now < this.wheelchairBreachUntil,
+      now < this.wheelchairReactiveArmorUntil,
+      now < this.wheelchairFortressUntil
+    );
+  }
+
+  recordWheelchairReactiveAbsorption(preSkillDamage: number, receivedDamage: number): void {
+    if (
+      save.selectedSpecialization !== "wheelchair" ||
+      this.time.now >= this.wheelchairReactiveArmorUntil
+    ) {
+      return;
+    }
+    const prevented = Math.max(0, preSkillDamage - receivedDamage);
+    if (prevented <= 0) return;
+    this.wheelchairReactiveStoredDamage = Math.min(
+      this.stats.maxHp * 0.5,
+      this.wheelchairReactiveStoredDamage + prevented
+    );
+  }
+
+  consumeWheelchairReactiveCharge(x: number, y: number): number {
+    if (this.wheelchairReactiveStoredDamage <= 0) return 0;
+    const release = reactiveArmorRelease(this.wheelchairReactiveStoredDamage);
+    this.wheelchairReactiveStoredDamage = 0;
+    this.healPlayer(release.healing, "反应装甲回流");
+    const blast = this.add
+      .circle(x, y, 92, 0xff8a22, 0.1)
+      .setStrokeStyle(8, 0xffffff, 0.94)
+      .setDepth(29)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: blast,
+      scale: 3.4,
+      rotation: Math.PI / 2,
+      alpha: 0,
+      duration: 520,
+      ease: "Cubic.Out",
+      onComplete: () => blast.destroy()
+    });
+    this.floatText(x, y - 44, `装甲释放 ${Math.round(release.damage)}`, true);
+    if (save.settings.screenShake) this.cameras.main.shake(180, 0.009);
+    return release.damage;
+  }
+
+  wheelchairSkillDirection(): Phaser.Math.Vector2 {
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    const direction = new Phaser.Math.Vector2(
+      Number(this.wasd.D.isDown || this.cursors.right.isDown) -
+        Number(this.wasd.A.isDown || this.cursors.left.isDown),
+      Number(this.wasd.S.isDown || this.cursors.down.isDown) -
+        Number(this.wasd.W.isDown || this.cursors.up.isDown)
+    );
+    if (direction.lengthSq() < 0.1) direction.set(body.velocity.x, body.velocity.y);
+    if (direction.lengthSq() < 10) direction.set(0, -1);
+    return direction.normalize();
+  }
+
+  wheelchairSkillAvailable(key: string, label: string, cooldownMs: number): boolean {
+    if (this.ended || this.isModal || save.selectedSpecialization !== "wheelchair") return false;
+    if (this.skillsConfiscated) {
+      showToast(`${label}被技能篡夺者封锁`);
+      return false;
+    }
+    const readyAt = this.skillReadyAt[key] ?? 0;
+    if (this.time.now < readyAt) {
+      showToast(
+        `${label}冷却 ${formatRoundedNumberForDisplay((readyAt - this.time.now) / 1000)}s`
+      );
+      return false;
+    }
+    this.skillReadyAt[key] = this.time.now + cooldownMs * this.stats.cooldownMultiplier;
+    return true;
+  }
+
+  activateWheelchairBreachHorn(): void {
+    const skill = WHEELCHAIR_ACTIVE_SKILLS.breachHorn;
+    if (!this.wheelchairSkillAvailable("wheelchair-breach-horn", "破阵冲角", skill.cooldownMs)) {
+      return;
+    }
+    const direction = this.wheelchairSkillDirection();
+    const startX = this.player.x;
+    const startY = this.player.y;
+    const endX = Phaser.Math.Clamp(startX + direction.x * skill.distance, 54, WORLD_WIDTH - 54);
+    const endY = Phaser.Math.Clamp(startY + direction.y * skill.distance, 120, WORLD_HEIGHT - 68);
+    const candidates = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[])
+      .filter(
+        (enemy) =>
+          enemy.active &&
+          distancePointToSegment(enemy.x, enemy.y, startX, startY, endX, endY) <=
+            enemy.displayWidth * 0.34 + 56
+      )
+      .sort(
+        (a, b) =>
+          Phaser.Math.Distance.Between(startX, startY, a.x, a.y) -
+          Phaser.Math.Distance.Between(startX, startY, b.x, b.y)
+      );
+    const target = candidates[0];
+    if (target) {
+      const reactiveBonus = this.consumeWheelchairReactiveCharge(target.x, target.y);
+      const ramDamage =
+        this.wheelchairRamDamage() * skill.ramDamageMultiplier + reactiveBonus;
+      const hp = (target.getData("hp") as number) ?? 1;
+      target.setData("lastOwner", 1).setData("wheelchairRamKill", hp <= ramDamage);
+      this.renderBilliardChainImpact(this.player, target);
+      if (hp <= ramDamage) {
+        this.destroyEnemy(target, true);
+      } else {
+        target.setData("hp", hp - ramDamage);
+        target
+          .setVelocity(direction.x * 1280, direction.y * 1280 - 50)
+          .setData("wheelchairKnockedUntil", this.time.now + 1650)
+          .setData("wheelchairKnockDamage", this.wheelchairRamDamage() * 1.35)
+          .setData("billiardBounceLeft", 5)
+          .setTint(0xfff0a8);
+        this.spawnKnockedFx(target, 0xff8a22, 0xfff0a8);
+      }
+      this.triggerRamShockwave(target.x, target.y, target, true);
+      this.floatText(target.x, target.y - 38, `冲角 ${Math.round(ramDamage)}`, true);
+    } else {
+      const bossCore = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[])
+        .filter(
+          (part) =>
+            part.active &&
+            ["core", "raid-core"].includes(part.getData("part")) &&
+            distancePointToSegment(part.x, part.y, startX, startY, endX, endY) <=
+              part.displayWidth * 0.2 + 60
+        )
+        .sort(
+          (a, b) =>
+            Phaser.Math.Distance.Between(startX, startY, a.x, a.y) -
+            Phaser.Math.Distance.Between(startX, startY, b.x, b.y)
+        )[0];
+      if (bossCore) {
+        const bossMax =
+          bossCore.getData("part") === "raid-core"
+            ? (bossCore.getData("maxHp") as number) ?? this.bossMaxHp / 3
+            : this.bossMaxHp;
+        const damage =
+          Math.max(
+            this.wheelchairRamDamage() * skill.ramDamageMultiplier,
+            bossMax * 0.02 * this.wheelchairHullAttackMultiplier()
+          ) + this.consumeWheelchairReactiveCharge(bossCore.x, bossCore.y);
+        bossCore.setData("collisionFinisher", true);
+        const phaseMultiplier = this.bossPhase === 1 ? 0.65 : 1.25;
+        this.damageBossPart(
+          bossCore,
+          bossCore.getData("part") === "raid-core" ? damage : damage / phaseMultiplier
+        );
+        this.triggerRamShockwave(bossCore.x, bossCore.y, bossCore, true);
+        this.floatText(bossCore.x, bossCore.y + 42, `冲角 ${Math.round(damage)}`, true);
+      }
+    }
+    const trail = this.add.graphics().setDepth(28);
+    trail.lineStyle(54, 0xff7a22, 0.18);
+    trail.lineBetween(startX, startY, endX, endY);
+    trail.lineStyle(9, 0xfff3b0, 0.92);
+    trail.lineBetween(startX, startY, endX, endY);
+    this.tweens.add({
+      targets: trail,
+      alpha: 0,
+      duration: 420,
+      onComplete: () => trail.destroy()
+    });
+    this.player.setPosition(endX, endY).setVelocity(direction.x * 520, direction.y * 520);
+    this.targetX = endX;
+    this.targetY = endY;
+    this.collisionReadyAt = this.time.now + 260;
+    this.wheelchairBreachUntil = this.time.now + skill.protectionMs;
+    this.burst(startX, startY, 0xff7a22, 1.5);
+    this.burst(endX, endY, 0xffd45a, 2.2);
+    this.showBanner("1 · 破阵冲角 · 三倍撞击", 820);
+  }
+
+  activateWheelchairReactiveArmor(): void {
+    const skill = WHEELCHAIR_ACTIVE_SKILLS.reactiveArmor;
+    if (!this.wheelchairSkillAvailable("wheelchair-reactive-armor", "反应装甲", skill.cooldownMs)) {
+      return;
+    }
+    this.wheelchairReactiveArmorUntil = this.time.now + skill.durationMs;
+    this.wheelchairReactiveArmorVisual?.destroy();
+    this.wheelchairReactiveArmorVisual = this.add
+      .circle(this.player.x, this.player.y, this.player.displayWidth * 0.62, 0xff8a22, 0.08)
+      .setStrokeStyle(9, 0xfff1a8, 0.9)
+      .setDepth(21)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.burst(this.player.x, this.player.y, 0xff8a22, 2.2);
+    this.showBanner("2 · 反应装甲 · 减伤 65% · 吸收转化", 1050);
+  }
+
+  activateWheelchairFortressStance(): void {
+    const skill = WHEELCHAIR_ACTIVE_SKILLS.fortressStance;
+    if (!this.wheelchairSkillAvailable("wheelchair-fortress", "堡垒姿态", skill.cooldownMs)) {
+      return;
+    }
+    this.wheelchairFortressUntil = this.time.now + skill.durationMs;
+    this.wheelchairFortressApplied = true;
+    this.player.setDisplaySize(
+      this.wheelchairFortressBaseWidth * skill.sizeMultiplier,
+      this.wheelchairFortressBaseHeight * skill.sizeMultiplier
+    );
+    this.configurePlayerBody(this.player, 42);
+    this.wheelchairFortressVisual?.destroy();
+    this.wheelchairFortressVisual = this.add
+      .circle(this.player.x, this.player.y, 104, 0xff7a22, 0.06)
+      .setStrokeStyle(8, 0xffd45a, 0.86)
+      .setDepth(9)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.burst(this.player.x, this.player.y, 0xffd45a, 2.8);
+    this.showBanner("3 · 堡垒姿态 · 体型 +50% · 减伤 50%", 1050);
+    if (save.settings.screenShake) this.cameras.main.shake(220, 0.01);
+  }
+
+  updateWheelchairActiveSkills(time: number): void {
+    if (save.selectedSpecialization !== "wheelchair" || !this.player?.active) return;
+    if (this.wheelchairReactiveArmorVisual?.active) {
+      if (time >= this.wheelchairReactiveArmorUntil) {
+        this.wheelchairReactiveArmorVisual.destroy();
+        this.wheelchairReactiveArmorVisual = undefined;
+      } else {
+        const chargeRatio = Phaser.Math.Clamp(
+          this.wheelchairReactiveStoredDamage / Math.max(1, this.stats.maxHp * 0.5),
+          0,
+          1
+        );
+        this.wheelchairReactiveArmorVisual
+          .setPosition(this.player.x, this.player.y)
+          .setRadius(this.player.displayWidth * (0.58 + chargeRatio * 0.12))
+          .setAlpha(0.46 + chargeRatio * 0.36);
+      }
+    }
+    if (this.wheelchairFortressApplied && time >= this.wheelchairFortressUntil) {
+      this.wheelchairFortressApplied = false;
+      this.player.setDisplaySize(
+        this.wheelchairFortressBaseWidth,
+        this.wheelchairFortressBaseHeight
+      );
+      this.configurePlayerBody(this.player);
+      this.wheelchairFortressVisual?.destroy();
+      this.wheelchairFortressVisual = undefined;
+      this.burst(this.player.x, this.player.y, 0xffbd3e, 1.2);
+    } else if (this.wheelchairFortressVisual?.active) {
+      this.wheelchairFortressVisual
+        .setPosition(this.player.x, this.player.y)
+        .setRotation(time * 0.0012)
+        .setAlpha(0.46 + Math.sin(time * 0.012) * 0.1);
     }
   }
 
@@ -6929,6 +8039,25 @@ class BattleScene extends Phaser.Scene {
     trail.lineBetween(startX, startY, endX, endY);
     trail.lineStyle(5, 0xffffff, 0.92);
     trail.lineBetween(startX, startY, endX, endY);
+    const dashAngle = Math.atan2(endY - startY, endX - startX);
+    for (let index = 1; index <= 5; index += 1) {
+      const ratio = index / 6;
+      const chevron = this.add.rectangle(
+        Phaser.Math.Linear(startX, endX, ratio),
+        Phaser.Math.Linear(startY, endY, ratio),
+        36,
+        8,
+        index % 2 ? 0xffbd3e : 0xffffff,
+        0.76
+      ).setRotation(dashAngle).setDepth(27).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: chevron,
+        scaleX: 2.2,
+        alpha: 0,
+        duration: 300 + index * 35,
+        onComplete: () => chevron.destroy()
+      });
+    }
     this.player.setPosition(endX, endY);
     this.player.setVelocity(direction.x * 460, direction.y * 460);
     this.targetX = endX;
@@ -6967,26 +8096,590 @@ class BattleScene extends Phaser.Scene {
     this.skillReadyAt[key] = this.time.now + cooldown;
     this.wheelchairOverdriveUntil = this.time.now + 6000;
     const shock = this.add
-      .circle(this.player.x, this.player.y, 28, 0xffbd3e, 0.12)
-      .setStrokeStyle(8, 0xffffff, 0.92)
+      .circle(this.player.x, this.player.y, 68, 0xffbd3e, 0.1)
+      .setStrokeStyle(5, 0xffffff, 0.92)
       .setDepth(22);
     this.tweens.add({
       targets: shock,
-      radius: 155,
+      scale: 3.1,
+      rotation: Math.PI / 3,
       alpha: 0,
       duration: 460,
       onComplete: () => shock.destroy()
     });
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (Math.PI * 2 * index) / 8;
+      const fin = this.add.rectangle(
+        this.player.x + Math.cos(angle) * 48,
+        this.player.y + Math.sin(angle) * 48,
+        34,
+        7,
+        index % 2 ? 0xffffff : 0xffbd3e,
+        0.82
+      ).setRotation(angle).setDepth(23).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: fin,
+        x: this.player.x + Math.cos(angle) * 150,
+        y: this.player.y + Math.sin(angle) * 150,
+        scaleX: 0.2,
+        alpha: 0,
+        duration: 520,
+        onComplete: () => fin.destroy()
+      });
+    }
     this.burst(this.player.x, this.player.y, 0xffbd3e, 2);
     this.showBanner("全速冲锋 · 机动 ×1.9 · 受到伤害 -30%", 1050);
     if (save.settings.screenShake) this.cameras.main.shake(190, 0.009);
   }
 
+  spawnAnimatedVfx(
+    texture: string,
+    x: number,
+    y: number,
+    firstFrame: number,
+    duration = 880,
+    size: number | { width: number; height: number } = 250,
+    trackedBossEffect = false,
+    depth = 26,
+    peakAlpha = 0.9
+  ): Phaser.GameObjects.Image | undefined {
+    if (!this.textures.exists(texture)) return undefined;
+    const displayWidth = typeof size === "number" ? size : size.width;
+    const displayHeight = typeof size === "number" ? size : size.height;
+    const effect = this.add
+      .image(x, y, texture, firstFrame)
+      .setDisplaySize(displayWidth, displayHeight)
+      .setDepth(depth)
+      .setAlpha(peakAlpha)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const baseScaleX = effect.scaleX;
+    const baseScaleY = effect.scaleY;
+    const startedAt = this.time.now;
+    const frameTimer = this.time.addEvent({
+      delay: 82,
+      loop: true,
+      callback: () => {
+        if (!effect.active) {
+          frameTimer.remove(false);
+          return;
+        }
+        const frame = Math.floor((this.time.now - startedAt) / 82) % 4;
+        effect.setFrame(firstFrame + frame);
+      }
+    });
+    effect.once("destroy", () => frameTimer.remove(false));
+    this.tweens.add({
+      targets: effect,
+      // 保留 setDisplaySize 指定的真实判定范围尺寸。旧代码 tween `scale`
+      // 会把宽高重置成贴图原始比例，导致大范围技能最后只剩中心一小块。
+      scaleX: { from: baseScaleX * 0.92, to: baseScaleX * 1.08 },
+      scaleY: { from: baseScaleY * 0.92, to: baseScaleY * 1.08 },
+      rotation: 0.1,
+      alpha: { from: peakAlpha, to: 0 },
+      duration,
+      ease: "Cubic.Out",
+      onComplete: () => effect.destroy()
+    });
+    return trackedBossEffect
+      ? this.trackBossEffect(effect, duration + 120)
+      : effect;
+  }
+
+  bossSkillRangeColor(kind: BossKind | "dark_aircraft"): number {
+    if (kind === "titan") return 0xff7a32;
+    if (kind === "mirror") return 0x42efff;
+    if (kind === "usurper") return 0xffd45a;
+    if (kind === "shadow") return 0xff2d8f;
+    if (kind === "dark_aircraft") return 0xff4da6;
+    return 0xc13dff;
+  }
+
+  bossPowerRangeColor(power: BossPowerId): number {
+    if (power === "titan_meteor") return 0xff9a45;
+    if (power === "mirror_copy") return 0x8c7dff;
+    if (power === "usurper_lock") return 0x52e6ff;
+    if (power === "shadow_rift_blade") return 0xff2d8f;
+    if (power === "absolute_freeze") return 0x79f4ff;
+    return 0xd02b82;
+  }
+
+  renderSkillRangeBoundary(
+    x: number,
+    y: number,
+    size: number | { width: number; height: number },
+    color: number,
+    duration: number,
+    label: "危险范围" | "权柄范围",
+    trackedBossEffect: boolean
+  ): void {
+    const isCircle = typeof size === "number";
+    const width = isCircle ? size : size.width;
+    const height = isCircle ? size : size.height;
+    const outer = isCircle
+      ? this.add.circle(x, y, Math.max(10, width / 2), color, 0.025)
+      : this.add.rectangle(x, y, width, height, color, 0.025);
+    const inner = isCircle
+      ? this.add.circle(x, y, Math.max(6, width / 2 - 9), 0xffffff, 0)
+      : this.add.rectangle(x, y, Math.max(8, width - 16), Math.max(8, height - 16), 0xffffff, 0);
+    outer.setStrokeStyle(8, color, 0.98).setDepth(27);
+    inner.setStrokeStyle(2, 0xffffff, 0.84).setDepth(27);
+    const pulseRepeat = Math.max(1, Math.ceil(duration / 240) - 1);
+    this.tweens.add({
+      targets: [outer, inner],
+      alpha: { from: 0.62, to: 1 },
+      yoyo: true,
+      repeat: pulseRepeat,
+      duration: 120
+    });
+    const rangeObjects: Phaser.GameObjects.GameObject[] = [outer, inner];
+    const entityMarkers: Phaser.GameObjects.Shape[] = [];
+    if (isCircle) {
+      const radius = Math.max(10, width / 2);
+      const markerCount = Phaser.Math.Clamp(Math.round((Math.PI * 2 * radius) / 96), 8, 16);
+      for (let index = 0; index < markerCount; index += 1) {
+        const angle = (Math.PI * 2 * index) / markerCount;
+        entityMarkers.push(
+          this.add
+            .circle(
+              x + Math.cos(angle) * radius,
+              y + Math.sin(angle) * radius,
+              8,
+              color,
+              0.72
+            )
+            .setStrokeStyle(2, 0xffffff, 0.9)
+            .setDepth(27)
+        );
+      }
+    } else {
+      const cornerLength = Math.max(24, Math.min(56, width * 0.22, height * 0.22));
+      for (const sideX of [-1, 1]) {
+        for (const sideY of [-1, 1]) {
+          entityMarkers.push(
+            this.add
+              .rectangle(
+                x + sideX * (width / 2 - cornerLength / 2),
+                y + sideY * (height / 2 - 5),
+                cornerLength,
+                10,
+                color,
+                0.92
+              )
+              .setStrokeStyle(2, 0xffffff, 0.88)
+              .setDepth(27),
+            this.add
+              .rectangle(
+                x + sideX * (width / 2 - 5),
+                y + sideY * (height / 2 - cornerLength / 2),
+                10,
+                cornerLength,
+                color,
+                0.92
+              )
+              .setStrokeStyle(2, 0xffffff, 0.88)
+              .setDepth(27)
+          );
+        }
+      }
+      if (height > 300) {
+        const nodeCount = Phaser.Math.Clamp(Math.floor(height / 190), 2, 7);
+        for (let index = 1; index < nodeCount; index += 1) {
+          const nodeY = y - height / 2 + (height * index) / nodeCount;
+          for (const sideX of [-1, 1]) {
+            entityMarkers.push(
+              this.add
+                .rectangle(x + sideX * width / 2, nodeY, 17, 17, color, 0.9)
+                .setStrokeStyle(2, 0xffffff, 0.9)
+                .setRotation(Math.PI / 4)
+                .setDepth(27)
+            );
+          }
+        }
+      }
+    }
+    rangeObjects.push(...entityMarkers);
+    this.tweens.add({
+      targets: entityMarkers,
+      alpha: { from: 0.72, to: 1 },
+      yoyo: true,
+      repeat: pulseRepeat,
+      duration: 120
+    });
+    if (width >= 280 && height >= 240) {
+      const labelY = Phaser.Math.Clamp(y - height / 2 + 28, 118, WORLD_HEIGHT - 90);
+      rangeObjects.push(
+        this.add
+          .text(Phaser.Math.Clamp(x, 100, WORLD_WIDTH - 100), labelY, `⚠ ${label}`, {
+            fontFamily: "Microsoft YaHei, sans-serif",
+            fontSize: "18px",
+            fontStyle: "bold",
+            color: "#ffffff",
+            backgroundColor: label === "危险范围" ? "#4b0719dd" : "#082b46dd"
+          })
+          .setPadding(8, 4)
+          .setOrigin(0.5)
+          .setDepth(28)
+      );
+    }
+    if (trackedBossEffect) {
+      rangeObjects.forEach((object) => this.trackBossEffect(object, duration + 80));
+    } else {
+      this.time.delayedCall(duration + 80, () => {
+        rangeObjects.forEach((object) => {
+          this.tweens.killTweensOf(object);
+          if (object.active) object.destroy();
+        });
+      });
+    }
+  }
+
+  renderBossSkillEntityCue(
+    core: Phaser.Physics.Arcade.Image,
+    kind: BossKind | "dark_aircraft",
+    duration = 980
+  ): void {
+    const color = this.bossSkillRangeColor(kind);
+    const cx = core.x;
+    const cy = core.y + Math.min(80, core.displayHeight * 0.18);
+    const entities: Phaser.GameObjects.GameObject[] = [];
+    const armorRing = this.add
+      .circle(cx, cy, kind === "dark_aircraft" ? 42 : 58, 0x05060c, 0.78)
+      .setStrokeStyle(10, color, 0.98)
+      .setDepth(28);
+    const reactor = this.add
+      .circle(cx, cy, kind === "mirror" ? 30 : 36, color, 0.76)
+      .setStrokeStyle(3, 0xffffff, 0.96)
+      .setDepth(29);
+    entities.push(armorRing, reactor);
+    if (kind === "titan") {
+      for (let index = 0; index < 8; index += 1) {
+        const angle = (Math.PI * 2 * index) / 8;
+        entities.push(
+          this.add
+            .rectangle(
+              cx + Math.cos(angle) * 78,
+              cy + Math.sin(angle) * 62,
+              10,
+              38,
+              color,
+              0.9
+            )
+            .setRotation(angle + Math.PI / 2)
+            .setStrokeStyle(2, 0xffffff, 0.82)
+            .setDepth(29)
+        );
+      }
+    } else if (kind === "mirror") {
+      for (const side of [-1, 1]) {
+        entities.push(
+          this.add
+            .rectangle(cx + side * 70, cy, 42, 42, color, 0.78)
+            .setStrokeStyle(5, 0xffffff, 0.92)
+            .setRotation(Math.PI / 4)
+            .setDepth(29)
+        );
+      }
+    } else if (kind === "usurper") {
+      for (let index = -2; index <= 2; index += 1) {
+        entities.push(
+          this.add
+            .rectangle(cx + index * 22, cy, 9, 108 - Math.abs(index) * 12, index % 2 ? 0xffffff : color, 0.9)
+            .setStrokeStyle(1, color, 0.9)
+            .setDepth(29)
+        );
+      }
+    } else if (kind === "shadow") {
+      for (let index = -1; index <= 1; index += 1) {
+        entities.push(
+          this.add
+            .rectangle(cx, cy + index * 24, 132, 11, index === 0 ? 0xffffff : color, 0.88)
+            .setRotation(-0.38 + index * 0.16)
+            .setDepth(29)
+        );
+      }
+    } else if (kind === "dark_deity") {
+      entities.push(
+        this.add.circle(cx, cy, 31, 0x020005, 1).setStrokeStyle(8, color, 1).setDepth(30),
+        this.add.ellipse(cx, cy, 154, 48, color, 0.42).setStrokeStyle(5, 0xffffff, 0.85).setDepth(29)
+      );
+    } else {
+      for (const side of [-1, 1]) {
+        entities.push(
+          this.add
+            .ellipse(cx + side * 48, cy, 36, 64, color, 0.68)
+            .setRotation(side * 0.35)
+            .setStrokeStyle(2, 0xffffff, 0.82)
+            .setDepth(29)
+        );
+      }
+    }
+    entities.forEach((entity) => this.trackBossEffect(entity, duration));
+    this.tweens.add({
+      targets: armorRing,
+      rotation: Math.PI / 2,
+      duration,
+      ease: "Sine.InOut"
+    });
+    this.tweens.add({
+      targets: reactor,
+      scale: { from: 0.88, to: 1.12 },
+      yoyo: true,
+      repeat: Math.max(1, Math.ceil(duration / 240) - 1),
+      duration: 120
+    });
+  }
+
+  renderBossSkillImageCue(
+    core: Phaser.Physics.Arcade.Image,
+    kind: BossKind | "dark_aircraft",
+    type: string
+  ): void {
+    // 不再在 Boss 机体上覆盖技能插画、圆环或徽记。攻击本身仍由各技能的
+    // 实体、弹体和与伤害判定完全一致的范围边界负责表现。
+    void core;
+    void kind;
+    void type;
+  }
+
+  renderBossSkillImpact(
+    kind: BossKind | "dark_aircraft",
+    type: string,
+    x: number,
+    y: number,
+    size = 260,
+    duration = 720,
+    showRangeBoundary = false
+  ): void {
+    const definition = BOSS_SKILL_FX[`${kind}:${type}`];
+    if (!definition) return;
+    const largeVisual = size >= 280;
+    if (showRangeBoundary) {
+      this.renderSkillRangeBoundary(
+        x,
+        y,
+        size,
+        this.bossSkillRangeColor(kind),
+        duration,
+        "危险范围",
+        true
+      );
+    }
+    this.spawnAnimatedVfx(
+      definition.texture,
+      x,
+      y,
+      definition.row * 4,
+      duration,
+      size,
+      true,
+      largeVisual ? 7 : 26,
+      largeVisual ? 0.4 : 0.8
+    );
+  }
+
+  renderBossSkillArea(
+    kind: BossKind | "dark_aircraft",
+    type: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    duration = 760
+  ): void {
+    const definition = BOSS_SKILL_FX[`${kind}:${type}`];
+    if (!definition) return;
+    this.renderSkillRangeBoundary(
+      x,
+      y,
+      { width, height },
+      this.bossSkillRangeColor(kind),
+      duration,
+      "危险范围",
+      true
+    );
+    this.spawnAnimatedVfx(
+      definition.texture,
+      x,
+      y,
+      definition.row * 4,
+      duration,
+      { width, height },
+      true,
+      7,
+      0.4
+    );
+  }
+
   setBossPower(power: BossPowerId): void {
+    if (!this.recoveredBossPowers.includes(power)) this.recoveredBossPowers.push(power);
     this.bossPower = power;
     this.bossPowerReadyAt = this.time.now + 1000;
     const definition = BOSS_POWER_OPTIONS.find((item) => item.id === power);
     this.showBanner(`V · ${definition?.name ?? "首领权柄"} 已获得`, 1200);
+  }
+
+  grantBossPassive(passiveId: BossPassiveId): void {
+    if (this.bossPassives.includes(passiveId)) return;
+    const definition = BOSS_PASSIVE_OPTIONS.find((option) => option.id === passiveId);
+    if (!definition) return;
+    this.bossPassives.push(passiveId);
+    definition.apply(this);
+    this.cameras.main.flash(150, 190, 110, 255);
+    this.showBanner(`专属被动 · ${definition.name} 已嵌入`, 1300);
+    this.floatText(WORLD_WIDTH / 2, 340, `${definition.code} · 被动累计 ${this.bossPassives.length}`, true);
+    this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.7);
+  }
+
+  renderBossPowerActivation(power: BossPowerId): void {
+    const generated = this.spawnAnimatedVfx(
+      BOSS_POWER_FX_KEYS[power],
+      this.player.x,
+      this.player.y - 20,
+      0,
+      power === "dark_deity_pact" ? 1100 : 900,
+      power === "titan_meteor" ? 320 : 270
+    );
+    if (generated) return;
+    const definitions: Record<BossPowerId, { color: number; sides: number }> = {
+      titan_meteor: { color: 0xff7a32, sides: 8 },
+      mirror_copy: { color: 0x9b7dff, sides: 4 },
+      usurper_lock: { color: 0x52e6ff, sides: 6 },
+      shadow_rift_blade: { color: 0xff2d8f, sides: 3 },
+      dark_deity_pact: { color: 0xb01662, sides: 12 },
+      absolute_freeze: { color: 0x79f4ff, sides: 6 }
+    };
+    const { color } = definitions[power];
+    const sigil = this.add.circle(
+      this.player.x,
+      this.player.y,
+      power === "dark_deity_pact" ? 105 : 82,
+      color,
+      power === "usurper_lock" ? 0.05 : 0.09
+    ).setStrokeStyle(power === "shadow_rift_blade" ? 8 : 4, 0xffffff, 0.88)
+      .setDepth(28)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: sigil,
+      rotation: power === "mirror_copy" ? -Math.PI : Math.PI,
+      scale: power === "titan_meteor" ? 4.2 : 2.6,
+      alpha: 0,
+      duration: power === "dark_deity_pact" ? 1100 : 760,
+      onComplete: () => sigil.destroy()
+    });
+    if (power === "absolute_freeze") {
+      for (let index = 0; index < 12; index += 1) {
+        const angle = (Math.PI * 2 * index) / 12;
+        const crystal = this.add.rectangle(
+          this.player.x + Math.cos(angle) * 48,
+          this.player.y + Math.sin(angle) * 48,
+          8,
+          40,
+          index % 2 ? 0xffffff : color,
+          0.9
+        ).setRotation(angle + Math.PI / 2).setDepth(30).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: crystal,
+          x: this.player.x + Math.cos(angle) * 480,
+          y: this.player.y + Math.sin(angle) * 480,
+          scale: 2.2,
+          alpha: 0,
+          duration: 720,
+          onComplete: () => crystal.destroy()
+        });
+      }
+    } else if (power === "usurper_lock") {
+      for (let index = -3; index <= 3; index += 1) {
+        const gridLine = this.add.rectangle(
+          this.player.x + index * 36,
+          this.player.y,
+          3,
+          240,
+          color,
+          0.62
+        ).setDepth(27).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: gridLine, scaleY: 4, alpha: 0, duration: 720, onComplete: () => gridLine.destroy() });
+      }
+    } else if (power === "shadow_rift_blade") {
+      for (let index = -1; index <= 1; index += 1) {
+        const slash = this.add.rectangle(
+          this.player.x,
+          this.player.y + index * 38,
+          280,
+          9,
+          index === 0 ? 0xffffff : color,
+          0.78
+        ).setRotation(-0.28 + index * 0.14).setDepth(29).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: slash, scaleX: 4, alpha: 0, duration: 460 + index * 40, onComplete: () => slash.destroy() });
+      }
+    } else if (power === "mirror_copy") {
+      [-1, 1].forEach((side) => {
+        const mirror = this.add.rectangle(this.player.x + side * 92, this.player.y, 74, 74, color, 0.08)
+          .setStrokeStyle(3, 0xffffff, 0.8).setRotation(Math.PI / 4).setDepth(27);
+        this.tweens.add({ targets: mirror, x: this.player.x + side * 180, rotation: Math.PI * 1.25, alpha: 0, duration: 700, onComplete: () => mirror.destroy() });
+      });
+    }
+  }
+
+  renderBossPowerPulse(
+    power: BossPowerId,
+    x: number,
+    y: number,
+    size: number | { width: number; height: number } = 230,
+    duration = 680,
+    showRangeBoundary = false
+  ): void {
+    const scaledSize =
+      typeof size === "number"
+        ? size * this.bossPowerAreaMultiplier
+        : {
+            width: size.width * this.bossPowerAreaMultiplier,
+            height: size.height * this.bossPowerAreaMultiplier
+          };
+    // 玩家权柄范围图放在敌弹下方，范围足够明显但不遮挡需要躲避的子弹。
+    if (showRangeBoundary) {
+      this.renderSkillRangeBoundary(
+        x,
+        y,
+        scaledSize,
+        this.bossPowerRangeColor(power),
+        duration,
+        "权柄范围",
+        false
+      );
+    }
+    this.spawnAnimatedVfx(
+      BOSS_POWER_FX_KEYS[power],
+      x,
+      y,
+      0,
+      duration,
+      scaledSize,
+      false,
+      7,
+      showRangeBoundary ? 0.4 : 0.58
+    );
+  }
+
+  renderMinionMutationCue(enemy: Phaser.Physics.Arcade.Image, mutation: EnemyMutation): void {
+    const color = MINION_MUTATION_COLORS[mutation];
+    const shape = mutation === "armor"
+      ? this.add.circle(enemy.x, enemy.y, 48, color, 0.06).setStrokeStyle(4, 0xffffff, 0.78)
+      : mutation === "mine_burst"
+        ? this.add.circle(enemy.x, enemy.y, 52, color, 0.08).setStrokeStyle(3, 0xffffff, 0.72)
+        : mutation === "dash"
+          ? this.add.ellipse(enemy.x, enemy.y, 92, 24, color, 0.34).setStrokeStyle(3, 0xffffff, 0.78)
+          : mutation === "suppress"
+            ? this.add.rectangle(enemy.x, enemy.y, 118, 12, color, 0.36).setStrokeStyle(2, 0xffffff, 0.75)
+            : this.add.ellipse(enemy.x, enemy.y, 100, 42, color, 0.1).setStrokeStyle(4, 0xffffff, 0.82);
+    shape.setDepth(20).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: shape,
+      scale: mutation === "dash" ? 2.6 : 1.9,
+      rotation: mutation === "homing" || mutation === "mine_burst" ? Math.PI : shape.rotation,
+      alpha: 0,
+      duration: 460,
+      onComplete: () => shape.destroy()
+    });
   }
 
   activateBossPower(): void {
@@ -7003,17 +8696,44 @@ class BattleScene extends Phaser.Scene {
       );
       return;
     }
-    this.bossPowerReadyAt = this.time.now + 40000;
-    this.bossPowerActiveUntil = this.time.now + 7000;
+    const durationMultiplier = this.bossPowerDurationMultiplier;
+    this.bossPowerReadyAt =
+      this.time.now + Math.round(BOSS_POWER_COOLDOWN_MS * this.bossPowerCooldownMultiplier);
+    this.bossPowerActiveUntil = this.time.now + Math.round(7000 * durationMultiplier);
     this.nextBossPowerPulse = 0;
-    if (this.bossPower === "shadow_rift_blade") {
-      this.bossPowerActiveUntil = this.time.now + 4000;
+    this.renderBossPowerActivation(this.bossPower);
+    if (this.bossPowerHealRatio > 0) {
+      this.healPlayer(this.stats.maxHp * this.bossPowerHealRatio, "权限回收");
+    }
+    if (this.bossPowerMissingHealRatio > 0) {
+      this.healPlayer(
+        (this.stats.maxHp - this.stats.hp) * this.bossPowerMissingHealRatio,
+        "深渊饥渴"
+      );
+    }
+    if (this.bossPowerInvulnMs > 0) {
+      this.darkDeityInvulnUntil = Math.max(
+        this.darkDeityInvulnUntil,
+        this.time.now + this.bossPowerInvulnMs
+      );
+    }
+    if (this.bossPower === "absolute_freeze") {
+      this.bossPowerActiveUntil =
+        this.time.now + Math.round(BOSS_POWER_FREEZE_MS * durationMultiplier);
+      this.enemyFreezeUntil = Math.max(this.enemyFreezeUntil, this.bossPowerActiveUntil);
+      this.cameras.main.flash(180, 120, 244, 255);
+      this.showBanner("V · 绝对零度 · 全场冻结 5 秒", 1050);
+    } else if (this.bossPower === "shadow_rift_blade") {
+      this.bossPowerActiveUntil = this.time.now + Math.round(4000 * durationMultiplier);
       this.nextBossPowerPulse = 0;
       this.showBanner("V · 裂隙爪刀 · 横向切割", 1050);
       this.burst(this.player.x, this.player.y, 0x9b5cff, 2.6);
     } else if (this.bossPower === "dark_deity_pact") {
-      this.bossPowerActiveUntil = this.time.now + 3000;
-      this.darkDeityInvulnUntil = this.time.now + 3000;
+      this.bossPowerActiveUntil = this.time.now + Math.round(3000 * durationMultiplier);
+      this.darkDeityInvulnUntil = Math.max(
+        this.darkDeityInvulnUntil,
+        this.bossPowerActiveUntil
+      );
       this.showBanner("V · 黑暗契约 · 3 秒无敌 + 追踪弹幕", 1050);
       this.burst(this.player.x, this.player.y, 0xff2d8f, 3.0);
     } else if (this.bossPower === "usurper_lock") {
@@ -7021,14 +8741,18 @@ class BattleScene extends Phaser.Scene {
       this.showBanner("V · 权限篡夺 · 敌方封锁 7 秒", 1050);
     } else if (this.bossPower === "mirror_copy") {
       this.bossPowerClones.forEach((clone) => clone.destroy());
-      this.bossPowerClones = [-1, 1].map((side) =>
+      const cloneCount = 2 + this.bossPowerCloneBonus;
+      this.bossPowerClones = Array.from({ length: cloneCount }, (_, index) => {
+        const slot = index - (cloneCount - 1) / 2;
+        return (
         this.add
-          .image(this.player.x + side * 88, this.player.y + 32, SHIPS[save.selectedShip].asset)
+          .image(this.player.x + slot * 88, this.player.y + 32, this.player.texture.key)
           .setDisplaySize(this.player.displayWidth * 0.58, this.player.displayHeight * 0.58)
           .setTint(0x9b7dff)
           .setAlpha(0.82)
           .setDepth(18)
-      );
+        );
+      });
       this.showBanner("V · 万象镜像 · 能力复制 7 秒", 1050);
     } else {
       this.showBanner("V · 裂渊权柄 · 陨星轰炸 7 秒", 1050);
@@ -7046,19 +8770,20 @@ class BattleScene extends Phaser.Scene {
     }
     if (this.bossPower === "mirror_copy") {
       this.bossPowerClones.forEach((clone, index) => {
-        const side = index === 0 ? -1 : 1;
-        clone.x = Phaser.Math.Linear(clone.x, this.player.x + side * 92, 0.16);
+        const slot = index - (this.bossPowerClones.length - 1) / 2;
+        clone.x = Phaser.Math.Linear(clone.x, this.player.x + slot * 92, 0.16);
         clone.y = Phaser.Math.Linear(clone.y, this.player.y + 28, 0.16);
       });
     }
     if (time < this.nextBossPowerPulse) return;
     if (this.bossPower === "titan_meteor") {
       for (let i = 0; i < 5; i += 1) {
+        const meteorX = Phaser.Math.Between(70, WORLD_WIDTH - 70);
         const missile = this.spawnPlayerBullet(
-          Phaser.Math.Between(70, WORLD_WIDTH - 70),
+          meteorX,
           WORLD_HEIGHT + 30,
           "missile",
-          150,
+          150 * BOSS_POWER_DAMAGE_SCALE * this.bossPowerDamageMultiplier,
           -1180,
           "titan-authority"
         );
@@ -7067,12 +8792,13 @@ class BattleScene extends Phaser.Scene {
       this.nextBossPowerPulse = time + 560;
     } else if (this.bossPower === "mirror_copy") {
       for (const clone of this.bossPowerClones) {
+        this.renderBossPowerPulse("mirror_copy", clone.x, clone.y - 35, 150, 620);
         if (save.selectedSpecialization === "wheelchair") {
           const missile = this.spawnPlayerBullet(
             clone.x,
             clone.y - 25,
             "missile",
-            54,
+            54 * BOSS_POWER_DAMAGE_SCALE * this.bossPowerDamageMultiplier,
             -620,
             "mirror-authority-missile"
           );
@@ -7085,7 +8811,7 @@ class BattleScene extends Phaser.Scene {
               clone.x,
               clone.y - 25,
               "agileOrb",
-              34,
+              34 * BOSS_POWER_DAMAGE_SCALE * this.bossPowerDamageMultiplier,
               -980,
               "mirror-authority"
             );
@@ -7095,22 +8821,45 @@ class BattleScene extends Phaser.Scene {
       }
       const activeSupport = Object.entries(this.airSupportLevels).find(([, level]) => (level ?? 0) > 0);
       if (activeSupport && Math.random() < 0.32) {
-        this.triggerAirSupport(activeSupport[0] as AirSupportSkillId, true);
+        this.triggerAirSupport(
+          activeSupport[0] as AirSupportSkillId,
+          true,
+          BOSS_POWER_DAMAGE_SCALE * this.bossPowerDamageMultiplier
+        );
       }
       this.nextBossPowerPulse = time + 720;
     } else if (this.bossPower === "shadow_rift_blade") {
       // 5 道横向爪刀(0.5s/道 × 4 秒)
+      this.renderBossPowerPulse(
+        "shadow_rift_blade",
+        WORLD_WIDTH / 2,
+        WORLD_HEIGHT / 2,
+        { width: WORLD_WIDTH + 200, height: 120 },
+        620,
+        true
+      );
       this.spawnShadowRiftBlade(this.player.x);
+      for (let index = 0; index < this.shadowRiftBladeBonus; index += 1) {
+        const laneY = WORLD_HEIGHT * ((index + 1) / (this.shadowRiftBladeBonus + 1));
+        this.spawnShadowRiftBlade(this.player.x, laneY);
+      }
       this.nextBossPowerPulse = time + 500;
     } else if (this.bossPower === "dark_deity_pact") {
       // 12 颗向四方释放的追踪暗影弹幕(每波 1s 一次 × 3 次)
+      this.renderBossPowerPulse(
+        "dark_deity_pact",
+        this.player.x,
+        this.player.y,
+        300,
+        840
+      );
       for (let i = 0; i < 12; i += 1) {
         const angle = (Math.PI * 2 * i) / 12;
         this.spawnPlayerBullet(
           this.player.x,
           this.player.y,
           "agileOrb",
-          38,
+          38 * BOSS_POWER_DAMAGE_SCALE * this.bossPowerDamageMultiplier,
           720,
           "dark-deity-pact"
         ).setVelocity(Math.cos(angle) * 720, Math.sin(angle) * 720)
@@ -7119,17 +8868,31 @@ class BattleScene extends Phaser.Scene {
          .setData("target", this.nearestTarget(this.player.x, this.player.y));
       }
       this.nextBossPowerPulse = time + 1000;
-    } else {
+    } else if (this.bossPower === "usurper_lock" || this.bossPower === "absolute_freeze") {
       this.enemyFreezeUntil = Math.max(this.enemyFreezeUntil, this.bossPowerActiveUntil);
+      this.renderBossPowerPulse(
+        this.bossPower,
+        WORLD_WIDTH / 2,
+        WORLD_HEIGHT * 0.48,
+        {
+          width: WORLD_WIDTH * 0.96,
+          height: WORLD_HEIGHT * (this.bossPower === "absolute_freeze" ? 0.96 : 0.88)
+        },
+        760,
+        true
+      );
       this.nextBossPowerPulse = time + 500;
     }
   }
 
-  spawnShadowRiftBlade(centerX: number): void {
-    // 横向暗影爪刀(0.18 最大生命伤害)
-    const dmg = Math.round(this.stats.maxHp * 0.18);
+  spawnShadowRiftBlade(centerX: number, centerY = WORLD_HEIGHT / 2): void {
+    // 玩家版横向暗影爪刀伤害为 Boss 原权柄的一半
+    const dmg = Math.round(
+      this.stats.maxHp * 0.18 * BOSS_POWER_DAMAGE_SCALE * this.bossPowerDamageMultiplier
+    );
+    const bladeHeight = 120 * this.bossPowerAreaMultiplier;
     const blade = this.add
-      .rectangle(centerX, WORLD_HEIGHT / 2, WORLD_WIDTH + 200, 90, 0x6c1a8f, 0.18)
+      .rectangle(centerX, centerY, WORLD_WIDTH + 200, bladeHeight, 0x6c1a8f, 0.18)
       .setStrokeStyle(8, 0xff2d8f, 0.95)
       .setDepth(25);
     this.tweens.add({
@@ -7141,7 +8904,7 @@ class BattleScene extends Phaser.Scene {
     });
     this.enemies.children.each((child) => {
       const enemy = child as Phaser.Physics.Arcade.Image;
-      if (enemy.active && Math.abs(enemy.y - WORLD_HEIGHT / 2) < 60) {
+      if (enemy.active && Math.abs(enemy.y - centerY) < bladeHeight / 2) {
         this.dealDirectDamage(enemy, dmg, blade.x, blade.y);
         this.burst(enemy.x, enemy.y, 0xff2d8f, 0.9);
       }
@@ -7149,7 +8912,7 @@ class BattleScene extends Phaser.Scene {
     });
     this.bossParts.children.each((child) => {
       const part = child as Phaser.Physics.Arcade.Image;
-      if (part.active && part.getData("part") === "core" && Math.abs(part.y - WORLD_HEIGHT / 2) < 60) {
+      if (part.active && part.getData("part") === "core" && Math.abs(part.y - centerY) < bladeHeight / 2) {
         this.damageBossPart(part, dmg);
       }
       return true;
@@ -7206,6 +8969,7 @@ class BattleScene extends Phaser.Scene {
     }
     const previous = this.upgradeLevels[id] ?? 0;
     this.upgradeLevels[id] = Math.min(5, previous + 1);
+    if (this.upgradeLevels[id] === previous) return;
     if (id === "armor") {
       const oldMax = this.stats.maxHp;
       this.stats.maxHp = Math.round(this.stats.maxHp * 1.12);
@@ -7217,8 +8981,44 @@ class BattleScene extends Phaser.Scene {
       this.stats.maxHp = Math.round(this.stats.maxHp * 1.1);
       this.healPlayer(this.stats.maxHp - oldMax);
     }
+    if (id === "endurance") {
+      const oldMax = this.stats.maxHp;
+      this.stats.maxHp = Math.round(this.stats.maxHp * 1.08);
+      this.healPlayer(this.stats.maxHp - oldMax);
+      this.recordAgileMaxHpGain(this.stats.maxHp - oldMax);
+      this.stats.damageTakenMultiplier *= 0.98;
+    }
+    if (id === "devour_swallow") {
+      const oldDefense =
+        previous > 0
+          ? DEVOUR_SWALLOW_LEVELS[Math.min(previous, DEVOUR_SWALLOW_LEVELS.length) - 1]
+              .damageTakenMultiplier
+          : 1;
+      const newDefense =
+        DEVOUR_SWALLOW_LEVELS[
+          Math.min(this.upgradeLevels[id], DEVOUR_SWALLOW_LEVELS.length) - 1
+        ].damageTakenMultiplier;
+      this.stats.damageTakenMultiplier *= newDefense / oldDefense;
+    }
+    if (id === "velocity") {
+      this.stats.speed *= 1.04;
+      this.stats.fireRateMultiplier *= 1.04;
+    }
+    if (id === "overcharge") {
+      this.stats.damageMultiplier *= 1.06;
+      this.stats.critChance += 0.02;
+    }
+    if (id === "magnetism") {
+      this.stats.pickupRadius *= 1.12;
+      this.xpMultiplier *= 1.06;
+    }
     if (id === "drone") this.updateDrones(this.time.now);
     if (id === "blade") this.updateBlades(this.time.now);
+    if (id === "agile_shadow_clone") {
+      // 选到影分身后立即出现，玩家无需等待初始 12 秒计时。
+      this.nextShadowCloneAt = this.time.now;
+      this.spawnShadowClones();
+    }
     this.showBanner(`${UPGRADES.find((upgrade) => upgrade.id === id)?.name} · Lv.${this.upgradeLevels[id]}`, 900);
   }
 
@@ -7259,7 +9059,11 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  triggerAirSupport(id: AirSupportSkillId, debugTrigger = false): void {
+  triggerAirSupport(
+    id: AirSupportSkillId,
+    debugTrigger = false,
+    damageScale = 1
+  ): void {
     const skill = AIR_SUPPORT_SKILLS.find((item) => item.id === id);
     if (!skill || this.ended) return;
     const level = Math.max(1, this.airSupportLevels[id] ?? (debugTrigger ? 1 : 0));
@@ -7276,7 +9080,7 @@ class BattleScene extends Phaser.Scene {
             x,
             WORLD_HEIGHT + 36,
             "missile",
-            AIR_SUPPORT_VALUES.bombardmentDamage(level),
+            AIR_SUPPORT_VALUES.bombardmentDamage(level) * damageScale,
             -1180,
             "support-bombardment"
           );
@@ -7294,18 +9098,6 @@ class BattleScene extends Phaser.Scene {
         this.time.now + AIR_SUPPORT_VALUES.stasisDuration(level)
       );
       this.showBanner(`引力滞空 · 敌军推进 -${AIR_SUPPORT_VALUES.stasisSlowPercent(level)}%`, 720);
-    } else if (id === "absolute_freeze") {
-      this.enemyFreezeUntil = Math.max(
-        this.enemyFreezeUntil,
-        this.time.now + AIR_SUPPORT_VALUES.freezeDuration(level)
-      );
-      this.cameras.main.flash(120, 120, 244, 255);
-      this.showBanner(
-        `绝对零度 · 全场冻结 ${formatRoundedNumberForDisplay(
-          AIR_SUPPORT_VALUES.freezeDuration(level) / 1000
-        )} 秒`,
-        780
-      );
     } else if (id === "phase_escort") {
       const duration = AIR_SUPPORT_VALUES.escortDuration(level);
       this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + duration);
@@ -7354,7 +9146,7 @@ class BattleScene extends Phaser.Scene {
     } else if (id === "hunter_sweep") {
       this.time.delayedCall(360, () => {
         if (this.ended) return;
-        const damage = AIR_SUPPORT_VALUES.sweepDamage(level);
+        const damage = AIR_SUPPORT_VALUES.sweepDamage(level) * damageScale;
         (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).forEach((enemy) => {
           if (enemy.active) {
             enemy.setData("lastOwner", 1);
@@ -7365,7 +9157,7 @@ class BattleScene extends Phaser.Scene {
           (part) => part.active && part.getData("part") === "core"
         );
         if (core) {
-          this.damageBossPart(core, AIR_SUPPORT_VALUES.sweepBossDamage(level));
+          this.damageBossPart(core, AIR_SUPPORT_VALUES.sweepBossDamage(level) * damageScale);
         }
         this.cameras.main.flash(90, 255, 80, 125);
         this.showBanner("猎杀编队 · 全域扫荡", 620);
@@ -7422,9 +9214,8 @@ class BattleScene extends Phaser.Scene {
     const desired = level >= 4 ? 2 : level > 0 ? 1 : 0;
     while (this.wingClones.length < desired) {
       const clone = this.physics.add
-        .image(this.player.x, this.player.y + 38, SHIPS[save.selectedShip].asset)
+        .image(this.player.x, this.player.y + 38, this.player.texture.key)
         .setDisplaySize(this.player.displayWidth * 0.5, this.player.displayHeight * 0.5)
-        .setTint(currentSkinVariant().tint)
         .setAlpha(0.78)
         .setDepth(9);
       (clone.body as Phaser.Physics.Arcade.Body).enable = false;
@@ -7462,7 +9253,8 @@ class BattleScene extends Phaser.Scene {
         -820,
         "echo-clone"
       );
-      bullet.setTint(0x9b5cff).setData("pierce", level >= 3 ? 1 : 0);
+      if (!bullet.getData("achievementSkinBullet")) bullet.setTint(0x9b5cff);
+      bullet.setData("pierce", level >= 3 ? 1 : 0);
     }
     this.nextCloneShot = time + Math.max(240, 410 - level * 28);
   }
@@ -7534,17 +9326,22 @@ class BattleScene extends Phaser.Scene {
       save.selectedSpecialization === "wheelchair"
         ? 1 - Math.min(0.25, (this.upgradeLevels.ram_armor ?? 0) * 0.05)
         : 1;
-    const finalDamage = Math.max(
+    const preSkillDamage = Math.max(
       1,
       Math.ceil(
         baseFinalDamage *
           (damageSource === "boss"
-            ? this.currentBossEncounterAttackScale()
+            ? this.currentBossEncounterAttackScale() * this.bossPassiveBossDamageTakenMultiplier
             : 1) *
           overdriveReduction *
           ramArmorReduction
       )
     );
+    const finalDamage = Math.max(
+      1,
+      Math.ceil(preSkillDamage * this.wheelchairActiveDefenseMultiplier(now))
+    );
+    this.recordWheelchairReactiveAbsorption(preSkillDamage, finalDamage);
     this.playerWasHit = true;
     this.stats.hp = Math.max(0, this.stats.hp - finalDamage);
     // === 防御流派:荆棘护甲 — 反伤 ===
@@ -7605,20 +9402,23 @@ class BattleScene extends Phaser.Scene {
       showToast(`喷火冷却 ${((this.flamethrowerNextReadyAt - this.time.now) / 1000).toFixed(1)}s`);
       return;
     }
-    const duration = 600 + level * 100;
-    const length = 60 + level * 30;
-    const width = 80 + level * 25;
-    const dmgPerFrame = [18, 24, 32][level - 1] ?? 32;
-    const cooldown = [8, 7, 6][level - 1] ?? 6;
+    const tier = Math.min(level, POWER_FLAME_LENGTHS.length) - 1;
+    const duration = POWER_FLAME_DURATIONS[tier];
+    const length = POWER_FLAME_LENGTHS[tier];
+    const width = POWER_FLAME_WIDTHS[tier];
+    const dmgPerFrame = POWER_FLAME_DAMAGE[tier];
+    const cooldown = POWER_FLAME_COOLDOWNS[tier];
     this.flamethrowerActiveUntil = this.time.now + duration;
     this.flamethrowerNextReadyAt = this.time.now + cooldown * 1000;
     this.flamethrowerLength = length;
     this.flamethrowerWidth = width;
     this.flamethrowerDmgPerFrame = dmgPerFrame;
-    this.showBanner("◆ 龙息喷火", 600);
+    this.nextFlamethrowerFxAt = 0;
+    // 火焰本体已经清楚表达攻击范围，不再叠加尺寸横幅和调试式几何提示。
     // 华丽特效:橙红火环爆发
     this.triggerSpecialtyFX(0xff7a2d, {
       ring: 0xfff200,
+      style: "flame",
       flash: [120, 255, 140, 30],
       shake: 200,
       count: 40,
@@ -7626,50 +9426,72 @@ class BattleScene extends Phaser.Scene {
   }
 
   updateFlamethrower(time: number): void {
-    if (time >= this.flamethrowerActiveUntil) return;
-    const length = this.flamethrowerLength ?? 80;
-    const width = this.flamethrowerWidth ?? 80;
+    if (time >= this.flamethrowerActiveUntil) {
+      this.flamethrowerVisual?.destroy();
+      this.flamethrowerVisual = undefined;
+      return;
+    }
+    const length = this.flamethrowerLength ?? POWER_FLAME_LENGTHS[0];
+    const width = this.flamethrowerWidth ?? POWER_FLAME_WIDTHS[0];
     const dmg = this.flamethrowerDmgPerFrame ?? 18;
-    // 火焰锥朝正上方(纵向卷轴,敌人从上方来),起点在机头
     const originY = this.player.y - 26;
     const cx = this.player.x;
-    // 锥形 = 4 段椭圆,越远越宽越淡
-    for (let i = 0; i < 4; i += 1) {
-      const t = i / 3;
-      const segY = originY - length * (0.18 + t * 0.72);
-      const r = this.add
-        .ellipse(cx, segY, width * (0.4 + t * 0.6), length * 0.42, 0xff7a2d, 0.6 - t * 0.14)
-        .setDepth(8)
-        .setBlendMode(Phaser.BlendModes.ADD);
+
+    if (!this.flamethrowerVisual?.active) {
+      this.flamethrowerVisual = this.add
+        .image(cx, originY - length * 0.5, "flamethrowerFx", 0)
+        .setDepth(16)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(0.78);
+    }
+    const flamePulse = 1 + Math.sin(time * 0.031) * 0.035;
+    this.flamethrowerVisual
+      .setFrame(Math.floor(time / 72) % 4)
+      .setPosition(cx, originY - length * 0.5)
+      .setDisplaySize(width * 1.08 * flamePulse, length * 1.06)
+      .setAlpha(0.72 + Math.sin(time * 0.024) * 0.08);
+
+    if (time >= this.nextFlamethrowerFxAt) {
+      this.nextFlamethrowerFxAt = time + (save.settings.quality === "high" ? 90 : 150);
+      const progress = Phaser.Math.FloatBetween(0.25, 0.94);
+      const halfAtProgress = 22 + (width * 0.45 - 22) * progress;
+      const spark = this.add.circle(
+        cx + Phaser.Math.FloatBetween(-halfAtProgress, halfAtProgress),
+        originY - length * progress,
+        Phaser.Math.FloatBetween(2, 4.5),
+        0xffd25a,
+        0.8
+      ).setDepth(17).setBlendMode(Phaser.BlendModes.ADD);
       this.tweens.add({
-        targets: r,
+        targets: spark,
+        x: spark.x + Phaser.Math.Between(-22, 22),
+        y: spark.y - Phaser.Math.Between(24, 55),
+        scale: 0.15,
         alpha: 0,
-        scaleY: { from: 1, to: 1.25 },
-        duration: 180,
-        onComplete: () => r.destroy()
+        duration: 240,
+        onComplete: () => spark.destroy()
       });
     }
-    // 命中敌人:锥体覆盖 x ∈ 玩家 ± width/2,y ∈ [originY - length, originY]
-    const halfWidth = width * 0.5;
+
+    const insideFlameCone = (x: number, y: number, padding = 0): boolean => {
+      const distance = originY - y;
+      if (distance < -padding || distance > length + padding) return false;
+      const progress = Phaser.Math.Clamp(distance / length, 0, 1);
+      const halfWidthAtDistance = 38 + (width * 0.5 - 38) * progress + padding;
+      return Math.abs(x - cx) <= halfWidthAtDistance;
+    };
     const targets = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
-      (e) =>
-        e.active &&
-        e.y <= originY + 16 &&
-        e.y >= originY - length - 16 &&
-        Math.abs(e.x - cx) < halfWidth
+      (enemy) => enemy.active && insideFlameCone(enemy.x, enemy.y, enemy.displayWidth * 0.18)
     );
     for (const enemy of targets) {
       enemy.setData("lastOwner", 1);
       this.dealDirectDamage(enemy, dmg, enemy.x, enemy.y);
     }
-    // 命中首领
     for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
       if (
         part.active &&
-        part.getData("part") === "core" &&
-        part.y <= originY + 16 &&
-        part.y >= originY - length - 40 &&
-        Math.abs(part.x - cx) < halfWidth + 40
+        ["core", "raid-core"].includes(part.getData("part")) &&
+        insideFlameCone(part.x, part.y, part.displayWidth * 0.18)
       ) {
         this.damageBossPart(part, dmg);
       }
@@ -7712,20 +9534,24 @@ class BattleScene extends Phaser.Scene {
     this.lungingDuration = AGILE_LUNGE_DURATION;
     this.lungingStartedAt = this.time.now;
     this.lungingUntil = this.time.now + this.lungingDuration;
-    const cooldown = [30, 25, 20][level - 1] ?? 20;
+    const fusionLevel = this.upgradeLevels.agile_shadow_lunge ?? 0;
+    const cooldown = Math.max(10, ([30, 25, 20][level - 1] ?? 20) - fusionLevel * 1.5);
     this.lungingReadyAt = this.time.now + cooldown * 1000;
     this.lungingHits = 0;
     // 每次突刺都是一次独立的扫掠,清除上一次留下的命中标记
     for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
       enemy.setData("lungeHit", false);
+      enemy.setData("lungeShadowHit", false);
     }
     for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
       part.setData("lungeHit", false);
+      part.setData("lungeShadowHit", false);
     }
     this.showBanner("◆ 影步突刺", 500);
-    // 华丽特效:金色光速冲刺 + 沿轨迹的残影拖尾
-    this.triggerSpecialtyFX(0xffd54a, {
-      ring: 0xfff5b0,
+    // 影步特效:紫电切面 + 青白相位残影
+    this.triggerSpecialtyFX(0x9b5cff, {
+      ring: 0x7ffcff,
+      style: "slash",
       flash: [140, 255, 220, 110],
       shake: 220,
       count: 32,
@@ -7737,33 +9563,46 @@ class BattleScene extends Phaser.Scene {
       ty,
       AGILE_LUNGE_HIT_WIDTH[level - 1] ?? AGILE_LUNGE_HIT_WIDTH[AGILE_LUNGE_HIT_WIDTH.length - 1]
     );
-    // === 突刺联动:如果拥有影分身升级,召唤 4 影分身从底部向上突刺 ===
+    // === 突刺联动:已有影分身与本体沿相同方向同步突刺 ===
     if ((this.upgradeLevels.agile_shadow_clone ?? 0) > 0) {
       this.spawnLungeShadowCombo();
     }
   }
 
-  // === 突刺联动:4 个影分身从地图最下边竖直向上突刺(300ms 突刺至上方) ===
+  // === 突刺联动:影分身从当前编队位置复制本体位移 ===
   spawnLungeShadowCombo(): void {
     // 清理旧的突刺分身
     for (const c of this.lungingShadowClones) c.destroy();
     this.lungingShadowClones = [];
-    // 4 个分身:最左 / 左中 / 最右 / 右中
-    const positions = [0.15, 0.4, 0.6, 0.85].map((r) => WORLD_WIDTH * r);
-    const ship = SHIPS[save.selectedShip];
-    const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
+    if (!this.shadowClones.some((clone) => clone.active)) this.spawnShadowClones();
+    const sources = this.shadowClones.filter((clone) => clone.active);
+    if (!sources.length) return;
+    const texture = this.player.texture.key;
     const maxHp = Math.max(1, this.stats.maxHp * 0.4);
-    const dmgMul = 2.4 + ((this.upgradeLevels.agile_shadow_clone ?? 1) - 1) * 0.4;
+    const fusionLevel = this.upgradeLevels.agile_shadow_lunge ?? 0;
+    const dmgMul =
+      2.4 +
+      ((this.upgradeLevels.agile_shadow_clone ?? 1) - 1) * 0.4 +
+      fusionLevel * 0.55;
     const now = this.time.now;
-    const duration = 300; // 突刺总耗时 300ms
-    const reach = WORLD_HEIGHT * 0.6; // 最长突刺长度 = 地图长度的 60%
+    const duration = this.lungingDuration;
+    const deltaX = this.lungingToX - this.lungingFromX;
+    const deltaY = this.lungingToY - this.lungingFromY;
     this.lungingShadowUntil = now + duration;
-    for (let i = 0; i < positions.length; i += 1) {
-      const x = positions[i];
-      const startY = WORLD_HEIGHT + 30;
-      const endY = WORLD_HEIGHT - reach;
+    const comboCount = Math.min(8, sources.length + fusionLevel);
+    for (let i = 0; i < comboCount; i += 1) {
+      const source = sources[i % sources.length];
+      const echoBand = Math.floor(i / sources.length);
+      const startX = Phaser.Math.Clamp(
+        source.x + (echoBand === 0 ? 0 : (i % 2 ? 1 : -1) * echoBand * 54),
+        42,
+        WORLD_WIDTH - 42
+      );
+      const startY = source.y;
+      const endX = Phaser.Math.Clamp(startX + deltaX, 42, WORLD_WIDTH - 42);
+      const endY = Phaser.Math.Clamp(startY + deltaY, 80, WORLD_HEIGHT - 42);
       const clone = this.physics.add
-        .image(x, startY, texture)
+        .image(startX, startY, texture)
         .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
         .setTint(0x8c25ff)
         .setAlpha(0.92)
@@ -7775,15 +9614,18 @@ class BattleScene extends Phaser.Scene {
       clone.setData("dmgMul", dmgMul);
       clone.setData("bornAt", now);
       clone.setData("duration", duration);
+      clone.setData("startX", startX);
       clone.setData("startY", startY);
+      clone.setData("endX", endX);
       clone.setData("endY", endY);
-      clone.setData("xTarget", x);  // 4 个分身固定 x(竖直)
-      // 沿突刺方向(向上 = 负 y)
+      clone.setData("previousX", startX);
+      clone.setData("previousY", startY);
       this.lungingShadowClones.push(clone);
     }
-    // 特效:全屏 4 束紫色激光
+    this.showBanner(`◆ 万象影袭 · ${comboCount} 重同步突刺`, 650);
     this.triggerSpecialtyFX(0x9b5cff, {
       ring: 0xc16cff,
+      style: "slash",
       flash: [120, 60, 220, 200],
       shake: 240,
       count: 50,
@@ -7840,20 +9682,26 @@ class BattleScene extends Phaser.Scene {
       }
       const born = c.getData("bornAt") as number;
       const dur = c.getData("duration") as number;
+      const startX = c.getData("startX") as number;
       const startY = c.getData("startY") as number;
+      const endX = c.getData("endX") as number;
       const endY = c.getData("endY") as number;
-      const xTarget = c.getData("xTarget") as number;
       const t = Math.min(1, Math.max(0, (now - born) / dur));
-      // 玩家移动方向微调 x(让 4 个分身偏向玩家)
-      const playerX = this.player?.x ?? xTarget;
-      const xFinal = Phaser.Math.Linear(xTarget, playerX, 0.35);
+      const previousX = (c.getData("previousX") as number) ?? c.x;
+      const previousY = (c.getData("previousY") as number) ?? c.y;
+      const xNow = Phaser.Math.Linear(startX, endX, t);
       const yNow = Phaser.Math.Linear(startY, endY, t);
-      c.setPosition(xFinal, yNow);
+      c.setPosition(xNow, yNow);
+      c.setData("previousX", xNow);
+      c.setData("previousY", yNow);
       // 命中敌人
       const dmgMul = c.getData("dmgMul") as number;
       const dmg = this.computePlayerDamage() * dmgMul;
+      const fusionLevel = this.upgradeLevels.agile_shadow_lunge ?? 0;
       const hit = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).find(
-        (e) => e.active && Phaser.Math.Distance.Between(c.x, c.y, e.x, e.y) < 32
+        (e) =>
+          e.active &&
+          distancePointToSegment(e.x, e.y, previousX, previousY, c.x, c.y) < 38 + fusionLevel * 6
       );
       if (hit && !hit.getData("lungeShadowHit")) {
         hit.setData("lungeShadowHit", true);
@@ -7877,9 +9725,9 @@ class BattleScene extends Phaser.Scene {
       for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
         if (
           part.active &&
-          part.getData("part") === "core" &&
+          ["core", "raid-core"].includes(part.getData("part")) &&
           !part.getData("lungeShadowHit") &&
-          Phaser.Math.Distance.Between(c.x, c.y, part.x, part.y) < 60
+          distancePointToSegment(part.x, part.y, previousX, previousY, c.x, c.y) < 72 + fusionLevel * 9
         ) {
           part.setData("lungeShadowHit", true);
           this.damageBossPart(part, dmg);
@@ -7956,11 +9804,11 @@ class BattleScene extends Phaser.Scene {
         this.lungingHits += 1;
         this.healPlayer(this.stats.maxHp * 0.02);
       }
-      this.impactBurst(enemy.x, enemy.y, 0xffd54a);
+      this.impactBurst(enemy.x, enemy.y, 0x7ffcff);
     }
     // 命中首领
     for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
-      if (!part.active || part.getData("part") !== "core" || part.getData("lungeHit")) continue;
+      if (!part.active || !["core", "raid-core"].includes(part.getData("part")) || part.getData("lungeHit")) continue;
       if (
         distancePointToSegment(part.x, part.y, prevX, prevY, this.player.x, this.player.y) >
         hitWidth + 40
@@ -7969,11 +9817,11 @@ class BattleScene extends Phaser.Scene {
       }
       part.setData("lungeHit", true);
       this.damageBossPart(part, baseDamage);
-      this.impactBurst(part.x, part.y, 0xffd54a);
+      this.impactBurst(part.x, part.y, 0x7ffcff);
     }
   }
 
-  // === 影步突刺:沿轨迹绘制金色残影与冲击拖尾 ===
+  // === 影步突刺:沿轨迹绘制紫电相位残影与青白切面 ===
   spawnLungeTrail(
     fromX: number,
     fromY: number,
@@ -7985,9 +9833,14 @@ class BattleScene extends Phaser.Scene {
     const angle = Math.atan2(toY - fromY, toX - fromX);
     // 主体光带:沿突刺方向的细长矩形
     const beam = this.add
-      .rectangle((fromX + toX) / 2, (fromY + toY) / 2, distance, width * 0.5, 0xffd54a, 0.55)
+      .rectangle((fromX + toX) / 2, (fromY + toY) / 2, distance, width * 0.62, 0x7b28ff, 0.48)
       .setRotation(angle)
       .setDepth(19)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const edge = this.add
+      .rectangle((fromX + toX) / 2, (fromY + toY) / 2, distance * 1.04, 6, 0xdfffff, 0.92)
+      .setRotation(angle)
+      .setDepth(20)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({
       targets: beam,
@@ -7997,9 +9850,16 @@ class BattleScene extends Phaser.Scene {
       ease: "Sine.easeOut",
       onComplete: () => beam.destroy()
     });
+    this.tweens.add({
+      targets: edge,
+      scaleX: 1.15,
+      scaleY: 0.1,
+      alpha: 0,
+      duration: 250,
+      onComplete: () => edge.destroy()
+    });
     // 沿路径分布的战机残影
-    const ship = SHIPS[save.selectedShip];
-    const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
+    const texture = this.player.texture.key;
     const ghostCount = Phaser.Math.Clamp(Math.round(distance / 70), 3, 8);
     for (let i = 1; i <= ghostCount; i += 1) {
       const ratio = i / (ghostCount + 1);
@@ -8010,7 +9870,7 @@ class BattleScene extends Phaser.Scene {
           texture
         )
         .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
-        .setTint(0xffd54a)
+        .setTint(i % 2 ? 0x9b5cff : 0x7ffcff)
         .setAlpha(0.5 * (1 - ratio) + 0.15)
         .setDepth(18)
         .setBlendMode(Phaser.BlendModes.ADD);
@@ -8025,13 +9885,14 @@ class BattleScene extends Phaser.Scene {
     }
     // 终点冲击环
     const impact = this.add
-      .circle(toX, toY, width * 0.4, 0xfff5b0, 0.3)
-      .setStrokeStyle(3, 0xffd54a, 0.9)
+      .circle(toX, toY, width * 0.52, 0x9b5cff, 0.08)
+      .setStrokeStyle(3, 0x7ffcff, 0.92)
       .setDepth(20)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({
       targets: impact,
-      radius: width * 1.4,
+      scale: 2.7,
+      rotation: Math.PI / 2,
       alpha: 0,
       duration: 380,
       ease: "Sine.easeOut",
@@ -8042,67 +9903,25 @@ class BattleScene extends Phaser.Scene {
   // === 流派专属强化:统一华丽特效触发器 ===
   triggerSpecialtyFX(
     color: number,
-    opts: { ring?: number; flash?: [number, number, number, number]; shake?: number; count?: number } = {}
+    opts: {
+      ring?: number;
+      flash?: [number, number, number, number];
+      shake?: number;
+      count?: number;
+      style?: "burst" | "vortex" | "thorns" | "siphon" | "flame" | "slash";
+    } = {}
   ): void {
-    const ringColor = opts.ring ?? color;
     const flashRgb = opts.flash;
     const shake = opts.shake ?? 180;
-    const count = opts.count ?? 36;
-    // 1) 全屏彩色光波(径向扩散)
-    const ring = this.add.circle(this.player.x, this.player.y, 24, ringColor, 0.55)
-      .setStrokeStyle(3, 0xffffff, 0.9)
-      .setDepth(20)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({
-      targets: ring,
-      radius: 520,
-      alpha: 0,
-      duration: 700,
-      ease: "Sine.easeOut",
-      onComplete: () => ring.destroy(),
-    });
-    // 2) 玩家身上光环(慢扩散)
-    const halo = this.add.circle(this.player.x, this.player.y, 32, ringColor, 0.85)
-      .setStrokeStyle(2, 0xffffff, 1)
-      .setDepth(21)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({
-      targets: halo,
-      radius: 88,
-      alpha: 0,
-      duration: 480,
-      ease: "Sine.easeOut",
-      onComplete: () => halo.destroy(),
-    });
-    // 3) 周围爆炸粒子(向 360° 飞散)
-    for (let i = 0; i < count; i += 1) {
-      const a = (i / count) * Math.PI * 2 + Math.random() * 0.2;
-      const r0 = 18 + Math.random() * 12;
-      const dx = Math.cos(a) * r0;
-      const dy = Math.sin(a) * r0;
-      const size = 3 + Math.random() * 4;
-      const p = this.add
-        .circle(this.player.x + dx, this.player.y + dy, size, color, 1)
-        .setDepth(22)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      this.tweens.add({
-        targets: p,
-        x: this.player.x + Math.cos(a) * (90 + Math.random() * 60),
-        y: this.player.y + Math.sin(a) * (90 + Math.random() * 60),
-        alpha: 0,
-        scale: 0.3,
-        duration: 520 + Math.random() * 200,
-        ease: "Sine.easeOut",
-        onComplete: () => p.destroy(),
-      });
-    }
-    // 4) 屏幕闪光
+    // 通用几何启动层已移除，只保留短促镜头反馈；真正的技能实体由各技能绘制。
+    void opts.ring;
+    void opts.count;
+    void opts.style;
     if (flashRgb) {
       this.cameras.main.flash(flashRgb[0], flashRgb[1], flashRgb[2], flashRgb[3] ?? 60);
     } else {
       this.cameras.main.flash(60, Phaser.Display.Color.IntegerToColor(color).red, Phaser.Display.Color.IntegerToColor(color).green, Phaser.Display.Color.IntegerToColor(color).blue);
     }
-    // 5) 屏幕震动
     if (save.settings.screenShake) this.cameras.main.shake(shake, 0.006);
   }
 
@@ -8123,15 +9942,10 @@ class BattleScene extends Phaser.Scene {
     const interval = AGILE_CLONE_INTERVALS[tier] ?? AGILE_CLONE_INTERVALS[AGILE_CLONE_MAX_COUNT - 1];
     this.nextShadowCloneAt = this.time.now + interval * 1000;
     if (this.shadowClones.length >= count) return;
-    const ship = SHIPS[save.selectedShip];
-    const texture = this.textures.exists(ship.asset) ? ship.asset : "player";
-    // 影分身用皮肤的同款 fighterBase(像玩家战机),但加紫色 tint
-    const equippedSkin = SKINS[save.equippedSkin];
-    const skinVariant = equippedSkin.variants[(save.selectedShip as ShipId) ?? "balanced"] ?? equippedSkin.variants.balanced;
-    const skinFighter = skinVariant.fighterBase;
-    const cloneTexture = this.textures.exists(`skin_${skinFighter}`) ? `skin_${skinFighter}` : texture;
+    const texture = this.player.texture.key;
+    // 影分身继承当前完整模型，以紫色区分本体。
     const clone = this.physics.add
-      .image(this.player.x + Phaser.Math.Between(-60, 60), this.player.y, cloneTexture)
+      .image(this.player.x + Phaser.Math.Between(-60, 60), this.player.y, texture)
       .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
       .setTint(0x9b5cff)  // 中紫色,便于与本体区分
       .setAlpha(0.92)
@@ -8145,6 +9959,8 @@ class BattleScene extends Phaser.Scene {
     clone.setData("hp", cloneMaxHp);
     clone.setData("maxHp", cloneMaxHp);
     clone.setData("lastShotAt", 0);
+    clone.setData("phaseOffset", Phaser.Math.FloatBetween(0, Math.PI * 2));
+    clone.setData("nextAfterimageAt", this.time.now);
     this.shadowClones.push(clone);
     this.burst(clone.x, clone.y, 0x9b5cff, 1.0);
   }
@@ -8170,6 +9986,26 @@ class BattleScene extends Phaser.Scene {
         Phaser.Math.Linear(clone.x, tx, 0.18),
         Phaser.Math.Linear(clone.y, this.player.y, 0.18)
       );
+      const phaseOffset = (clone.getData("phaseOffset") as number) ?? 0;
+      clone.setAlpha(0.72 + Math.sin(time * 0.008 + phaseOffset) * 0.2);
+      clone.setScale(this.player.scaleX * (0.96 + Math.sin(time * 0.006 + phaseOffset) * 0.04));
+      if (time >= ((clone.getData("nextAfterimageAt") as number) ?? 0)) {
+        clone.setData("nextAfterimageAt", time + 190);
+        const echo = this.add.image(clone.x, clone.y + 12, clone.texture.key)
+          .setDisplaySize(clone.displayWidth, clone.displayHeight)
+          .setTint(0x5b18aa)
+          .setAlpha(0.3)
+          .setDepth(9)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: echo,
+          y: echo.y + 42,
+          scale: echo.scale * 0.78,
+          alpha: 0,
+          duration: 310,
+          onComplete: () => echo.destroy()
+        });
+      }
       // === 血量动态平衡:本体最大生命变化时,按比例同步分身上下限 ===
       const hpRatio = (clone.getData("shadowCloneHpRatio") as number) ?? 0;
       const desiredMaxHp = this.shadowCloneMaxHp(hpRatio);
@@ -8242,13 +10078,18 @@ class BattleScene extends Phaser.Scene {
       const lastShot = clone.getData("lastShotAt") as number;
       if (time - lastShot > 400) {
         clone.setData("lastShotAt", time);
-        const b = this.playerBullets.get(clone.x, clone.y - 10, "playerBullet") as Phaser.Physics.Arcade.Image;
+        const b = this.spawnPlayerBullet(
+          clone.x,
+          clone.y - 10,
+          "playerBullet",
+          this.computePlayerDamage() * ((clone.getData("shadowCloneDmgMul") as number) ?? 1),
+          0,
+          "shadow_clone_bullet"
+        );
         if (b) {
-          b.enableBody(true, clone.x, clone.y - 10, true, true);
-          b.setDisplaySize(10, 18);
-          b.setTint(0x8c25ff);
+          if (!b.getData("achievementSkinBullet")) b.setDisplaySize(10, 18).setTint(0x8c25ff);
           // 标记为"影分身子弹",击杀敌方给敏捷 MAX HP 奖励
-          b.setData({ kind: "player-bullet", damage: this.computePlayerDamage() * (clone.getData("shadowCloneDmgMul") as number ?? 1), owner: 1, weapon: "shadow_clone_bullet" });
+          b.setData("kind", "player-bullet");
           if (target) {
             const dx = target.x - clone.x;
             const dy = target.y - clone.y - 10;
@@ -8264,7 +10105,9 @@ class BattleScene extends Phaser.Scene {
   activateSkill(kind: "laser" | "missile" | "drone", owner: 1 | 2): void {
     if (this.ended || this.isModal) return;
     if (owner === 1 && save.selectedSpecialization === "wheelchair") {
-      showToast("撞击协议：1/2/3 主动武器离线，升级武装会自动释放");
+      if (kind === "laser") this.activateWheelchairBreachHorn();
+      else if (kind === "missile") this.activateWheelchairReactiveArmor();
+      else this.activateWheelchairFortressStance();
       return;
     }
     if (owner === 1 && this.skillsConfiscated) {
@@ -8381,7 +10224,30 @@ class BattleScene extends Phaser.Scene {
       }
     });
     if (this.bossActive) {
-      this.bossHp = Math.max(1, this.bossHp - 520 * ATTACK_BONUS_SCALE);
+      const totalBossDamage = 520 * ATTACK_BONUS_SCALE;
+      const raidCores = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
+        (part) =>
+          part.active &&
+          part.getData("part") === "raid-core" &&
+          part.getData("defeated") !== true
+      );
+      if (raidCores.length) {
+        // 全屏 EMP 同时命中三神，但总伤害不因目标数量翻倍。
+        raidCores.forEach((core) => this.damageBossPart(core, totalBossDamage / raidCores.length));
+      } else {
+        const target = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
+          (part) =>
+            part.active &&
+            ["core", "dark-aircraft"].includes(part.getData("part")) &&
+            part.getData("hittable") !== false
+        );
+        if (target) {
+          const phaseMultiplier = target.getData("part") === "core"
+            ? this.bossPhase === 1 ? 0.65 : 1.25
+            : 1;
+          this.damageBossPart(target, totalBossDamage / phaseMultiplier);
+        }
+      }
     }
     const wave = this.add.circle(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 20, 0x2df4ff, 0.1).setDepth(70);
     wave.setStrokeStyle(10, 0x2df4ff, 0.9);
@@ -8515,13 +10381,20 @@ class BattleScene extends Phaser.Scene {
       (save.selectedSpecialization === "wheelchair"
         ? 1 - Math.min(0.25, (this.upgradeLevels.ram_armor ?? 0) * 0.05)
         : 1);
-    const finalDamage = Math.max(1, Math.ceil(amount * reduction));
+    const preSkillDamage = Math.max(1, Math.ceil(amount * reduction));
+    const finalDamage = Math.max(
+      1,
+      Math.ceil(preSkillDamage * this.wheelchairActiveDefenseMultiplier(now))
+    );
+    this.recordWheelchairReactiveAbsorption(preSkillDamage, finalDamage);
     this.stats.hp = Math.max(0, this.stats.hp - finalDamage);
     this.invulnerableUntil = now + 360;
     this.player.setTintFill(0xff9b4d);
     this.time.delayedCall(
       90,
-      () => this.player.active && this.player.setTint(currentSkinVariant().tint)
+      () => {
+        if (this.player.active) this.player.clearTint();
+      }
     );
     this.floatText(this.player.x, this.player.y - 50, `友军爆破 -${finalDamage}`, true);
     if (this.stats.hp <= 0) {
@@ -8562,7 +10435,9 @@ class BattleScene extends Phaser.Scene {
     this.player2.setTintFill(0xff9b4d);
     this.time.delayedCall(
       90,
-      () => this.player2?.active && this.player2.setTint(currentSkinVariant().tint)
+      () => {
+        if (this.player2?.active) this.player2.clearTint();
+      }
     );
     this.floatText(this.player2.x, this.player2.y - 50, `友军爆破 -${finalDamage}`, true);
     if (this.player2Hp <= 0) {
@@ -8626,7 +10501,9 @@ class BattleScene extends Phaser.Scene {
     this.player2.setTintFill(0xff4d6d);
     this.time.delayedCall(
       100,
-      () => this.player2?.active && this.player2.setTint(currentSkinVariant().tint)
+      () => {
+        if (this.player2?.active) this.player2.clearTint();
+      }
     );
     this.burst(this.player2.x, this.player2.y, 0xff4d6d, 1.3);
     if (save.settings.screenShake) this.cameras.main.shake(85, 0.004);
@@ -8695,9 +10572,13 @@ class BattleScene extends Phaser.Scene {
     save.achievements[id] = new Date().toISOString();
     // === 成就 → 自动解锁皮肤 ===
     const skinReward: Record<string, SkinId> = {
-      after_storm: "after_storm_skin",
-      fell_short: "fell_short_skin",
-      boss_slayer: "boss_slayer_skin"
+      boss_slayer: "boss_slayer_skin",
+      ending_shattered_vessel: SHADOW_ENDING_SKIN_REWARDS.destroyed_fallen,
+      ending_total_eclipse: SHADOW_ENDING_SKIN_REWARDS.destroyed_consumed,
+      ending_willing_host: SHADOW_ENDING_SKIN_REWARDS.destroyed_embraced,
+      ending_hollow_custody: SHADOW_ENDING_SKIN_REWARDS.kept_fallen,
+      ending_perfect_vessel: SHADOW_ENDING_SKIN_REWARDS.kept_possessed,
+      boss_campaign_legend: BOSS_SEQUENCE_LEGENDARY_SKIN
     };
     const rewardSkin = skinReward[id];
     if (rewardSkin && !save.unlockedSkins.includes(rewardSkin)) {
@@ -8710,10 +10591,15 @@ class BattleScene extends Phaser.Scene {
   }
 
   clearBossEntities(): void {
+    this.clearBossAttackEffects();
     this.bossParts.children.each((child) => {
       const part = child as Phaser.Physics.Arcade.Image;
       const raidAura = part.getData("raidAura") as Phaser.GameObjects.Arc | undefined;
       raidAura?.destroy();
+      // 对象池复用前必须复位:上一场的 tween 会继续改坐标,
+      // 炮台残留的 alpha 0 会让复用者完全不可见。
+      this.tweens.killTweensOf(part);
+      part.setAlpha(1).setAngle(0).clearTint();
       if (part.active) part.disableBody(true, true);
       return true;
     });
@@ -8830,31 +10716,21 @@ class BattleScene extends Phaser.Scene {
     this.clearBossEntities();
     this.cameras.main.flash(260, 255, 240, 255);
     if (save.settings.screenShake) this.cameras.main.shake(900, 0.023);
-    this.showBanner(`三神共斗终结 · ◆ +${reward} · 三神强化全部回收`, 1800);
-    // 三神共斗:只给三个 Boss 各自的专属强化(护符 + 权柄),不给通用强化与流派进化
+    this.showBanner(`三神共斗终结 · ◆ +${reward} · 主动与专属被动各选一项`, 1800);
+    // 三神共斗：三个本源主动进入一次三选一，随后从三神未取得的专属被动中再选一项。
     const raidKinds = this.trinityDefeatedKinds.length
       ? this.trinityDefeatedKinds
       : (["titan", "mirror", "usurper"] as BossKind[]);
-    raidKinds.forEach((kind, i) => {
-      this.time.delayedCall(900 + i * 900, () => {
-        const amulet = BOSS_AMULETS[kind];
-        amulet.apply(this);
-        // 权柄只能持有一个,按击破顺序覆盖,最后一个生效
-        this.setBossPower(BOSS_KIND_TO_POWER[kind]);
-        this.showBanner(
-          `◆ ${BOSS_NAMES[kind]}强化: ${amulet.code} · ${amulet.description}`,
-          1500
-        );
-        this.floatText(WORLD_WIDTH / 2, 340, `${amulet.name} 已嵌入战机`, true);
-        this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.6);
+    this.time.delayedCall(1200, () => {
+      showBossPowerChoice(this, raidKinds.slice(0, 3).map((kind) => BOSS_KIND_TO_POWER[kind]), () => {
+        showBossPassiveChoice(this, raidKinds, () => {
+          if (selectedMode === "campaign") {
+            this.startCampaignInterlude(7, 4);
+          } else {
+            this.startCampaignEncounter(7);
+          }
+        });
       });
-    });
-    this.time.delayedCall(900 + raidKinds.length * 900 + 600, () => {
-      if (selectedMode === "campaign") {
-        this.startCampaignInterlude(7, 4);
-      } else {
-        this.startCampaignEncounter(7);
-      }
     });
   }
 
@@ -8989,7 +10865,7 @@ class BattleScene extends Phaser.Scene {
     );
     this.runTokens += completionBonus;
     this.bossTier = Math.max(this.bossTier, 9);
-    this.showBanner(`终局核心回收 · 商店全解锁预算 ◆ +${completionBonus}`, 2200);
+    this.showBanner(`终局核心回收 · 永久强化预算 ◆ +${completionBonus}`, 2200);
     this.time.delayedCall(1100, () => this.endRun(true));
   }
 
@@ -9048,12 +10924,14 @@ class BattleScene extends Phaser.Scene {
     const spawnCount = Math.min(perWave, this.finalSwarmRemaining);
     // 上一波生成小兵
     const eliteSet = Math.random() < 0.5;
+    let spawnedCount = 0;
     for (let i = 0; i < spawnCount; i += 1) {
       const typePool = ["gunship", "bomber", "suppressor", "striker", "courier"];
       const type = Phaser.Utils.Array.GetRandom(typePool);
       const finalType = eliteSet ? (`elite_${type}` as const) : type;
       const enemy = this.spawnEnemy(time, finalType);
       if (!enemy.active) continue;
+      spawnedCount += 1;
       const spreadX = ((i + 0.5) / spawnCount) * WORLD_WIDTH;
       enemy.setPosition(
         Phaser.Math.Clamp(spreadX + Phaser.Math.Between(-40, 40), 50, WORLD_WIDTH - 50),
@@ -9075,8 +10953,15 @@ class BattleScene extends Phaser.Scene {
       enemy.setData("hp", currentHp * hpScale);
       enemy.setData("maxHp", (enemy.getData("maxHp") ?? 1) * hpScale);
     }
-    this.finalSwarmRemaining -= spawnCount;
-    this.finalSwarmNextWaveAt = time + 2400;
+    // 只扣实际生成成功的数量,否则敌人池饱和时会虚减,导致不足 96 只就判定清空
+    this.finalSwarmRemaining -= spawnedCount;
+    // 整波都没生成出来(池被占满)时缩短重试间隔,避免卡在同一波
+    this.finalSwarmNextWaveAt = time + (spawnedCount === 0 ? 800 : 2400);
+    if (spawnedCount === 0) {
+      // 波次号回退,否则重试会让血量倍率虚涨
+      this.finalSwarmWaveIndex -= 1;
+      return;
+    }
     this.showBanner(
       `残党第 ${this.finalSwarmWaveIndex} 波 · 剩余 ${this.finalSwarmRemaining} 只`,
       550
@@ -9096,6 +10981,7 @@ class BattleScene extends Phaser.Scene {
       this.stats.maxHp
     );
     this.player.setTint(0x8c25ff);
+    this.renderDarkEnergyEffect(this.player.x, this.player.y, 1.35);
     this.time.delayedCall(180, () => this.player.active && this.player.clearTint());
     if (this.darkCorruption % 20 === 0) {
       const alive = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
@@ -9114,11 +11000,13 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  // 触发黑影结局:四条路都算失败结算
+  // 触发黑影结局:五条路都算失败结算；Boss 专属模式额外记为九战通关
   triggerShadowEnding(ending: ShadowEnding): void {
     if (this.ended || this.shadowEnding) return;
     this.shadowEnding = ending;
     this.finalSwarmActive = false;
+    this.unlockAchievement(SHADOW_ENDING_ACHIEVEMENTS[ending]);
+    if (selectedMode === "boss") this.unlockAchievement("boss_campaign_legend");
     const info = SHADOW_ENDINGS[ending];
     this.showBanner(`◆ ${info.title}`, 2400);
     this.cameras.main.flash(600, 40, 0, 60);
@@ -9155,17 +11043,11 @@ class BattleScene extends Phaser.Scene {
     }
     this.bossKind = encounter.bossKind;
     this.bossElite = rollCampaignElite(selectedLevel);
-    // 任何 Boss(含黑影追逐、完全体与最终真身)都可以精英突变
+    // Boss 突变只从 Boss 池抽取,不会混入任何小兵突变能力
     this.bossMutated = rollCampaignMutation(selectedLevel);
-    if (this.bossMutated) {
-      // 突变会借用其他 Boss 的招式,黑影系借用原始三神的能力
-      const otherKinds = (["titan", "mirror", "usurper"] as BossKind[]).filter(
-        (kind) => kind !== this.bossKind
-      );
-      this.bossMutationKind = Phaser.Utils.Array.GetRandom(otherKinds);
-    } else {
-      this.bossMutationKind = null;
-    }
+    this.bossMutationKind = this.bossMutated
+      ? rollBossMutationKind(this.bossKind)
+      : null;
     this.showBanner(
       selectedMode === "campaign"
         ? `⚠ 未知威胁现身 · ${encounter.title}`
@@ -9180,8 +11062,32 @@ class BattleScene extends Phaser.Scene {
     this.playBossArrivalCG();
   }
 
+  clearWaveForBossArrival(): void {
+    this.clearBossAttackEffects();
+    this.enemies.children.each((child) => {
+      const enemy = child as Phaser.Physics.Arcade.Image;
+      this.tweens.killTweensOf(enemy);
+      enemy.setData("freezePausedTweens", undefined);
+      if (enemy.active) enemy.disableBody(true, true);
+      return true;
+    });
+    this.enemyBullets.children.each((child) => {
+      const bullet = child as Phaser.Physics.Arcade.Image;
+      this.tweens.killTweensOf(bullet);
+      bullet.setData("freezePausedTweens", undefined);
+      if (bullet.active) bullet.disableBody(true, true);
+      return true;
+    });
+    this.clearPlayerBullets();
+    this.siphonedEnemies = [];
+    this.clearSiphonChains();
+    this.enemyFreezeStartedAt = 0;
+    this.enemyFreezeUntil = 0;
+  }
+
   playBossArrivalCG(): void {
     if (this.bossActive || this.ended) return;
+    this.clearWaveForBossArrival();
     const campaignEncounter =
       isNineBattleMode()
         ? BOSS_CAMPAIGN_ENCOUNTERS[this.campaignEncounterIndex]
@@ -9270,6 +11176,7 @@ class BattleScene extends Phaser.Scene {
 
   spawnBoss(kindOverride?: BossKind): void {
     if (this.bossActive || this.ended) return;
+    this.clearWaveForBossArrival();
     this.bossKind =
       kindOverride ??
       (["titan", "mirror", "usurper"] as BossKind[])[this.bossTier % 3];
@@ -9332,24 +11239,12 @@ class BattleScene extends Phaser.Scene {
         ? campaignFinalBossStatScale(this.campaignEncounterIndex)
         : 1);
     this.bossHp = this.bossMaxHp;
-    if (selectedMode !== "campaign") {
-      this.enemies.children.each((child) => {
-        const enemy = child as Phaser.Physics.Arcade.Image;
-        if (enemy.active) enemy.disableBody(true, true);
-        return true;
-      });
-      this.enemyBullets.children.each((child) => {
-        const bullet = child as Phaser.Physics.Arcade.Image;
-        if (bullet.active) bullet.disableBody(true, true);
-        return true;
-      });
-    }
     this.showBanner(
       this.skillsConfiscated
         ? `⚠ ${this.bossElite ? "精英 " : ""}${BOSS_NAMES[this.bossKind]} · 技能已被暂时篡夺`
         : `⚠ ${this.bossElite ? "精英 " : ""}${this.bossMutated ? "突变 " : ""}${
             BOSS_NAMES[this.bossKind]
-          } · ${
+          }${this.bossMutationKind ? ` · 继承 ${BOSS_NAMES[this.bossMutationKind]}` : ""} · ${
             selectedMode === "campaign"
               ? "信号已识别"
               : isNineBattleMode()
@@ -9391,21 +11286,25 @@ class BattleScene extends Phaser.Scene {
     core
       .setTexture(this.textures.exists(coreTexture) ? coreTexture : "bossCore")
       .setDisplaySize(displaySize.width, displaySize.height)
-      .setTint(
-        this.bossElite
-          ? 0xffd29a
-          : this.bossKind === "shadow" || this.bossKind === "dark_deity"
-            ? 0xffffff
-            : currentSkinVariant().tint
-      )
-      .setData({ part: "core", hp: this.bossMaxHp, maxHp: this.bossMaxHp })
+      .setAlpha(1)
+      .setAngle(0)
+      .setTint(this.bossElite ? 0xffd29a : 0xffffff)
+      .setData({
+        part: "core",
+        hp: this.bossMaxHp,
+        maxHp: this.bossMaxHp,
+        elite: this.bossElite,
+        mutated: this.bossMutated,
+        mutationKind: this.bossMutationKind
+      })
       .setDepth(14);
     this.bossEliteAura?.destroy();
     this.bossEliteAura = undefined;
-    if (this.bossElite) {
+    if (this.bossElite || this.bossMutated) {
+      const auraColor = this.bossMutated ? 0xb541ff : 0xffbd3e;
       this.bossEliteAura = this.add
-        .circle(core.x, core.y, Math.max(120, displaySize.width * 0.54), 0xffbd3e, 0.035)
-        .setStrokeStyle(10, 0xffbd3e, 0.7)
+        .circle(core.x, core.y, Math.max(120, displaySize.width * 0.54), auraColor, 0.035)
+        .setStrokeStyle(this.bossMutated ? 13 : 10, auraColor, 0.76)
         .setDepth(13);
       this.tweens.add({
         targets: this.bossEliteAura,
@@ -9415,6 +11314,17 @@ class BattleScene extends Phaser.Scene {
         repeat: -1,
         duration: 620
       });
+      if (this.bossMutated && this.bossMutationKind) {
+        this.time.delayedCall(1450, () => {
+          if (!core.active) return;
+          this.floatText(
+            core.x,
+            core.y + displaySize.height * 0.42,
+            `BOSS MUTATION // ${BOSS_NAMES[this.bossMutationKind!]}`,
+            true
+          );
+        });
+      }
     }
     const turretOffset =
       this.bossKind === "titan"
@@ -9462,6 +11372,7 @@ class BattleScene extends Phaser.Scene {
 
   spawnTrinityBosses(): void {
     if (this.bossActive || this.ended) return;
+    this.clearWaveForBossArrival();
     this.clearBossEntities();
     this.bossActive = true;
     this.bossKilledByCollision = false;
@@ -9490,7 +11401,7 @@ class BattleScene extends Phaser.Scene {
         x: WORLD_WIDTH / 2,
         width: 220,
         height: 220,
-        tint: currentSkinVariant().tint
+        tint: 0xffffff
       },
       { kind: "usurper", texture: "bossUsurper", x: WORLD_WIDTH - 155, width: 260, height: 260, tint: 0xffffff }
     ];
@@ -9505,10 +11416,7 @@ class BattleScene extends Phaser.Scene {
       const elite = rollCampaignElite(selectedLevel);
       const mutated = rollCampaignMutation(selectedLevel);
       anyElite ||= elite;
-      const mutationKinds = (["titan", "mirror", "usurper"] as BossKind[]).filter(
-        (kind) => kind !== config.kind
-      );
-      const mutationKind = mutated ? Phaser.Utils.Array.GetRandom(mutationKinds) : null;
+      const mutationKind = mutated ? rollBossMutationKind(config.kind) : null;
       const originalEncounterIndex =
         config.kind === "mirror" ? 2 : config.kind === "usurper" ? 4 : 0;
       const maxHpBeforeIncompleteBalance =
@@ -9527,12 +11435,19 @@ class BattleScene extends Phaser.Scene {
       totalHp += maxHp;
       const safeTexture = this.textures.exists(config.texture) ? config.texture : "bossCore";
       const core = this.bossParts.get(config.x, -180, safeTexture) as Phaser.Physics.Arcade.Image;
+      this.tweens.killTweensOf(core);
       core.enableBody(true, config.x, -180, true, true);
       const initialOffset = config.kind === "titan" ? 800 : config.kind === "mirror" ? 1500 : 2200;
       core.setData("nextAttackAt", this.time.now + initialOffset);
       core
         .setTexture(safeTexture)
+        .setActive(true)
+        .setVisible(true)
         .setDisplaySize(config.width, config.height)
+        .setAlpha(1)
+        .setAngle(0)
+        .setBlendMode(Phaser.BlendModes.NORMAL)
+        .clearTint()
         .setTint(elite ? 0xffd29a : config.tint)
         .setDepth(14)
         .setData({
@@ -9540,9 +11455,18 @@ class BattleScene extends Phaser.Scene {
           raidKind: config.kind,
           hp: maxHp,
           maxHp,
+          individualMaxHp: maxHp,
+          raidTexture: safeTexture,
+          raidWidth: config.width,
+          raidHeight: config.height,
+          homeX: config.x,
+          homeY: 190,
+          hittable: true,
+          defeated: false,
           elite,
           mutated,
           mutationKind,
+          raidAura: undefined,
           nextSpecialAt: this.time.now + (config.kind === "usurper" ? 2500 : 0)
         });
       this.tweens.add({
@@ -9565,20 +11489,51 @@ class BattleScene extends Phaser.Scene {
           duration: 720
         });
         core.setData("raidAura", aura);
+        if (mutated && mutationKind) {
+          this.floatText(
+            config.x,
+            290,
+            `BOSS MUTATION // ${BOSS_NAMES[mutationKind]}`,
+            true
+          );
+        }
       }
     });
     this.bossElite = anyElite;
     this.bossMaxHpBeforeFinalBalance = totalHpBeforeIncompleteBalance;
     this.bossMaxHp = totalHp;
     this.bossHp = totalHp;
+    // 三只 Boss 各自拥有共享总血量的 1/3；顶部共享条仅显示三条独立血量之和。
+    const individualHp = totalHp / 3;
+    (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[])
+      .filter((part) => part.active && part.getData("part") === "raid-core")
+      .forEach((part) =>
+        part
+          .setData("hp", individualHp)
+          .setData("maxHp", individualHp)
+          .setData("individualMaxHp", individualHp)
+          .setData("defeated", false)
+      );
     this.nextTrinityAttack = this.time.now + 2300;
     this.nextUsurperDisableAt = this.time.now + 2800;
-    this.showBanner("三神共斗 · 各模板 66.7% 属性 · 全部击破后连续升三级", 1800);
+    this.showBanner("三神共斗 · 三条独立生命各占总量 33.33% · 击破谁就炸毁谁", 1800);
     if (save.settings.screenShake) this.cameras.main.shake(650, 0.012);
   }
 
   hitBossPart(bullet: Phaser.Physics.Arcade.Image, part: Phaser.Physics.Arcade.Image): void {
     if (!bullet.active || !part.active) return;
+    if (part.getData("hittable") === false) {
+      bullet.disableBody(true, true);
+      return;
+    }
+    const weapon = String(bullet.getData("weapon") ?? "");
+    if (weapon.includes("missile")) {
+      this.renderMissileExplosion(bullet.x, bullet.y);
+    }
+    if (weapon === "titan-authority") {
+      this.renderBossPowerPulse("titan_meteor", bullet.x, bullet.y, 160, 460);
+    }
+    if ((bullet.getData("owner") ?? 1) === 1) this.spawnSiphonChain(part);
     this.damageBossPart(part, bullet.getData("damage") ?? 10);
     if ((bullet.getData("owner") ?? 1) === 1) this.applyHitTrait();
     const remainingPierce = bullet.getData("pierce") ?? 0;
@@ -9588,31 +11543,40 @@ class BattleScene extends Phaser.Scene {
 
   damageBossPart(part: Phaser.Physics.Arcade.Image, rawDamage: number): void {
     if (!this.bossActive || !part.active) return;
+    if (part.getData("hittable") === false) return;
     // === 权柄污染:对 Boss 伤害 +20%(usurper 护符) ===
     if (this.usurperBlight) rawDamage *= 1.2;
     const partName = part.getData("part");
     if (partName === "raid-core") {
       const collisionFinisher = part.getData("collisionFinisher") === true;
       part.setData("collisionFinisher", false);
-      const previousHp = part.getData("hp") ?? 1;
-      const nextHp = Math.max(0, previousHp - rawDamage);
-      part.setData("hp", nextHp);
-      this.bossHp = Math.max(0, this.bossHp - Math.min(previousHp, rawDamage));
+      const previousHp = Number(part.getData("hp") ?? 0);
+      const currentHp = independentBossHealthAfterDamage(previousHp, rawDamage);
+      part.setData("hp", currentHp);
+      const allCores = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
+        (core) => core.getData("part") === "raid-core"
+      );
+      this.bossHp = allCores.reduce(
+        (sum, core) => sum + Math.max(0, Number(core.getData("hp") ?? 0)),
+        0
+      );
       part.setTintFill(0xffc9ec);
       this.time.delayedCall(45, () => part.active && part.clearTint());
-      if (nextHp <= 0) {
+      if (previousHp > 0 && currentHp <= 0) {
+        if (collisionFinisher) this.grantCollisionBossKillGrowth(true);
         const defeatedKind = part.getData("raidKind") as BossKind;
-        if (collisionFinisher) {
-          this.grantCollisionBossKillGrowth(true);
+        if (!this.trinityDefeatedKinds.includes(defeatedKind)) {
+          this.trinityDefeatedKinds.push(defeatedKind);
         }
         this.trinityAlive = Math.max(0, this.trinityAlive - 1);
-        this.trinityDefeatedKinds.push(defeatedKind);
+        part.setData("defeated", true);
         const aura = part.getData("raidAura") as Phaser.GameObjects.Arc | undefined;
         aura?.destroy();
-        this.burst(part.x, part.y, 0xff3dbb, 2.5);
+        part.setData("raidAura", undefined);
+        this.bigExplosion(part.x, part.y, 0xff3dbb, 1.7);
+        this.showBanner(`${BOSS_NAMES[defeatedKind]}独立核心归零 · 剩余 ${this.trinityAlive}`, 1050);
         part.disableBody(true, true);
-        this.showBanner(`${BOSS_NAMES[defeatedKind]}不完全体已击破 · 剩余 ${this.trinityAlive}`, 1050);
-        if (this.trinityAlive <= 0) this.defeatTrinityRaid();
+        if (this.trinityAlive <= 0 || this.bossHp <= 0) this.defeatTrinityRaid();
       }
       return;
     }
@@ -9658,6 +11622,7 @@ class BattleScene extends Phaser.Scene {
       const totalDmg = rawDamage * damageMul;
       const hp = (part.getData("hp") ?? 0) - totalDmg;
       part.setData("hp", hp);
+      if (partName === "dark-aircraft") this.darkAircraftHp = Math.max(0, hp);
       part.setTintFill(0xff3da6);
       this.time.delayedCall(40, () => part.active && part.clearTint());
       this.darkAircraftDamageWindow.push(this.time.now);
@@ -9800,6 +11765,7 @@ class BattleScene extends Phaser.Scene {
     const nextPhase = ratio <= 0.35 ? 3 : ratio <= 0.7 ? 2 : 1;
     if (nextPhase <= this.bossPhase) return;
     this.bossPhase = nextPhase;
+    this.clearBossAttackEffects();
     this.enemyBullets.children.each((child) => {
       const bullet = child as Phaser.Physics.Arcade.Image;
       if (bullet.active) bullet.disableBody(true, true);
@@ -9838,7 +11804,9 @@ class BattleScene extends Phaser.Scene {
     const parts = this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[];
     const core = parts.find((part) => part.active && part.getData("part") === "core");
     if (core && core.y >= 178) {
-      const sway = Math.sin(time * (this.bossKind === "mirror" ? 0.0012 : 0.0008)) * (this.bossKind === "titan" ? 150 : 115);
+      const sway = Math.sin(
+        this.hostileMotionTime(time) * (this.bossKind === "mirror" ? 0.0012 : 0.0008)
+      ) * (this.bossKind === "titan" ? 150 : 115);
       core.x = WORLD_WIDTH / 2 + sway;
       if (this.bossEliteAura) {
         this.bossEliteAura.setPosition(core.x, core.y);
@@ -9884,21 +11852,25 @@ class BattleScene extends Phaser.Scene {
       this.showBanner("权限篡夺 · 技能封锁 20 秒 · 冷却 40 秒", 1100);
     }
     if (this.bossKind === "titan") {
-      const extras = [() => this.bossSpiralAttack(core), () => this.bossRageAttack(core)];
-      Phaser.Utils.Array.GetRandom(extras)();
+      const extras = [
+        { type: "spiral", run: () => {
+          this.renderBossSkillImageCue(core, "titan", "spiral");
+          this.bossSpiralAttack(core);
+        } },
+        { type: "rage", run: () => {
+          this.renderBossSkillImageCue(core, "titan", "rage");
+          this.bossRageAttack(core);
+        } }
+      ];
+      const extra = Phaser.Utils.Array.GetRandom(extras);
+      this.startBossAttackType(`titan:${extra.type}`, extra.run);
       this.executeBossKindAttack(core, "titan");
     } else if (this.bossKind === "mirror") {
       this.executeBossKindAttack(core, "mirror");
     } else {
       this.executeBossKindAttack(core, "usurper");
     }
-    if (this.bossMutated && this.bossMutationKind && Math.random() < 0.55) {
-      this.time.delayedCall(360, () => {
-        if (this.bossActive && core.active) {
-          this.executeBossKindAttack(core, this.bossMutationKind!);
-        }
-      });
-    }
+    this.castBorrowedBossMutation(core);
     const base =
       this.bossKind === "mirror"
         ? 1580
@@ -9916,43 +11888,226 @@ class BattleScene extends Phaser.Scene {
       );
   }
 
-  executeBossKindAttack(core: Phaser.Physics.Arcade.Image, kind: BossKind): void {
+  renderBossSignatureCue(core: Phaser.Physics.Arcade.Image, kind: BossKind): void {
+    const colors: Record<BossKind, [number, number]> = {
+      titan: [0xff6a32, 0xffd15c],
+      mirror: [0x39eaff, 0x9b6cff],
+      usurper: [0xffbd3e, 0x7b4dff],
+      shadow: [0xff2d8f, 0x310043],
+      dark_deity: [0xff174f, 0x050008]
+    };
+    const [primary, secondary] = colors[kind];
+    const warningField = this.add.ellipse(
+      core.x,
+      core.y + core.displayHeight * 0.14,
+      Math.max(240, core.displayWidth * 0.82),
+      Math.max(82, core.displayHeight * 0.22),
+      secondary,
+      0.1
+    ).setStrokeStyle(7, primary, 0.82).setDepth(12).setBlendMode(Phaser.BlendModes.ADD);
+    const outerSigil = this.add.circle(
+      core.x,
+      core.y + core.displayHeight * 0.1,
+      Math.max(122, core.displayWidth * 0.34),
+      primary,
+      0.04
+    ).setStrokeStyle(3, secondary, 0.72).setDepth(13).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: warningField,
+      scaleX: 1.75,
+      scaleY: 1.35,
+      alpha: 0,
+      duration: 920,
+      ease: "Cubic.Out",
+      onComplete: () => warningField.destroy()
+    });
+    this.tweens.add({
+      targets: outerSigil,
+      rotation: kind === "mirror" ? -Math.PI / 2 : Math.PI / 2,
+      scale: 1.5,
+      alpha: 0,
+      duration: 820,
+      onComplete: () => outerSigil.destroy()
+    });
+    const shardCount = save.settings.quality === "high" ? 12 : 7;
+    for (let index = 0; index < shardCount; index += 1) {
+      const angle = (Math.PI * 2 * index) / shardCount;
+      const shard = this.add.rectangle(
+        core.x + Math.cos(angle) * 48,
+        core.y + core.displayHeight * 0.1 + Math.sin(angle) * 32,
+        9,
+        38,
+        index % 3 === 0 ? 0xffffff : primary,
+        0.82
+      ).setRotation(angle + Math.PI / 2).setDepth(24).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: shard,
+        x: core.x + Math.cos(angle) * Math.max(170, core.displayWidth * 0.48),
+        y: core.y + core.displayHeight * 0.1 + Math.sin(angle) * Math.max(120, core.displayHeight * 0.34),
+        scale: 1.7,
+        alpha: 0,
+        duration: 520 + index * 22,
+        onComplete: () => shard.destroy()
+      });
+    }
+    if (save.settings.screenShake) this.cameras.main.shake(90, 0.0025);
     if (kind === "titan") {
-      Phaser.Utils.Array.GetRandom([
-        () => this.titanMeteorField(core),
-        () => this.titanLaneSweep(core),
-        () => this.bossFanAttack(core),
-        () => this.titanGravityWell(core)
-      ])();
+      const crown = this.add.circle(core.x, core.y + 40, 92, primary, 0.05)
+        .setStrokeStyle(5, secondary, 0.9).setDepth(25).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({ targets: crown, scale: 2.2, rotation: Math.PI / 4, alpha: 0, duration: 620, onComplete: () => crown.destroy() });
     } else if (kind === "mirror") {
-      Phaser.Utils.Array.GetRandom([
-        () => this.mirrorPetalAttack(core),
-        () => this.mirrorLanceAttack(core),
-        () => this.bossHomingSwarm(core, 7 + this.bossPhase * 2, 0x2df4ff)
-      ])();
+      [-1, 1].forEach((side) => {
+        const pane = this.add.rectangle(core.x + side * 82, core.y + 30, 78, 78, primary, 0.08)
+          .setStrokeStyle(4, side < 0 ? primary : secondary, 0.9).setRotation(Math.PI / 4).setDepth(25);
+        this.tweens.add({ targets: pane, x: core.x + side * 190, rotation: side * Math.PI, scale: 1.6, alpha: 0, duration: 720, onComplete: () => pane.destroy() });
+      });
     } else if (kind === "usurper") {
-      const attack = Phaser.Utils.Array.GetRandom([
-        () => this.usurperLaserGrid(core),
-        () => this.usurperEMP(core),
-        () => this.usurperDroneLattice(core),
-        () => this.usurperPowerDrain(core)
-      ]);
-      attack();
-      // 偷取期内：每次攻击额外用一次被偷技能
-      if (this.usurperStolenSkill && this.time.now < this.usurperStolenUntil) {
-        this.castStolenSkill(core);
+      for (let index = -2; index <= 2; index += 1) {
+        const bar = this.add.rectangle(core.x + index * 32, core.y + 35, 7, 120, index % 2 ? primary : secondary, 0.72)
+          .setDepth(25).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: bar, scaleY: 2.4, alpha: 0, delay: Math.abs(index) * 35, duration: 560, onComplete: () => bar.destroy() });
       }
+    } else if (kind === "shadow") {
+      for (let index = -1; index <= 1; index += 1) {
+        const claw = this.add.rectangle(core.x, core.y + 45 + index * 28, 230, 8, index === 0 ? primary : secondary, 0.86)
+          .setRotation(-0.34 + index * 0.14).setDepth(25).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: claw, scaleX: 2.8, x: core.x - 90, alpha: 0, duration: 480, onComplete: () => claw.destroy() });
+      }
+    } else {
+      const eclipse = this.add.circle(core.x, core.y + 35, 58, secondary, 0.82)
+        .setStrokeStyle(9, primary, 0.92).setDepth(25);
+      const halo = this.add.ellipse(core.x, core.y + 35, 190, 42, primary, 0.08)
+        .setStrokeStyle(4, 0xffffff, 0.72).setDepth(26).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({ targets: eclipse, scale: 2.5, alpha: 0, duration: 850, onComplete: () => eclipse.destroy() });
+      this.tweens.add({ targets: halo, rotation: Math.PI, scaleX: 1.7, alpha: 0, duration: 850, onComplete: () => halo.destroy() });
     }
   }
 
-  updateTrinityBosses(time: number): void {
-    const cores = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
-      (part) => part.active && part.getData("part") === "raid-core"
+  executeBossKindAttack(core: Phaser.Physics.Arcade.Image, kind: BossKind): void {
+    let choices: Array<{ type: string; run: () => void }>;
+    if (kind === "titan") {
+      choices = [
+        { type: "meteor", run: () => this.titanMeteorField(core) },
+        { type: "lane", run: () => this.titanLaneSweep(core) },
+        { type: "fan", run: () => this.bossFanAttack(core) },
+        { type: "gravity", run: () => this.titanGravityWell(core) }
+      ];
+    } else if (kind === "mirror") {
+      choices = [
+        { type: "petal", run: () => this.mirrorPetalAttack(core) },
+        { type: "lance", run: () => this.mirrorLanceAttack(core) },
+        {
+          type: "homing",
+          run: () => this.bossHomingSwarm(core, 7 + this.bossPhase * 2, 0x2df4ff)
+        },
+        { type: "copy_g", run: () => this.mirrorSpecializationAttack(core) },
+        { type: "copy_1", run: () => this.mirrorLoadoutSkill(core, 1) },
+        { type: "copy_2", run: () => this.mirrorLoadoutSkill(core, 2) },
+        { type: "copy_3", run: () => this.mirrorLoadoutSkill(core, 3) }
+      ];
+    } else if (kind === "usurper") {
+      choices = [
+        { type: "grid", run: () => this.usurperLaserGrid(core) },
+        { type: "emp", run: () => this.usurperEMP(core) },
+        { type: "lattice", run: () => this.usurperDroneLattice(core) },
+        { type: "drain", run: () => this.usurperPowerDrain(core) }
+      ];
+    } else if (kind === "shadow") {
+      choices = [
+        { type: "claw", run: () => this.shadowClawAttack(false) },
+        { type: "delayed", run: () => this.shadowDelayedExplosion(false) },
+        { type: "drain", run: () => this.shadowDrainWave(core, false) }
+      ];
+    } else {
+      choices = [
+        { type: "barrage", run: () => this.darkDeityBarrage(core) },
+        { type: "storm", run: () => this.darkDeityStorm(core) },
+        { type: "charge", run: () => this.shadowChargeAttack(core) }
+      ];
+    }
+    let choice: { type: string; run: () => void };
+    if (kind === "mirror") {
+      const mimicChoices = choices.filter((item) => item.type.startsWith("copy_"));
+      const nativeChoices = choices.filter((item) => !item.type.startsWith("copy_"));
+      const mimicTurn = this.mirrorMimicIndex % 2 === 0;
+      choice = mimicTurn
+        ? mimicChoices[Math.floor(this.mirrorMimicIndex / 2) % mimicChoices.length]
+        : Phaser.Utils.Array.GetRandom(nativeChoices);
+      this.mirrorMimicIndex += 1;
+    } else {
+      choice = Phaser.Utils.Array.GetRandom(choices);
+    }
+    this.startBossAttackType(`${kind}:${choice.type}`, () => {
+      this.renderBossSkillImageCue(core, kind, choice.type);
+      choice.run();
+      if (
+        kind === "usurper" &&
+        this.usurperStolenSkill &&
+        this.time.now < this.usurperStolenUntil
+      ) {
+        this.castStolenSkill(core);
+      }
+    });
+  }
+
+  castBorrowedBossMutation(core: Phaser.Physics.Arcade.Image): void {
+    const borrowedKind = this.bossMutationKind;
+    if (!this.bossMutated || !borrowedKind) return;
+    this.time.delayedCall(360, () => {
+      if (!this.bossActive || !core.active) return;
+      this.showBanner(
+        `突变能力发动 · ${BOSS_NAMES[this.bossKind]} → ${BOSS_NAMES[borrowedKind]}`,
+        850
+      );
+      this.floatText(core.x, core.y + 105, `MUTATION // ${BOSS_NAMES[borrowedKind]}`, true);
+      this.executeBossKindAttack(core, borrowedKind);
+    });
+  }
+
+  ensureTrinityCoreEntities(): Phaser.Physics.Arcade.Image[] {
+    // 已炸毁的核心会被 disableBody；绝不能在更新循环里重新启用，
+    // 也不能把每只 Boss 的独立血量覆盖成顶部共享血量。
+    const survivingCores = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
+      (part) =>
+        part.getData("part") === "raid-core" &&
+        part.getData("defeated") !== true &&
+        Number(part.getData("hp") ?? 0) > 0
     );
+    // 只修复“仍有独立生命”的异常隐藏实体；死亡核心因 defeated=true/hp=0
+    // 永远不会走到这里，因此不会发生炸毁后复活或无实体继续攻击。
+    survivingCores.forEach((core) => {
+      if (core.active && core.visible) {
+        core.setData("hittable", true);
+        return;
+      }
+      const texture = (core.getData("raidTexture") as string | undefined) ?? "bossCore";
+      const width = (core.getData("raidWidth") as number | undefined) ?? 240;
+      const height = (core.getData("raidHeight") as number | undefined) ?? 240;
+      const homeX = (core.getData("homeX") as number | undefined) ?? core.x;
+      const homeY = (core.getData("homeY") as number | undefined) ?? 190;
+      this.tweens.killTweensOf(core);
+      core.enableBody(true, homeX, homeY, true, true);
+      core
+        .setTexture(this.textures.exists(texture) ? texture : "bossCore")
+        .setDisplaySize(width, height)
+        .setAlpha(1)
+        .setAngle(0)
+        .setBlendMode(Phaser.BlendModes.NORMAL)
+        .setDepth(14)
+        .setData("hittable", true);
+      const body = core.body as Phaser.Physics.Arcade.Body;
+      body.enable = true;
+      body.setSize(core.width * 0.62, core.height * 0.62, true);
+    });
+    return survivingCores;
+  }
+
+  updateTrinityBosses(time: number): void {
+    const cores = this.ensureTrinityCoreEntities();
     cores.forEach((core, index) => {
       const homeX = core.getData("homeX") ?? core.x;
       if (core.getData("homeX") === undefined) core.setData("homeX", core.x);
-      core.x = homeX + Math.sin(time * 0.0011 + index * 2.1) * 42;
+      core.x = homeX + Math.sin(this.hostileMotionTime(time) * 0.0011 + index * 2.1) * 42;
       const aura = core.getData("raidAura") as Phaser.GameObjects.Arc | undefined;
       aura?.setPosition(core.x, core.y);
     });
@@ -9970,13 +12125,8 @@ class BattleScene extends Phaser.Scene {
       if (time < nextAt) return;
       const kind = core.getData("raidKind") as BossKind;
       if (kind === "mirror") {
-        const copiedKind = Phaser.Utils.Array.GetRandom(
-          cores
-            .map((c) => c.getData("raidKind") as BossKind)
-            .filter((item) => item !== "mirror")
-        );
-        this.executeBossKindAttack(core, copiedKind ?? "titan");
-        this.floatText(core.x, core.y + 90, `复制 ${BOSS_NAMES[copiedKind ?? "titan"]}`, true);
+        this.executeBossKindAttack(core, "mirror");
+        this.floatText(core.x, core.y + 90, "复制玩家流派与键位", true);
       } else {
         this.executeBossKindAttack(core, kind);
       }
@@ -10040,11 +12190,12 @@ class BattleScene extends Phaser.Scene {
       (part) => part.active && part.getData("part") === "core"
     );
     if (!core) return;
-    const targetY = pursuit ? 82 + Math.sin(time * 0.0017) * 22 : 390;
+    const motionTime = this.hostileMotionTime(time);
+    const targetY = pursuit ? 82 + Math.sin(motionTime * 0.0017) * 22 : 390;
     core.y = Phaser.Math.Linear(core.y, targetY, pursuit ? 0.05 : 0.018);
     core.x =
       WORLD_WIDTH / 2 +
-      Math.sin(time * (pursuit ? 0.00155 : 0.00092)) * (pursuit ? 270 : 185);
+      Math.sin(motionTime * (pursuit ? 0.00155 : 0.00092)) * (pursuit ? 270 : 185);
     const parts = this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[];
     const left = parts.find((part) => part.active && part.getData("part") === "left");
     const right = parts.find((part) => part.active && part.getData("part") === "right");
@@ -10052,42 +12203,50 @@ class BattleScene extends Phaser.Scene {
     if (right) right.setPosition(core.x + 205, core.y + 30);
     this.bossEliteAura?.setPosition(core.x, core.y);
     if (!pursuit && time >= this.nextBossMinionSummon) {
-      this.shadowPortalAttack(core);
+      this.startBossAttackType("shadow:portal", () => {
+        this.renderBossSkillImageCue(core, "shadow", "portal");
+        this.shadowPortalAttack(core);
+      });
       this.nextBossMinionSummon = time + (this.bossElite ? 6800 : 8200);
       this.showBanner("完全体黑影 · 召唤裂隙增援", 900);
     }
     if (time < this.nextBossAttack) return;
-    const attacks: Array<() => void> = [
-      () => this.shadowBulletBarrage(core, pursuit),
-      () => this.shadowDelayedExplosion(pursuit),
-      () => this.shadowClawAttack(pursuit),
-      () => this.shadowChargeAttack(core),
-      () => this.shadowDrainWave(core, pursuit),
-      () => this.shadowCage(core, pursuit),
-      () => this.shadowHomingMaw(core, pursuit)
+    const attacks: Array<{ type: string; run: () => void }> = [
+      { type: "barrage", run: () => this.shadowBulletBarrage(core, pursuit) },
+      { type: "delayed", run: () => this.shadowDelayedExplosion(pursuit) },
+      { type: "claw", run: () => this.shadowClawAttack(pursuit) },
+      { type: "charge", run: () => this.shadowChargeAttack(core) },
+      { type: "drain", run: () => this.shadowDrainWave(core, pursuit) },
+      { type: "cage", run: () => this.shadowCage(core, pursuit) },
+      { type: "maw", run: () => this.shadowHomingMaw(core, pursuit) }
     ];
     if (this.campaignBossesDefeated >= 1) {
-      attacks.push(() => {
+      attacks.push({ type: "stolen_titan", run: () => {
         this.floatText(core.x, core.y + 90, "盗取 · 裂渊泰坦", true);
         this.executeBossKindAttack(core, "titan");
-      });
+      }});
     }
     if (this.campaignBossesDefeated >= 2) {
-      attacks.push(() => {
+      attacks.push({ type: "stolen_mirror", run: () => {
         this.floatText(core.x, core.y + 90, "盗取 · 镜像猎手", true);
         this.executeBossKindAttack(core, "mirror");
-      });
+      }});
     }
     if (this.campaignBossesDefeated >= 3) {
-      attacks.push(() => {
+      attacks.push({ type: "stolen_usurper", run: () => {
         this.floatText(core.x, core.y + 90, "盗取 · 技能篡夺者", true);
         this.executeBossKindAttack(core, "usurper");
-      });
+      }});
     }
     let attackIndex = Phaser.Math.Between(0, attacks.length - 1);
     if (attackIndex === this.bossAttackIndex) attackIndex = (attackIndex + 1) % attacks.length;
     this.bossAttackIndex = attackIndex;
-    attacks[attackIndex]();
+    const attack = attacks[attackIndex];
+    this.startBossAttackType(`shadow:${attack.type}`, () => {
+      this.renderBossSkillImageCue(core, "shadow", attack.type);
+      attack.run();
+    });
+    this.castBorrowedBossMutation(core);
     this.nextBossAttack = time + (pursuit ? 1180 : this.bossElite ? 980 : 1320);
   }
 
@@ -10161,6 +12320,15 @@ class BattleScene extends Phaser.Scene {
           onComplete: () => {
             warning.destroy();
             if (!this.bossActive) return;
+            this.renderBossSkillImpact(
+              this.bossKind === "dark_deity" ? "dark_deity" : "shadow",
+              "delayed",
+              a.x,
+              a.y,
+              radius * 2,
+              620,
+              true
+            );
             const blast = this.add.circle(a.x, a.y, radius * 1.08, 0x5a0874, 0.82).setDepth(31);
             if (Phaser.Math.Distance.Between(this.player.x, this.player.y, a.x, a.y) < radius) {
               this.damagePlayerDark(0, pursuit ? 0.1 : 0.16, "延迟黑暗爆炸");
@@ -10174,6 +12342,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   shadowClawAttack(pursuit: boolean): void {
+    const damageWidth = pursuit ? 144 : 190;
     // 双爪：玩家头顶 + 偏移 200px 的位置同时落下
     const offsetX = Phaser.Math.Between(-220, 220);
     const anchors = [
@@ -10181,13 +12350,16 @@ class BattleScene extends Phaser.Scene {
       { x: Phaser.Math.Clamp(this.player.x + offsetX, 70, WORLD_WIDTH - 70), y: WORLD_HEIGHT / 2 }
     ];
     anchors.forEach((a) => {
-      const claw = this.add
-        .rectangle(a.x, a.y, pursuit ? 92 : 125, WORLD_HEIGHT, 0x7b0d91, 0.08)
+      const claw = this.trackBossEffect(this.add
+        .rectangle(a.x, a.y, damageWidth, WORLD_HEIGHT, 0x7b0d91, 0.08)
         .setStrokeStyle(4, 0xff2d8f, 0.84)
         .setAngle(Phaser.Math.Between(-12, 12))
-        .setDepth(20);
+        .setDepth(20), 1800);
       // 顶部紫色光柱提示位置
-      const pillar = this.add.rectangle(a.x, 60, 24, 120, 0xff2d8f, 0.0).setDepth(21);
+      const pillar = this.trackBossEffect(
+        this.add.rectangle(a.x, 60, 24, 120, 0xff2d8f, 0.0).setDepth(21),
+        1500
+      );
       this.tweens.add({
         targets: pillar,
         alpha: { from: 0, to: 0.7 },
@@ -10203,7 +12375,16 @@ class BattleScene extends Phaser.Scene {
         repeat: 2,
         duration: 180,
         onComplete: () => {
-          const hit = Math.abs(this.player.x - a.x) < (pursuit ? 72 : 95);
+          const hit = Math.abs(this.player.x - a.x) < damageWidth / 2;
+          this.renderBossSkillArea(
+            "shadow",
+            "claw",
+            a.x,
+            WORLD_HEIGHT / 2,
+            damageWidth,
+            WORLD_HEIGHT,
+            620
+          );
           claw.destroy();
           if (!this.bossActive || !hit) return;
           this.damagePlayerDark(0, pursuit ? 0.08 : 0.12, "黑暗爪痕");
@@ -10226,6 +12407,14 @@ class BattleScene extends Phaser.Scene {
       onComplete: () => {
         portal.destroy();
         if (!this.bossActive) return;
+        this.renderBossSkillImpact(
+          this.bossKind === "dark_deity" ? "dark_deity" : "shadow",
+          "portal",
+          core.x,
+          core.y + 115,
+          310,
+          960
+        );
         const roster = campaignEnemyRoster(Math.max(1, this.campaignBossesDefeated));
         const finalScale =
           isNineBattleMode()
@@ -10266,11 +12455,11 @@ class BattleScene extends Phaser.Scene {
     const targetX = this.player.x;
     const targetY = Math.min(WORLD_HEIGHT - 220, this.player.y);
     // 第一阶段：0.6s 红色细线预警
-    const warning = this.add
+    const warning = this.trackBossEffect(this.add
       .line(0, 0, startX, startY, targetX, targetY, 0xff2244, 0.0)
       .setOrigin(0)
       .setLineWidth(8, 2)
-      .setDepth(24);
+      .setDepth(24), 2200);
     this.tweens.add({
       targets: warning,
       alpha: { from: 0.0, to: 0.85 },
@@ -10278,11 +12467,11 @@ class BattleScene extends Phaser.Scene {
       onComplete: () => {
         // 第二阶段：粗红线 + 冲撞轨迹
         warning.destroy();
-        const warning2 = this.add
+        const warning2 = this.trackBossEffect(this.add
           .line(0, 0, startX, startY, targetX, targetY, 0xff2d8f, 0.5)
           .setOrigin(0)
           .setLineWidth(28, 6)
-          .setDepth(25);
+          .setDepth(25), 1600);
         // 路径拖影：8 个渐隐的圆点
         const ghosts: Phaser.GameObjects.Arc[] = [];
         const steps = 10;
@@ -10290,7 +12479,10 @@ class BattleScene extends Phaser.Scene {
           const t = i / (steps - 1);
           const gx = startX + (targetX - startX) * t;
           const gy = startY + (targetY - startY) * t;
-          const ghost = this.add.circle(gx, gy, 18, 0x7c22ff, 0.45).setDepth(23);
+          const ghost = this.trackBossEffect(
+            this.add.circle(gx, gy, 18, 0x7c22ff, 0.45).setDepth(23),
+            1400
+          );
           this.tweens.add({
             targets: ghost,
             alpha: { from: 0.45, to: 0 },
@@ -10319,6 +12511,15 @@ class BattleScene extends Phaser.Scene {
               yoyo: true,
               hold: 80,
               onYoyo: () => {
+                this.renderBossSkillImpact(
+                  this.bossKind === "dark_deity" ? "dark_deity" : "shadow",
+                  "charge",
+                  core.x,
+                  core.y,
+                  290,
+                  620,
+                  true
+                );
                 if (Phaser.Math.Distance.Between(this.player.x, this.player.y, core.x, core.y) < 145) {
                   this.damagePlayerDark(0, 0.12, "黑影冲撞");
                   this.applyDarkDot(1000, 5.5, "黑暗能量灼烧");
@@ -10337,9 +12538,9 @@ class BattleScene extends Phaser.Scene {
     const cx = this.player.x;
     const cy = Math.min(this.player.y + 40, WORLD_HEIGHT - 200);
     const innerR = pursuit ? 60 : 90;
-    const outerR = pursuit ? 230 : 320;
+    const damageRadius = innerR + 12;
     // 外环预警（空心圆 + 描边）
-    const ring = this.add.circle(cx, cy, outerR, 0x7c22ff, 0.0).setStrokeStyle(4, 0xff2d8f, 0.85).setDepth(22);
+    const ring = this.add.circle(cx, cy, damageRadius, 0x7c22ff, 0.04).setStrokeStyle(8, 0xff2d8f, 0.98).setDepth(22);
     this.tweens.add({
       targets: ring,
       alpha: { from: 0.0, to: 0.6 },
@@ -10349,21 +12550,30 @@ class BattleScene extends Phaser.Scene {
           ring.destroy();
           return;
         }
+        this.renderBossSkillImpact(
+          this.bossKind === "dark_deity" ? "dark_deity" : "shadow",
+          "drain",
+          cx,
+          cy,
+          damageRadius * 2,
+          1050,
+          true
+        );
         // 3 波向心收缩
         for (let wave = 0; wave < 3; wave += 1) {
           this.time.delayedCall(wave * 220, () => {
             if (!this.bossActive) return;
-            const spike = this.add.circle(cx, cy, 30, 0x7c22ff, 0.0).setStrokeStyle(6, 0xff2d8f, 0.95).setDepth(25);
+            const spike = this.add.circle(cx, cy, damageRadius, 0x7c22ff, 0.08).setStrokeStyle(6, 0xff2d8f, 0.95).setDepth(25);
             this.tweens.add({
               targets: spike,
-              scale: { from: 0.4, to: (outerR - innerR) / 30 },
+              scale: { from: 1.08, to: 0.28 },
               alpha: { from: 0.9, to: 0.0 },
               duration: 380,
               ease: "Cubic.Out",
               onComplete: () => {
                 spike.destroy();
                 // 命中检测：玩家在内环范围内
-                if (Phaser.Math.Distance.Between(this.player.x, this.player.y, cx, cy) < innerR + 12) {
+                if (Phaser.Math.Distance.Between(this.player.x, this.player.y, cx, cy) < damageRadius) {
                   this.damagePlayerDark(0, pursuit ? 0.07 : 0.11, "灵魂抽离");
                   this.applyDarkDot(this.stats.maxHp * 0.04, 4, "灵魂侵蚀");
                 }
@@ -10372,7 +12582,7 @@ class BattleScene extends Phaser.Scene {
           });
         }
         // 中心能量柱
-        const pillar = this.add.rectangle(cx, cy, 30, 600, 0x7c22ff, 0.0).setDepth(24);
+        const pillar = this.add.rectangle(cx, cy, 30, damageRadius * 2, 0x7c22ff, 0.0).setDepth(24);
         this.tweens.add({
           targets: pillar,
           alpha: { from: 0.0, to: 0.6 },
@@ -10410,8 +12620,8 @@ class BattleScene extends Phaser.Scene {
       const sy = cy + Math.sin(angle) * outerR;
       const ex = cx + Math.cos(angle) * innerR;
       const ey = cy + Math.sin(angle) * innerR;
-      // 起点预警
-      const warn = this.add.circle(sx, sy, 26, 0x6c1a8f, 0.0).setStrokeStyle(5, 0xb626ff, 0.85).setDepth(22);
+      // 只标记真正会结算伤害的终点半径，柱子起点不再伪装成伤害区。
+      const warn = this.add.circle(ex, ey, 70, 0x6c1a8f, 0.04).setStrokeStyle(8, 0xb626ff, 0.98).setDepth(22);
       this.tweens.add({
         targets: warn,
         alpha: { from: 0.0, to: 0.7 },
@@ -10428,6 +12638,14 @@ class BattleScene extends Phaser.Scene {
             duration: 360,
             ease: "Cubic.In",
             onComplete: () => {
+              this.renderBossSkillImpact(
+                this.bossKind === "dark_deity" ? "dark_deity" : "shadow",
+                "cage",
+                ex,
+                ey,
+                140,
+                520
+              );
               if (Phaser.Math.Distance.Between(this.player.x, this.player.y, ex, ey) < 70) {
                 this.damagePlayerDark(0, pursuit ? 0.09 : 0.14, "暗影柱贯穿");
                 this.applyDarkDot(this.stats.maxHp * 0.05, 5, "牢笼侵蚀");
@@ -10470,6 +12688,14 @@ class BattleScene extends Phaser.Scene {
       onComplete: () => {
         maw.destroy();
         if (!this.bossActive) return;
+        this.renderBossSkillImpact(
+          this.bossKind === "dark_deity" ? "dark_deity" : "shadow",
+          "maw",
+          targetX,
+          targetY,
+          330,
+          820
+        );
         // 巨口张开：放大 + 喷射 12 颗扇形
         const open = this.add.circle(targetX, targetY, 30, 0x1a0033, 0.8).setStrokeStyle(8, 0xff2d8f, 1).setDepth(25);
         const count = 12;
@@ -10507,8 +12733,8 @@ class BattleScene extends Phaser.Scene {
       (part) => part.active && part.getData("part") === "core"
     );
     if (!core) return;
-    core.x = WORLD_WIDTH / 2 + Math.sin(time * 0.00072) * 135;
-    core.y = Phaser.Math.Linear(core.y, 370, 0.02);
+    core.x = WORLD_WIDTH / 2 + Math.sin(this.hostileMotionTime(time) * 0.00072) * 135;
+    core.y = Phaser.Math.Linear(core.y, this.darkAircraftRetreating ? -260 : 370, this.darkAircraftRetreating ? 0.055 : 0.02);
     this.bossEliteAura?.setPosition(core.x, core.y);
 
     // === 阶段 1：血量首次到 50% 召唤一次黑暗飞机 ===
@@ -10517,25 +12743,39 @@ class BattleScene extends Phaser.Scene {
       this.darkAircraftSpawned = true;
       this.darkAircraftRetreating = true;
       this.darkAircraftNextHealAt = time + 5000;
-      // 黑暗飞机血量 = 第三个 boss (usurper) 血量的一半 ≈ bossMaxHp/2 * 0.5 = 25% 主体
-      this.darkAircraftMaxHp = Math.round(this.bossMaxHp * 0.25);
+      this.darkAircraftNextAttack = time + 1200;
+      // 原先为主 Boss 最大生命的 25%；按要求提高 50%，现为 37.5%。
+      this.darkAircraftMaxHp = Math.round(this.bossMaxHp * 0.375);
       this.darkAircraftHp = this.darkAircraftMaxHp;
-      const ax = WORLD_WIDTH / 2 + 240;
-      const ay = 320;
+      const ax = WORLD_WIDTH / 2;
+      const ay = 260;
       this.darkAircraft = this.bossParts.create(ax, ay, "bossShadow")
         .setDepth(31)
-        .setDisplaySize(150, 150)
+        .setDisplaySize(430, 645)
         .setTint(0x4a0070)
+        .setAlpha(1)
         .setData("part", "dark-aircraft")
         .setData("maxHp", this.darkAircraftMaxHp)
         .setData("hp", this.darkAircraftMaxHp)
+        .setData("hittable", true)
+        .setData("stealthing", false)
         .setData("clonedFrom", null);
       this.physics.world.enable(this.darkAircraft!);
       const acBody = (this.darkAircraft as Phaser.Physics.Arcade.Image).body;
-      if (acBody && 'setSize' in acBody) (acBody as Phaser.Physics.Arcade.Body).setSize(120, 120);
+      if (acBody && "setSize" in acBody) {
+        (acBody as Phaser.Physics.Arcade.Body).setSize(270, 400, true);
+      }
+      core.setData("hittable", false).setAlpha(0.22);
+      this.bossEliteAura?.setAlpha(0.15);
+      this.clearBossAttackEffects();
+      this.enemyBullets.children.each((child) => {
+        const bullet = child as Phaser.Physics.Arcade.Image;
+        if (bullet.active) bullet.disableBody(true, true);
+        return true;
+      });
       this.burst(core.x, core.y, 0x4a0070, 2.2);
       this.burst(ax, ay, 0x9b5cff, 1.8);
-      this.showBanner("◆ 黑暗魔神 · 召唤黑暗僚机 · 自身进入隐退", 1600);
+      this.showBanner("◆ 黑暗魔神半血 · 无敌隐退回血 · 黑暗飞机接管战斗", 1800);
       if (save.settings.screenShake) this.cameras.main.shake(420, 0.014);
     }
 
@@ -10566,7 +12806,9 @@ class BattleScene extends Phaser.Scene {
 
     // === 阶段 3：隐退模式(黑暗飞机在场时) ===
     if (this.darkAircraftRetreating && this.darkAircraft && this.darkAircraft.active) {
-      // 隐退：停止攻击(直接 return)
+      // 隐退期间主 Boss 完全不可命中并退出画面，只保留回血；黑暗飞机单独接战。
+      core.setData("hittable", false).setAlpha(0.22);
+      this.bossEliteAura?.setAlpha(0.15);
       if (time >= this.darkAircraftNextHealAt) {
         const heal = this.bossMaxHp * 0.01;
         this.bossHp = Math.min(this.bossMaxHp, this.bossHp + heal);
@@ -10582,6 +12824,8 @@ class BattleScene extends Phaser.Scene {
       this.darkAircraftRetreating = false;
       this.showBanner("◆ 黑暗僚机被击毁 · 魔神解除隐退", 1400);
       this.burst(core.x, core.y, 0xff2d8f, 1.6);
+      core.setData("hittable", true).setAlpha(1);
+      this.bossEliteAura?.setAlpha(1);
       this.darkAircraft = undefined;
       this.darkAircraftClones.forEach((c) => c.disableBody(true, true));
       this.darkAircraftClones = [];
@@ -10598,39 +12842,50 @@ class BattleScene extends Phaser.Scene {
         : 1080;
 
     if (time >= this.nextBossMinionSummon) {
-      this.shadowPortalAttack(core);
+      this.startBossAttackType("dark_deity:portal", () => {
+        this.renderBossSkillImageCue(core, "dark_deity", "portal");
+        this.shadowPortalAttack(core);
+      });
       this.nextBossMinionSummon = time + (this.bossElite ? 5600 : 7000);
       this.showBanner("黑暗魔神 · 召唤首领印记增援", 900);
     }
     if (time < this.nextBossAttack) return;
-    const attacks: Array<() => void> = [
-      () => this.darkDeityBarrage(core),
-      () => this.darkDeityStorm(core),
-      () => this.shadowDelayedExplosion(false),
-      () => this.shadowChargeAttack(core)
+    const attacks: Array<{ type: string; run: () => void }> = [
+      { type: "barrage", run: () => this.darkDeityBarrage(core) },
+      { type: "storm", run: () => this.darkDeityStorm(core) },
+      { type: "delayed", run: () => this.shadowDelayedExplosion(false) },
+      { type: "charge", run: () => this.shadowChargeAttack(core) },
+      { type: "drain", run: () => this.shadowDrainWave(core, false) },
+      { type: "cage", run: () => this.shadowCage(core, false) },
+      { type: "maw", run: () => this.shadowHomingMaw(core, false) }
     ];
     if (this.campaignBossesDefeated >= 1) {
-      attacks.push(() => {
+      attacks.push({ type: "fused_titan", run: () => {
         this.floatText(core.x, core.y + 90, "融合 · 裂渊泰坦", true);
         this.executeBossKindAttack(core, "titan");
-      });
+      }});
     }
     if (this.campaignBossesDefeated >= 2) {
-      attacks.push(() => {
+      attacks.push({ type: "fused_mirror", run: () => {
         this.floatText(core.x, core.y + 90, "融合 · 镜像猎手", true);
         this.executeBossKindAttack(core, "mirror");
-      });
+      }});
     }
     if (this.campaignBossesDefeated >= 3) {
-      attacks.push(() => {
+      attacks.push({ type: "fused_usurper", run: () => {
         this.floatText(core.x, core.y + 90, "融合 · 技能篡夺者", true);
         this.executeBossKindAttack(core, "usurper");
-      });
+      }});
     }
     let index = Phaser.Math.Between(0, attacks.length - 1);
     if (index === this.bossAttackIndex) index = (index + 1) % attacks.length;
     this.bossAttackIndex = index;
-    attacks[index]();
+    const attack = attacks[index];
+    this.startBossAttackType(`dark_deity:${attack.type}`, () => {
+      this.renderBossSkillImageCue(core, "dark_deity", attack.type);
+      attack.run();
+    });
+    this.castBorrowedBossMutation(core);
     if (isEnraged) this.applyDarkDot(this.stats.maxHp * 0.03, 3, "狂暴黑暗侵蚀");
     this.nextBossAttack = time + baseCooldown;
     // 持续更新狂暴时间
@@ -10651,13 +12906,13 @@ class BattleScene extends Phaser.Scene {
     const ac = this.darkAircraft;
     if (!ac || !ac.active) return;
     // 移动逻辑：水平 sine 漂移
-    ac.x = WORLD_WIDTH / 2 + Math.sin(time * 0.0014) * 200;
+    ac.x = WORLD_WIDTH / 2 + Math.sin(this.hostileMotionTime(time) * 0.0014) * 200;
     ac.y = Phaser.Math.Linear(ac.y, 260, 0.02);
 
-    // 隐身状态:平时 alpha=0(不可见不可打),显现时 alpha=1
-    const isVisible = time < this.darkAircraftStealthVisibleUntil;
-    ac.setAlpha(isVisible ? 1 : 0.05);
-    ac.setData("hittable", isVisible);
+    // 常态始终是 Boss 级可见实体；只有主动释放“隐身突袭”时短暂不可命中。
+    const stealthing = ac.getData("stealthing") === true;
+    ac.setAlpha(stealthing ? 0.18 : 1);
+    ac.setData("hittable", !stealthing);
 
     // 4 个技能轮换
     if (time < this.darkAircraftNextAttack) return;
@@ -10665,13 +12920,25 @@ class BattleScene extends Phaser.Scene {
     const isEnraged = this.darkAircraftEnraged && time < this.darkAircraftEnrageUntil;
     const speedMult = isEnraged ? 0.7 : 1.0;
     if (attackRoll === 0) {
-      this.darkAircraftFirework(ac);
+      this.startBossAttackType("dark_aircraft:firework", () => {
+        this.renderBossSkillImageCue(ac, "dark_aircraft", "firework");
+        this.darkAircraftFirework(ac);
+      });
     } else if (attackRoll === 1) {
-      this.darkAircraftClone(ac);
+      this.startBossAttackType("dark_aircraft:clone", () => {
+        this.renderBossSkillImageCue(ac, "dark_aircraft", "clone");
+        this.darkAircraftClone(ac);
+      });
     } else if (attackRoll === 2) {
-      this.darkAircraftMissile(ac);
+      this.startBossAttackType("dark_aircraft:missile", () => {
+        this.renderBossSkillImageCue(ac, "dark_aircraft", "missile");
+        this.darkAircraftMissile(ac);
+      });
     } else {
-      this.darkAircraftStealth(ac);
+      this.startBossAttackType("dark_aircraft:stealth", () => {
+        this.renderBossSkillImageCue(ac, "dark_aircraft", "stealth");
+        this.darkAircraftStealth(ac);
+      });
     }
     this.darkAircraftNextAttack = time + 1800 * speedMult;
   }
@@ -10719,6 +12986,14 @@ class BattleScene extends Phaser.Scene {
     for (let i = 0; i < 3; i += 1) {
       this.time.delayedCall(i * 80, () => {
         if (!ac.active) return;
+        this.renderBossSkillImpact(
+          "dark_aircraft",
+          "clone",
+          cx + (i - 1) * 90,
+          cy,
+          170,
+          660
+        );
         const c = this.bossParts
           .create(cx + (i - 1) * 90, cy, "bossShadow")
           .setDepth(30)
@@ -10750,6 +13025,9 @@ class BattleScene extends Phaser.Scene {
     for (let i = 0; i < count; i += 1) {
       this.time.delayedCall(i * armDelay, () => {
         if (!ac.active) return;
+        if (i % 3 === 0) {
+          this.renderBossSkillImpact("dark_aircraft", "missile", ac.x, ac.y + 30, 210, 620);
+        }
         // 弱跟踪:朝向玩家方向加 5% 偏转
         const angle = Math.atan2(this.player.y - ac.y, this.player.x - ac.x) + Phaser.Math.FloatBetween(-0.25, 0.25);
         const missile = this.fireEnemyAngle(
@@ -10775,17 +13053,27 @@ class BattleScene extends Phaser.Scene {
   // 技能 3:隐身 - 藏匿于黑暗,每次攻击前显现一会儿
   darkAircraftStealth(ac: Phaser.Physics.Arcade.Image): void {
     this.showBanner("◆ 黑暗僚机 · 隐身突袭", 700);
-    // 隐身 + 显现 600ms 后攻击
-    this.darkAircraftStealthVisibleUntil = this.time.now + 200;
+    // 短暂隐身 200ms，随后完整显现并保持可命中。
+    ac.setData("stealthing", true).setData("hittable", false).setAlpha(0.18);
     this.time.delayedCall(200, () => {
       if (!ac.active) return;
-      this.darkAircraftStealthVisibleUntil = this.time.now + 700;
+      ac.setData("stealthing", false).setData("hittable", true).setAlpha(1);
       this.burst(ac.x, ac.y, 0xff2d8f, 0.9);
       // 显现时放一道横向爪刀
       this.time.delayedCall(250, () => {
         if (!ac.active) return;
+        const damageWidth = 190;
+        this.renderBossSkillArea(
+          "dark_aircraft",
+          "stealth",
+          this.player.x,
+          WORLD_HEIGHT / 2,
+          damageWidth,
+          WORLD_HEIGHT,
+          820
+        );
         const beam = this.add
-          .rectangle(this.player.x, WORLD_HEIGHT / 2, 140, WORLD_HEIGHT, 0x6c1a8f, 0.18)
+          .rectangle(this.player.x, WORLD_HEIGHT / 2, damageWidth, WORLD_HEIGHT, 0x6c1a8f, 0.18)
           .setStrokeStyle(5, 0xff2d8f, 0.95)
           .setDepth(25);
         this.tweens.add({
@@ -10795,14 +13083,13 @@ class BattleScene extends Phaser.Scene {
           repeat: 1,
           duration: 140,
           onComplete: () => {
-            if (Math.abs(this.player.x - beam.x) < 95) {
+            if (Math.abs(this.player.x - beam.x) < damageWidth / 2) {
               this.damagePlayerDark(0, 0.13, "黑暗爪刀");
               this.applyDarkDot(this.stats.maxHp * 0.04, 4, "爪刀侵蚀");
             }
             beam.destroy();
           }
         });
-        this.darkAircraftStealthVisibleUntil = this.time.now + 200;
       });
     });
   }
@@ -10836,13 +13123,22 @@ class BattleScene extends Phaser.Scene {
   darkDeityStorm(core: Phaser.Physics.Arcade.Image): void {
     this.darkStormUntil = this.time.now + 7000;
     this.nextDarkStormTick = this.time.now + 700;
+    this.renderBossSkillImpact(
+      "dark_deity",
+      "storm",
+      WORLD_WIDTH / 2,
+      WORLD_HEIGHT * 0.42,
+      570,
+      7000,
+      true
+    );
     const storm = this.add
       .circle(WORLD_WIDTH / 2, WORLD_HEIGHT * 0.42, 70, 0x09000f, 0.42)
       .setStrokeStyle(14, 0x9a18cf, 0.86)
       .setDepth(17);
     this.tweens.add({
       targets: storm,
-      radius: 330,
+      radius: 285,
       rotation: Math.PI * 6,
       alpha: { from: 0.42, to: 0.12 },
       duration: 7000,
@@ -10988,18 +13284,18 @@ class BattleScene extends Phaser.Scene {
     const centerX = core ? core.x : this.player.x;
     const centerY = core ? core.y + 60 : this.player.y - 80;
     const ring = this.add
-      .circle(centerX, centerY, 80, 0x6c2fff, 0.05)
+      .circle(centerX, centerY, 100, 0x6c2fff, 0.05)
       .setStrokeStyle(8, 0xff3dbb, 0.85)
       .setDepth(15);
     this.tweens.add({
       targets: ring,
-      scale: { from: 0.5, to: 2.6 },
       alpha: { from: 0.25, to: 0.6 },
       yoyo: false,
       duration: 1200,
       onComplete: () => {
         if (!this.bossActive) return;
         ring.destroy();
+        this.renderBossSkillImpact("titan", "gravity", centerX, centerY, 200, 720, true);
         // 5 圈向心收缩弹幕，每圈间隔 200ms
         for (let wave = 0; wave < 5; wave += 1) {
           this.time.delayedCall(wave * 200, () => {
@@ -11051,8 +13347,8 @@ class BattleScene extends Phaser.Scene {
     });
     impactPoints.forEach((point, index) => {
       const warning = this.add
-        .circle(point.x, point.y, 68, 0xff4d6d, 0.09)
-        .setStrokeStyle(4, 0xffbd3e, 0.9)
+        .circle(point.x, point.y, 80, 0xff4d6d, 0.09)
+        .setStrokeStyle(8, 0xffbd3e, 0.98)
         .setDepth(15);
       this.tweens.add({
         targets: warning,
@@ -11065,6 +13361,7 @@ class BattleScene extends Phaser.Scene {
         onComplete: () => {
           warning.destroy();
           if (!this.bossActive) return;
+          this.renderBossSkillImpact("titan", "meteor", point.x, point.y, 160, 680, true);
           const impact = this.add.circle(point.x, point.y, 82, 0xff5a3d, 0.76).setDepth(23);
           if (Phaser.Math.Distance.Between(this.player.x, this.player.y, point.x, point.y) < 80) {
             this.damageBossHazard(38, "explosion");
@@ -11085,22 +13382,36 @@ class BattleScene extends Phaser.Scene {
       for (let lane = 0; lane < 4; lane += 1) {
         if (safeLanes.includes(lane)) continue;
         const x = baseX + (lane - 1.5) * laneWidth;
-        this.addLaneTelegraph(x, 40, 0xff3dbb, 190);
+        this.addLaneTelegraph(x, 40, 0xff3dbb, 190, { kind: "titan", type: "lane" });
       }
     } else {
       // 8 车道 2 个安全格，预警 0.75s
       const safeA = Phaser.Math.Between(0, 7);
       const safeB = (safeA + Phaser.Math.Between(1, 6)) % 8;
-      this.telegraphBossLanes(8, [safeA, safeB], 40, 0xff3dbb, 190);
+      this.telegraphBossLanes(
+        8,
+        [safeA, safeB],
+        40,
+        0xff3dbb,
+        190,
+        { kind: "titan", type: "lane" }
+      );
     }
   }
 
-  addLaneTelegraph(x: number, damage: number, color: number, duration = 130): void {
+  addLaneTelegraph(
+    x: number,
+    damage: number,
+    color: number,
+    duration = 130,
+    skillFx?: { kind: BossKind; type: string }
+  ): void {
     const width = WORLD_WIDTH / 4;
-    const warning = this.add
-      .rectangle(x, WORLD_HEIGHT / 2, width - 18, WORLD_HEIGHT, color, 0.08)
-      .setStrokeStyle(3, color, 0.68)
-      .setDepth(12);
+    const damageWidth = width - 18;
+    const warning = this.trackBossEffect(this.add
+      .rectangle(x, WORLD_HEIGHT / 2, damageWidth, WORLD_HEIGHT, color, 0.08)
+      .setStrokeStyle(8, color, 0.98)
+      .setDepth(12), 2200);
     this.tweens.add({
       targets: warning,
       alpha: { from: 0.18, to: 0.7 },
@@ -11109,10 +13420,272 @@ class BattleScene extends Phaser.Scene {
       duration,
       onComplete: () => {
         if (!this.bossActive) return;
-        if (Math.abs(this.player.x - x) < width / 2) {
+        if (skillFx) {
+          this.renderBossSkillArea(
+            skillFx.kind,
+            skillFx.type,
+            x,
+            WORLD_HEIGHT / 2,
+            damageWidth,
+            WORLD_HEIGHT,
+            680
+          );
+        }
+        if (Math.abs(this.player.x - x) < damageWidth / 2) {
           this.damageBossHazard(damage, "explosion");
         }
         warning.destroy();
+      }
+    });
+  }
+
+  mirrorSpecializationAttack(core: Phaser.Physics.Arcade.Image): void {
+    const specialization = save.selectedSpecialization;
+    const names: Record<SpecializationId, string> = {
+      power: "力量流派 · 龙息喷火",
+      agile: "敏捷流派 · 影步突刺",
+      defender: "防御流派 · 反射壁垒",
+      vampire: "吸血流派 · 虹吸夺取",
+      devour: "吞噬流派 · 深渊巨口",
+      wheelchair: "撞击流派 · 破阵冲角"
+    };
+    this.showBanner(`镜像模仿 G · ${names[specialization]}`, 1000);
+    if (specialization === "power") {
+      this.mirrorFlamethrowerAttack(core);
+    } else if (specialization === "agile") {
+      this.mirrorDashMimic(core, 0x9b5cff, 30, "影步突刺");
+    } else if (specialization === "defender") {
+      const shield = this.trackBossEffect(
+        this.add.circle(core.x, core.y, 120, 0x6f5cff, 0.12)
+          .setStrokeStyle(9, 0xe8deff, 0.9)
+          .setDepth(22),
+        1400
+      );
+      for (let index = 0; index < 16; index += 1) {
+        const angle = (Math.PI * 2 * index) / 16;
+        this.fireEnemyAngle(core.x, core.y, angle, 235, 14 + this.bossTier, "projectile", "boss")
+          .setTint(index % 2 ? 0x9b5cff : 0xe8deff);
+      }
+      this.tweens.add({ targets: shield, scale: 1.35, alpha: 0, duration: 850, onComplete: () => shield.destroy() });
+    } else if (specialization === "vampire") {
+      const beam = this.trackBossEffect(
+        this.add.line(0, 0, core.x, core.y, this.player.x, this.player.y, 0xff2d77, 0.72)
+          .setLineWidth(14, 4)
+          .setDepth(23),
+        1100
+      );
+      this.damageBossHazard(26, "projectile");
+      if (core.getData("part") === "raid-core") {
+        const coreMaxHp = Math.max(1, Number(core.getData("maxHp") ?? 1));
+        core.setData(
+          "hp",
+          Math.min(coreMaxHp, Number(core.getData("hp") ?? 0) + coreMaxHp * 0.02)
+        );
+        this.bossHp = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[])
+          .filter((part) => part.getData("part") === "raid-core")
+          .reduce((sum, part) => sum + Math.max(0, Number(part.getData("hp") ?? 0)), 0);
+      } else {
+        this.bossHp = Math.min(this.bossMaxHp, this.bossHp + this.bossMaxHp * 0.02);
+      }
+      this.tweens.add({ targets: beam, alpha: 0, duration: 620, onComplete: () => beam.destroy() });
+    } else if (specialization === "devour") {
+      const x = this.player.x;
+      const y = this.player.y;
+      const maw = this.trackBossEffect(
+        this.add.circle(x, y, 170, 0x180020, 0.22)
+          .setStrokeStyle(11, 0xb51cff, 0.94)
+          .setDepth(20),
+        1800
+      );
+      this.tweens.add({
+        targets: maw,
+        scale: { from: 0.72, to: 1 },
+        alpha: { from: 0.18, to: 0.62 },
+        yoyo: true,
+        repeat: 2,
+        duration: 190,
+        onComplete: () => {
+          if (Phaser.Math.Distance.Between(this.player.x, this.player.y, x, y) <= 170) {
+            this.damageBossHazard(34, "explosion");
+          }
+          maw.destroy();
+        }
+      });
+    } else {
+      this.mirrorDashMimic(core, 0xffbd3e, 36, "破阵冲角");
+    }
+  }
+
+  mirrorLoadoutSkill(core: Phaser.Physics.Arcade.Image, slot: 1 | 2 | 3): void {
+    const level = Math.max(
+      1,
+      slot === 1
+        ? this.upgradeLevels.laser ?? 1
+        : slot === 2
+          ? this.upgradeLevels.missile ?? 1
+          : this.upgradeLevels.drone ?? 1
+    );
+    if (slot === 1) {
+      this.showBanner(`镜像模仿 1 · 极光贯穿 Lv.${level}`, 850);
+      const laneX = Phaser.Math.Clamp(this.player.x, 70, WORLD_WIDTH - 70);
+      this.telegraphStrike(laneX, 155, { kind: "mirror", type: "copy_1" });
+      if (level >= 3) {
+        this.time.delayedCall(180, () => {
+          if (this.bossActive) this.telegraphStrike(
+            Phaser.Math.Clamp(laneX + (laneX < WORLD_WIDTH / 2 ? 130 : -130), 70, WORLD_WIDTH - 70),
+            155,
+            { kind: "mirror", type: "copy_1" }
+          );
+        });
+      }
+    } else if (slot === 2) {
+      this.showBanner(`镜像模仿 2 · 追踪导弹 Lv.${level}`, 850);
+      this.bossHomingSwarm(core, 6 + level * 2, 0xff7a32);
+    } else {
+      this.showBanner(`镜像模仿 3 · 护航无人机 Lv.${level}`, 850);
+      const waves = Math.min(4, 2 + level);
+      for (let wave = 0; wave < waves; wave += 1) {
+        this.time.delayedCall(wave * 240, () => {
+          if (!this.bossActive || !core.active) return;
+          for (const side of [-1, 1]) {
+            for (let offset = -1; offset <= 1; offset += 1) {
+              this.fireEnemyAngle(
+                core.x + side * 105,
+                core.y + 28,
+                Math.PI / 2 + offset * 0.14,
+                230 + level * 12,
+                12 + level * 2,
+                "projectile",
+                "boss"
+              ).setTint(side < 0 ? 0x2df4ff : 0x9b5cff);
+            }
+          }
+        });
+      }
+    }
+  }
+
+  mirrorDashMimic(
+    core: Phaser.Physics.Arcade.Image,
+    color: number,
+    damage: number,
+    label: string
+  ): void {
+    const startX = core.x;
+    const startY = core.y;
+    const targetX = this.player.x;
+    const targetY = this.player.y;
+    const line = this.trackBossEffect(
+      this.add.line(0, 0, startX, startY, targetX, targetY, color, 0.22)
+        .setLineWidth(52, 12)
+        .setDepth(17),
+      1800
+    );
+    this.tweens.add({
+      targets: line,
+      alpha: { from: 0.16, to: 0.68 },
+      yoyo: true,
+      repeat: 2,
+      duration: 170,
+      onComplete: () => {
+        const distance = Phaser.Math.Distance.Between(startX, startY, targetX, targetY);
+        const nearestPoint = Phaser.Geom.Line.GetNearestPoint(
+          new Phaser.Geom.Line(startX, startY, targetX, targetY),
+          new Phaser.Math.Vector2(this.player.x, this.player.y)
+        );
+        const distanceToLine = Phaser.Math.Distance.Between(
+          nearestPoint.x,
+          nearestPoint.y,
+          this.player.x,
+          this.player.y
+        );
+        if (distance > 0 && distanceToLine <= 58) this.damageBossHazard(damage, "collision");
+        this.showBanner(`镜像 ${label} · 冲击完成`, 520);
+        line.destroy();
+      }
+    });
+  }
+
+  mirrorFlamethrowerAttack(core: Phaser.Physics.Arcade.Image): void {
+    const originX = core.x;
+    const originY = core.y + Math.max(46, core.displayHeight * 0.2);
+    const length = Math.min(WORLD_HEIGHT - originY + 120, 920 + this.bossPhase * 70);
+    const width = 650 + this.bossPhase * 55;
+    const bandCount = save.settings.quality === "high" ? 8 : 6;
+    const bandHeight = length / bandCount;
+    const warningBands = Array.from({ length: bandCount }, (_, index) => {
+      const progress = (index + 0.5) / bandCount;
+      const halfWidth = 46 + (width / 2 - 46) * progress;
+      return this.trackBossEffect(
+        this.add
+          .ellipse(
+            originX,
+            originY + progress * length,
+            halfWidth * 2,
+            bandHeight + 12,
+            0xff5a18,
+            0.025
+          )
+          .setStrokeStyle(index === bandCount - 1 ? 8 : 4, 0xffd15a, 0.9)
+          .setDepth(16),
+        3400
+      );
+    });
+    this.showBanner("镜像强化龙息 · 三重喷流 · 金色火环内为危险范围", 1050);
+    this.tweens.add({
+      targets: warningBands,
+      alpha: { from: 0.38, to: 0.9 },
+      yoyo: true,
+      repeat: 3,
+      duration: 190,
+      onComplete: () => {
+        warningBands.forEach((band) => band.destroy());
+        if (!this.bossActive || !core.active) return;
+        const flames: Phaser.GameObjects.Image[] = [];
+        const outer = this.spawnAnimatedVfx(
+          "flamethrowerFx",
+          originX,
+          originY + length * 0.5,
+          0,
+          1250,
+          { width: width * 1.08, height: length * 1.05 },
+          true,
+          21,
+          0.72
+        );
+        if (outer) flames.push(outer.setFlipY(true));
+        [-0.22, 0, 0.22].forEach((offset, index) => {
+          const streamWidth = width * 0.46;
+          const stream = this.spawnAnimatedVfx(
+            "flamethrowerFx",
+            originX + offset * width,
+            originY + length * 0.52,
+            index % 4,
+            1250,
+            { width: streamWidth, height: length },
+            true,
+            22 + index,
+            index === 1 ? 0.88 : 0.68
+          );
+          if (stream) flames.push(stream.setFlipY(true));
+        });
+        let playerHit = false;
+        const insideVisibleCone = (): boolean => {
+          const distance = this.player.y - originY;
+          if (distance < 0 || distance > length) return false;
+          const progress = Phaser.Math.Clamp(distance / length, 0, 1);
+          const halfWidth = 46 + (width / 2 - 46) * progress;
+          return Math.abs(this.player.x - originX) <= halfWidth;
+        };
+        for (const delay of [0, 300, 600, 900]) {
+          this.time.delayedCall(delay, () => {
+            if (playerHit || !this.bossActive || !insideVisibleCone()) return;
+            playerHit = true;
+            // 归一化遭遇倍率后，单次完整命中最多约 36% 最大生命；满血可连续承受两次。
+            const survivableRatio = 0.36 / Math.max(1, this.currentBossEncounterAttackScale());
+            this.damagePlayerDark(0, survivableRatio, "镜像强化龙息");
+          });
+        }
       }
     });
   }
@@ -11156,7 +13729,10 @@ class BattleScene extends Phaser.Scene {
       playerLane,
       ...(usableLanes.includes((playerLane + 3) % 8) ? [(playerLane + 3) % 8] : [])
     ]);
-    dangerLanes.forEach((lane) => this.telegraphStrike(laneWidth * (lane + 0.5), 200));
+    dangerLanes.forEach((lane) => {
+      const laneX = laneWidth * (lane + 0.5);
+      this.telegraphStrike(laneX, 200, { kind: "mirror", type: "lance" });
+    });
   }
 
   bossHomingSwarm(core: Phaser.Physics.Arcade.Image, count: number, tint: number): void {
@@ -11192,14 +13768,21 @@ class BattleScene extends Phaser.Scene {
       for (let lane = 0; lane < 4; lane += 1) {
         if (lane === safeA || lane === safeB) continue;
         const x = baseX + (lane - 1.5) * laneWidth;
-        this.addLaneTelegraph(x, 46, 0xffbd3e, 210);
+        this.addLaneTelegraph(x, 46, 0xffbd3e, 210, { kind: "usurper", type: "grid" });
       }
     } else {
       // 8 车道 3 个安全格（5 个危险），预警 0.85s
       const safeA = Phaser.Math.Between(0, 7);
       const safeB = (safeA + Phaser.Math.Between(1, 7)) % 8;
       const safeC = (safeA + Phaser.Math.Between(2, 6)) % 8;
-      this.telegraphBossLanes(8, [safeA, safeB, safeC], 46, 0xffbd3e, 210);
+      this.telegraphBossLanes(
+        8,
+        [safeA, safeB, safeC],
+        46,
+        0xffbd3e,
+        210,
+        { kind: "usurper", type: "grid" }
+      );
     }
   }
 
@@ -11219,6 +13802,7 @@ class BattleScene extends Phaser.Scene {
       onComplete: () => {
         warning.destroy();
         if (!this.bossActive || !core.active) return;
+        this.renderBossSkillImpact("usurper", "emp", core.x, core.y, radius * 2, 780, true);
         const shock = this.add
           .circle(core.x, core.y, radius, 0xffbd3e, 0.36)
           .setStrokeStyle(12, 0x9b5cff, 0.9)
@@ -11321,11 +13905,13 @@ class BattleScene extends Phaser.Scene {
           return;
         }
         drain.destroy();
+        this.renderBossSkillImpact("usurper", "drain", targetX, targetY, 310, 820);
         // 偷取玩家 1 个技能（随机）
         const pool: Array<"laser" | "missile" | "drone" | "emp"> = ["laser", "missile", "drone", "emp"];
         const stolen = Phaser.Utils.Array.GetRandom(pool);
         this.usurperStolenSkill = stolen;
         this.usurperStolenUntil = this.time.now + 5000;
+        this.renderBossSkillImpact("usurper", "steal", targetX, targetY, 440, 980);
         this.showBanner(
           `◆ 技能篡夺 · 窃取「${
             stolen === "laser" ? "激光切割" : stolen === "missile" ? "导弹齐射" : stolen === "drone" ? "无人机过载" : "EMP"
@@ -11376,16 +13962,19 @@ class BattleScene extends Phaser.Scene {
     safeLanes: number[],
     damage: number,
     color: number,
-    duration = 125
+    duration = 125,
+    skillFx?: { kind: BossKind; type: string }
   ): void {
     const width = WORLD_WIDTH / laneCount;
     for (let lane = 0; lane < laneCount; lane += 1) {
       if (safeLanes.includes(lane)) continue;
       const x = width * (lane + 0.5);
+      const damageWidth = width - 30;
       const warning = this.add
-        .rectangle(x, WORLD_HEIGHT / 2, width - 18, WORLD_HEIGHT, color, 0.08)
-        .setStrokeStyle(3, color, 0.68)
+        .rectangle(x, WORLD_HEIGHT / 2, damageWidth, WORLD_HEIGHT, color, 0.08)
+        .setStrokeStyle(8, color, 0.98)
         .setDepth(12);
+      this.trackBossEffect(warning, 2600);
       this.tweens.add({
         targets: warning,
         alpha: { from: 0.09, to: 0.56 },
@@ -11395,10 +13984,21 @@ class BattleScene extends Phaser.Scene {
         onComplete: () => {
           warning.destroy();
           if (!this.bossActive) return;
-          const beam = this.add
-            .rectangle(x, WORLD_HEIGHT / 2, width - 30, WORLD_HEIGHT, color, 0.68)
-            .setDepth(22);
-          if (Math.abs(this.player.x - x) < (width - 22) / 2) {
+          if (skillFx) {
+            this.renderBossSkillArea(
+              skillFx.kind,
+              skillFx.type,
+              x,
+              WORLD_HEIGHT / 2,
+              damageWidth,
+              WORLD_HEIGHT,
+              680
+            );
+          }
+          const beam = this.trackBossEffect(this.add
+            .rectangle(x, WORLD_HEIGHT / 2, damageWidth, WORLD_HEIGHT, color, 0.68)
+            .setDepth(22), 1200);
+          if (Math.abs(this.player.x - x) < damageWidth / 2) {
             this.damageBossHazard(damage, "explosion");
           }
           this.tweens.add({ targets: beam, alpha: 0, duration: 360, onComplete: () => beam.destroy() });
@@ -11419,9 +14019,17 @@ class BattleScene extends Phaser.Scene {
     this.damagePlayer(amount, damageType, "boss");
   }
 
-  telegraphStrike(x: number, duration = 110): void {
-    const warning = this.add.rectangle(x, WORLD_HEIGHT / 2, 52, WORLD_HEIGHT, 0xff3dbb, 0.11).setDepth(6);
-    warning.setStrokeStyle(3, 0xff4d6d, 0.8);
+  telegraphStrike(
+    x: number,
+    duration = 110,
+    skillFx?: { kind: BossKind; type: string }
+  ): void {
+    const damageWidth = 84;
+    const warning = this.trackBossEffect(
+      this.add.rectangle(x, WORLD_HEIGHT / 2, damageWidth, WORLD_HEIGHT, 0xff3dbb, 0.11).setDepth(6),
+      2200
+    );
+    warning.setStrokeStyle(8, 0xff4d6d, 0.98);
     this.tweens.add({
       targets: warning,
       alpha: { from: 0.15, to: 0.7 },
@@ -11430,7 +14038,22 @@ class BattleScene extends Phaser.Scene {
       duration,
       onComplete: () => {
         warning.destroy();
-        const beam = this.add.rectangle(x, WORLD_HEIGHT / 2, 38, WORLD_HEIGHT, 0xff3dbb, 0.74).setDepth(18);
+        if (!this.bossActive) return;
+        if (skillFx) {
+          this.renderBossSkillArea(
+            skillFx.kind,
+            skillFx.type,
+            x,
+            WORLD_HEIGHT / 2,
+            damageWidth,
+            WORLD_HEIGHT,
+            560
+          );
+        }
+        const beam = this.trackBossEffect(
+          this.add.rectangle(x, WORLD_HEIGHT / 2, damageWidth, WORLD_HEIGHT, 0xff3dbb, 0.74).setDepth(18),
+          1200
+        );
         if (Math.abs(this.player.x - x) < 42) this.damageBossHazard(32, "explosion");
         this.tweens.add({ targets: beam, alpha: 0, duration: 380, onComplete: () => beam.destroy() });
       }
@@ -11511,7 +14134,7 @@ class BattleScene extends Phaser.Scene {
           onComplete: () => {
             shadow.destroy();
             this.showBanner(
-              `黑影夺走${BOSS_NAMES[defeatedKind]}全部能力与强化 · ◆ ${tokenReward} 已回收`,
+              `黑影夺走${BOSS_NAMES[defeatedKind]}专属强化核心 · 主动权柄已保留 · ◆ ${tokenReward} 已回收`,
               1500
             );
             this.startCampaignEncounter(this.campaignEncounterIndex);
@@ -11535,6 +14158,7 @@ class BattleScene extends Phaser.Scene {
     const defeatedX = defeatedCore?.x ?? WORLD_WIDTH / 2;
     const defeatedY = defeatedCore?.y ?? 190;
     this.bossActive = false;
+    this.clearBossAttackEffects();
     this.skillsConfiscated = false;
     const defeatedTier = this.bossTier + 1;
     const bossScore = Math.round((9000 + defeatedTier * 4200) * (defeatedElite ? 1.5 : 1));
@@ -11571,42 +14195,14 @@ class BattleScene extends Phaser.Scene {
     });
     this.bossEliteAura?.destroy();
     this.bossEliteAura = undefined;
-    // 九战前三场普通 Boss:能力会被黑影抢走,击破当场不给护符/权柄,
-    // 等打完对应的黑影追逐战再一次性掉落。
-    const stolenByShadow = campaignEncounter?.kind === "boss";
-    if (!stolenByShadow) {
-      // === BOSS 护符:击破获得该 boss 专属被动 ===
-      const amulet = BOSS_AMULETS[defeatedKind];
-      amulet.apply(this);
-      this.cameras.main.flash(160, 230, 255, 255);
-      if (save.settings.screenShake) this.cameras.main.shake(600, 0.018);
-      this.showBanner(
-        `◆ 解锁护符: ${amulet.code} · ${amulet.description}`,
-        2000
-      );
-      this.floatText(
-        WORLD_WIDTH / 2,
-        340,
-        `${amulet.name} 已嵌入战机`,
-        true
-      );
-      this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.6);
-      for (let i = 0; i < 8; i += 1) {
-        this.time.delayedCall(i * 110, () =>
-          this.burst(
-            WORLD_WIDTH / 2 + Phaser.Math.Between(-180, 180),
-            190 + Phaser.Math.Between(-90, 90),
-            i % 2 ? 0xff3dbb : 0xffbd3e,
-            Phaser.Math.FloatBetween(1.2, 2.2)
-          )
-        );
-      }
-      // === 首领权柄:击破该 Boss 即获得其专属技能,V 键释放,保留到本局结束 ===
-      this.setBossPower(BOSS_KIND_TO_POWER[defeatedKind]);
-    } else {
-      this.cameras.main.flash(160, 230, 255, 255);
-      if (save.settings.screenShake) this.cameras.main.shake(600, 0.018);
-    }
+    // 当前 Boss 的主动权柄当场进入三选一；九战前三场的专属被动会被黑影夺走，
+    // 只有打跑随后的黑影才会以独立三选一掉落。
+    const activePowerChoices = bossPowerDropChoices(
+      BOSS_KIND_TO_POWER[defeatedKind],
+      this.bossPower
+    );
+    this.cameras.main.flash(160, 230, 255, 255);
+    if (save.settings.screenShake) this.cameras.main.shake(600, 0.018);
     this.unlockAchievement("boss_slayer");
     this.bossTier = defeatedTier;
     this.levelCompleteTriggered = false;
@@ -11631,14 +14227,14 @@ class BattleScene extends Phaser.Scene {
         BOSS_CAMPAIGN_ENCOUNTERS.length - 1,
         this.campaignEncounterIndex + 1
       );
-      this.time.delayedCall(620, () =>
-        this.playShadowPowerTheft(
-          defeatedKind,
-          defeatedX,
-          defeatedY,
-          bossTokens
-        )
-      );
+      this.time.delayedCall(620, () => {
+        showBossPowerChoice(
+          this,
+          activePowerChoices,
+          () => this.playShadowPowerTheft(defeatedKind, defeatedX, defeatedY, bossTokens),
+          BOSS_KIND_TO_POWER[defeatedKind]
+        );
+      });
       return;
     }
     if (campaignEncounter?.kind === "dark_deity") {
@@ -11658,7 +14254,7 @@ class BattleScene extends Phaser.Scene {
       this.showBanner("◆ 黑暗魔神击破 · 残骸中留下一枚损坏的黑暗核心", 2200);
       // 终局抉择:摧毁 or 保留损坏的黑暗核心,再进入残党阶段
       this.time.delayedCall(1900, () => {
-        showDarkCoreChoice(this, (choice) => {
+        const continueToCoreChoice = () => showDarkCoreChoice(this, (choice) => {
           this.darkCoreChoice = choice;
           if (choice === "destroyed") {
             this.darkCorruption = 0;
@@ -11671,6 +14267,12 @@ class BattleScene extends Phaser.Scene {
           }
           this.time.delayedCall(1200, () => this.startFinalMinionSwarm());
         });
+        showBossPowerChoice(
+          this,
+          activePowerChoices,
+          () => showBossPassiveChoice(this, [defeatedKind], continueToCoreChoice),
+          BOSS_KIND_TO_POWER[defeatedKind]
+        );
       });
       return;
     }
@@ -11682,18 +14284,27 @@ class BattleScene extends Phaser.Scene {
       );
     }
     this.time.delayedCall(1700, () => {
-      // Boss 击破奖励:先额外一次通用强化三选一(池内已含支援协议),选完再进流派进化
-      showUpgrade(this, () => {
-        showDoctrineEvolution(this, () => {
-          this.bossPhase = 0;
-          this.showBanner(
-            `${
-              selectedMode === "campaign" ? "普通战役推进" : "无尽航线继续"
-            } · 下一阈值 ${this.nextBossScore}`,
-            1100
-          );
+      const continueRewards = () => {
+        showBossPassiveChoice(this, [defeatedKind], () => {
+          showUpgrade(this, () => {
+            showDoctrineEvolution(this, () => {
+              this.bossPhase = 0;
+              this.showBanner(
+                `${
+                  selectedMode === "campaign" ? "普通战役推进" : "无尽航线继续"
+                } · 下一阈值 ${this.nextBossScore}`,
+                1100
+              );
+            });
+          });
         });
-      });
+      };
+      showBossPowerChoice(
+        this,
+        activePowerChoices,
+        continueRewards,
+        BOSS_KIND_TO_POWER[defeatedKind]
+      );
     });
   }
 
@@ -11780,7 +14391,7 @@ class BattleScene extends Phaser.Scene {
         this.showBanner("◆ 魔神契约 · 强行复活", 2000);
         this.burst(this.player.x, this.player.y, 0xb56cff, 2.0);
         this.cameras.main.flash(200, 180, 60, 220);
-        this.time.delayedCall(3000, () => this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + 3000));
+        this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + 3000);
         return;
       } else {
         this.deityPactTriggered = true;  // 本局不再触发
@@ -11789,17 +14400,13 @@ class BattleScene extends Phaser.Scene {
     }
     // 终局残党阶段阵亡:按黑暗核心的抉择走对应的黑影结局
     if (!victory && this.finalSwarmActive && this.darkCoreChoice && !this.shadowEnding) {
+      this.unlockAchievement("fell_short");
       this.ended = false;
       this.physics.world.resume();
       this.triggerShadowEnding(
         this.darkCoreChoice === "destroyed" ? "destroyed_fallen" : "kept_fallen"
       );
       return;
-    }
-    // 终局残党阶段被小兵击毁 → 解锁「功亏一篑」(代币已通过 reward 字段保留)
-    if (!victory && this.finalSwarmActive) {
-      this.unlockAchievement("fell_short");
-      this.showBanner("◆ 功亏一篑 · 终局航迹封存", 1500);
     }
     const totalScore = this.score + this.score2;
     const combatTokens = this.runTokens;
@@ -11874,9 +14481,57 @@ class BattleScene extends Phaser.Scene {
       g.fillRoundedRect(78, 130, (WORLD_WIDTH - 156) * (this.bossHp / this.bossMaxHp), 16, 5);
       g.lineStyle(1, 0xffa3d4, 0.6);
       g.strokeRoundedRect(78, 130, WORLD_WIDTH - 156, 16, 5);
+      const trinityCores = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[])
+        .filter((part) => part.getData("part") === "raid-core")
+        .sort(
+          (a, b) =>
+            ["titan", "mirror", "usurper"].indexOf(a.getData("raidKind")) -
+            ["titan", "mirror", "usurper"].indexOf(b.getData("raidKind"))
+        );
+      if (trinityCores.length === 3) {
+        const barGap = 8;
+        const totalWidth = WORLD_WIDTH - 156;
+        const barWidth = (totalWidth - barGap * 2) / 3;
+        const barColors = [0xff8b42, 0x7ce8ff, 0xc45cff];
+        trinityCores.forEach((core, index) => {
+          const hp = Math.max(0, Number(core.getData("hp") ?? 0));
+          const maxHp = Math.max(1, Number(core.getData("maxHp") ?? 1));
+          const x = 78 + index * (barWidth + barGap);
+          g.fillStyle(0x120c22, 0.94);
+          g.fillRoundedRect(x, 152, barWidth, 8, 3);
+          if (hp > 0) {
+            g.fillStyle(barColors[index], 1);
+            g.fillRoundedRect(x, 152, barWidth * (hp / maxHp), 8, 3);
+          }
+          g.lineStyle(1, barColors[index], 0.75);
+          g.strokeRoundedRect(x, 152, barWidth, 8, 3);
+        });
+      } else if (this.darkAircraft?.active) {
+        const aircraftRatio = this.darkAircraftHp / Math.max(1, this.darkAircraftMaxHp);
+        g.fillStyle(0x120c22, 0.94);
+        g.fillRoundedRect(78, 152, WORLD_WIDTH - 156, 8, 3);
+        g.fillStyle(0xa52fff, 1);
+        g.fillRoundedRect(78, 152, (WORLD_WIDTH - 156) * aircraftRatio, 8, 3);
+        g.lineStyle(1, 0xe2a6ff, 0.8);
+        g.strokeRoundedRect(78, 152, WORLD_WIDTH - 156, 8, 3);
+      }
+      const trinityStatus = trinityCores.length === 3
+        ? ` // ${trinityCores
+            .map((core) => {
+              const kind = core.getData("raidKind") as BossKind;
+              const hp = Math.max(0, Number(core.getData("hp") ?? 0));
+              const maxHp = Math.max(1, Number(core.getData("maxHp") ?? 1));
+              return `${BOSS_NAMES[kind]} ${Math.ceil((hp / maxHp) * 100)}%`;
+            })
+            .join(" · ")}`
+        : this.darkAircraft?.active
+          ? ` // 黑暗飞机 ${Math.ceil(
+              (this.darkAircraftHp / Math.max(1, this.darkAircraftMaxHp)) * 100
+            )}%`
+          : "";
       this.hud.bossName.setText(
         `${this.bossElite ? "ELITE // " : ""}${this.bossMutated ? "MUTATED // " : ""}${
-          BOSS_NAMES[this.bossKind]
+          trinityCores.length === 3 ? "三神共斗" : BOSS_NAMES[this.bossKind]
         } // ${
           selectedMode === "campaign"
             ? "HOSTILE SIGNAL"
@@ -11885,7 +14540,7 @@ class BattleScene extends Phaser.Scene {
             : `TIER ${this.bossTier + 1}`
         } // PHASE ${this.bossPhase}${
           this.skillsConfiscated ? " // SKILLS STOLEN" : ""
-        }`
+        }${trinityStatus}`
       );
     } else {
       this.hud.bossName.setText("");
@@ -11905,6 +14560,20 @@ class BattleScene extends Phaser.Scene {
         : isNineBattleMode()
           ? `BOSS ENCOUNTER ${this.campaignEncounterIndex + 1}/9`
           : `NEXT BOSS ${Math.max(0, this.nextBossScore - this.score - this.score2)}`;
+    const wheelchairActiveStatus: string[] = [];
+    if (save.selectedSpecialization === "wheelchair") {
+      if (this.time.now < this.wheelchairBreachUntil) wheelchairActiveStatus.push("破阵防护");
+      if (this.time.now < this.wheelchairReactiveArmorUntil) {
+        wheelchairActiveStatus.push(
+          `反应装甲 ${Math.round(this.wheelchairReactiveStoredDamage)}`
+        );
+      } else if (this.wheelchairReactiveStoredDamage > 0) {
+        wheelchairActiveStatus.push(
+          `装甲蓄能 ${Math.round(this.wheelchairReactiveStoredDamage)}`
+        );
+      }
+      if (this.time.now < this.wheelchairFortressUntil) wheelchairActiveStatus.push("堡垒姿态");
+    }
     this.hud.level.setText(
       `${SPECIALIZATIONS[save.selectedSpecialization].code} · LV.${this.level}/100  //  ◆ ${
         this.runTokens
@@ -11912,8 +14581,9 @@ class BattleScene extends Phaser.Scene {
         save.selectedSpecialization === "wheelchair" && this.time.now < this.wheelchairOverdriveUntil
           ? "  //  FULL SPEED"
           : ""
+      }${wheelchairActiveStatus.map((status) => `  //  ${status}`).join("")
       }  //  ${campaignStatus}${
-        this.bossPower ? `  //  G ${BOSS_POWER_OPTIONS.find((item) => item.id === this.bossPower)?.name}` : ""
+        this.bossPower ? `  //  V ${BOSS_POWER_OPTIONS.find((item) => item.id === this.bossPower)?.name}` : ""
       }${
         save.selectedSpecialization === "devour" && (this.upgradeLevels.devour_swallow ?? 0) > 0
           ? `  //  ▼ 吞噬 ${this.devourKillCount}/10`
@@ -11949,7 +14619,7 @@ class BattleScene extends Phaser.Scene {
     let nearestDistance = Number.POSITIVE_INFINITY;
     for (const group of [this.enemies, this.bossParts]) {
       for (const child of group.getChildren() as Phaser.Physics.Arcade.Image[]) {
-        if (!child.active) continue;
+        if (!child.active || child.getData("hittable") === false) continue;
         const dx = child.x - x;
         const dy = child.y - y;
         const distance = dx * dx + dy * dy;
@@ -11964,7 +14634,7 @@ class BattleScene extends Phaser.Scene {
 
   closestTargets(x: number, y: number, count: number): Phaser.Physics.Arcade.Image[] {
     return ([...this.enemies.getChildren(), ...this.bossParts.getChildren()] as Phaser.Physics.Arcade.Image[])
-      .filter((target) => target.active)
+      .filter((target) => target.active && target.getData("hittable") !== false)
       .sort(
         (a, b) =>
           Phaser.Math.Distance.Squared(x, y, a.x, a.y) - Phaser.Math.Distance.Squared(x, y, b.x, b.y)

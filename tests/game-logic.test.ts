@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SAVE,
+  BOSS_SEQUENCE_LEGENDARY_SKIN,
+  DEVOUR_SWALLOW_LEVELS,
+  SHADOW_ENDING_SKIN_REWARDS,
+  SPECIALIZATION_UPGRADE_WEIGHT,
   SPECIALIZATION_BASE_REDUCTION,
   SPECIALIZATION_BASE_STAT_BOOST,
   agileCritEffectSpeedMultiplier,
@@ -13,20 +17,27 @@ import {
   collisionBossDamageScale,
   collisionHullAttackMultiplier,
   dailyLoginOffer,
+  devourHealingAmount,
   formatRoundedNumber,
   formatRoundedNumberForDisplay,
   formatTime,
+  independentBossHealthAfterDamage,
   loadSave,
   minionHealthDamageMultiplier,
   minionPercentDamageFloor,
   roundHealth,
+  reactiveArmorRelease,
   rewardForRun,
+  WHEELCHAIR_ACTIVE_SKILLS,
+  wheelchairActiveDamageTakenMultiplier,
   UPGRADE_EXPERIENCE_SCALE,
   xpToNextLevel
 } from "../src/game-logic";
 import {
   BOSS_CAMPAIGN_ENCOUNTERS,
   BOSS_CAMPAIGN_POWER_SCALES,
+  bossPassiveDropChoices,
+  bossPowerDropChoices,
   FINAL_BOSS_STAT_SCALE,
   FINAL_CAMPAIGN_CLEAR_BONUS,
   INCOMPLETE_TRINITY_STAT_SCALE,
@@ -44,6 +55,39 @@ import {
 } from "../src/boss-campaign";
 
 describe("progression", () => {
+  it("offers exactly three unique Boss powers and guarantees the defeated Boss signature", () => {
+    const choices = bossPowerDropChoices("titan_meteor", null, () => 0);
+    expect(choices).toHaveLength(3);
+    expect(new Set(choices).size).toBe(3);
+    expect(choices).toContain("titan_meteor");
+  });
+
+  it("keeps the currently equipped Boss power as one of the three choices", () => {
+    const choices = bossPowerDropChoices("mirror_copy", "absolute_freeze", () => 0.99);
+    expect(choices).toHaveLength(3);
+    expect(choices).toContain("mirror_copy");
+    expect(choices).toContain("absolute_freeze");
+  });
+
+  it("offers three unique exclusive passives for the shadow-stolen Boss core", () => {
+    const choices = bossPassiveDropChoices(["usurper"], [], () => 0);
+    expect(choices).toEqual(["usurper_blight", "usurper_override", "usurper_recycle"]);
+    expect(new Set(choices).size).toBe(3);
+  });
+
+  it("offers one exclusive passive from each trinity Boss", () => {
+    const choices = bossPassiveDropChoices(["titan", "mirror", "usurper"], [], () => 0);
+    expect(choices).toEqual(["titan_bulwark", "mirror_echo", "usurper_blight"]);
+  });
+
+  it("assigns one unique skin to every failure ending and a separate boss legend", () => {
+    const endingSkins = Object.values(SHADOW_ENDING_SKIN_REWARDS);
+    expect(Object.keys(SHADOW_ENDING_SKIN_REWARDS)).toHaveLength(5);
+    expect(new Set(endingSkins).size).toBe(5);
+    expect(endingSkins).not.toContain(BOSS_SEQUENCE_LEGENDARY_SKIN);
+    expect(BOSS_SEQUENCE_LEGENDARY_SKIN).toBe("campaign_ace_skin");
+  });
+
   it("experience requirements increase monotonically", () => {
     expect(UPGRADE_EXPERIENCE_SCALE).toBe(1.1);
     expect(xpToNextLevel(1)).toBe(57);
@@ -91,13 +135,14 @@ describe("progression", () => {
     expect(isSpecializationUpgradeId("speed")).toBe(false);
   });
 
-  it("weights specialization upgrades 10% higher and keeps picks unique", () => {
-    // 池:1 个专属(权重 1.1) + 1 个普通(权重 1),总权重 2.1
+  it("weights specialization upgrades 15% higher and keeps picks unique", () => {
+    expect(SPECIALIZATION_UPGRADE_WEIGHT).toBe(1.15);
+    // 池:1 个专属(权重 1.15) + 1 个普通(权重 1),总权重 2.15
     const pool = [{ id: "power_flamethrower" }, { id: "laser" }];
-    // roll = 0.5 → 0.5 * 2.1 = 1.05 < 1.1,落在专属区间
-    expect(chooseUniqueWeighted(pool, 1, () => 0.5)[0].id).toBe("power_flamethrower");
-    // roll = 0.6 → 1.26 > 1.1,越过专属落到普通
-    expect(chooseUniqueWeighted(pool, 1, () => 0.6)[0].id).toBe("laser");
+    // roll = 0.53 → 0.53 * 2.15 = 1.1395 < 1.15,落在专属区间
+    expect(chooseUniqueWeighted(pool, 1, () => 0.53)[0].id).toBe("power_flamethrower");
+    // roll = 0.54 → 1.161 > 1.15,越过专属落到普通
+    expect(chooseUniqueWeighted(pool, 1, () => 0.54)[0].id).toBe("laser");
     // 抽满时两者都在,且不重复
     expect(new Set(chooseUniqueWeighted(pool, 2, () => 0.5).map((i) => i.id)).size).toBe(2);
   });
@@ -125,13 +170,73 @@ describe("progression", () => {
       JSON.stringify({
         ...DEFAULT_SAVE,
         selectedSpecialization: "sniper",
-        unlockedSkins: ["inferno"],
-        equippedSkin: "void"
+        unlockedSkins: ["inferno", "after_storm_skin"],
+        equippedSkin: "inferno"
       })
     );
     expect(migrated.selectedSpecialization).toBe("power");
-    expect(migrated.unlockedSkins).toEqual(["standard", "inferno"]);
+    expect(migrated.unlockedSkins).toEqual(["standard", "after_storm_skin"]);
     expect(migrated.equippedSkin).toBe("standard");
+  });
+
+  it("sanitizes corrupt numeric, settings and progression fields", () => {
+    const repaired = loadSave(
+      JSON.stringify({
+        ...DEFAULT_SAVE,
+        starCores: -99,
+        permanentUpgrades: {
+          hull: 999,
+          firepower: -3,
+          engine: 2.9,
+          armor: "ten",
+          recovery: 4,
+          emergency: 2,
+          reroll: 99
+        },
+        settings: {
+          musicVolume: 8,
+          sfxVolume: -2,
+          screenShake: "yes",
+          damageNumbers: false,
+          quality: "ultra"
+        },
+        records: {
+          campaignWins: -5,
+          highestUnlockedLevel: 999,
+          endlessBestSeconds: -20,
+          endlessBestScore: 12.9,
+          bossRushBestMs: -1
+        },
+        achievements: { valid: "2026-08-01", invalid: 42 },
+        dailyLogin: { lastClaimDay: "today", streak: 99, totalClaims: -1 }
+      })
+    );
+    expect(repaired.starCores).toBe(0);
+    expect(repaired.permanentUpgrades).toEqual({
+      hull: 12,
+      firepower: 0,
+      engine: 2,
+      armor: 0,
+      recovery: 4,
+      emergency: 2,
+      reroll: 3
+    });
+    expect(repaired.settings).toEqual({
+      musicVolume: 1,
+      sfxVolume: 0,
+      screenShake: true,
+      damageNumbers: false,
+      quality: "low"
+    });
+    expect(repaired.records).toEqual({
+      campaignWins: 0,
+      highestUnlockedLevel: 5,
+      endlessBestSeconds: 0,
+      endlessBestScore: 12,
+      bossRushBestMs: 0
+    });
+    expect(repaired.achievements).toEqual({ valid: "2026-08-01" });
+    expect(repaired.dailyLogin).toEqual({ lastClaimDay: null, streak: 7, totalClaims: 0 });
   });
 
   it("migrates the legacy assault doctrine to power", () => {
@@ -206,12 +311,78 @@ describe("progression", () => {
     expect(collisionBossDamageScale(5000, false)).toBe(1);
   });
 
+  it("maps the three collision active skills to the selected combat values", () => {
+    expect(WHEELCHAIR_ACTIVE_SKILLS.breachHorn).toMatchObject({
+      cooldownMs: 9000,
+      distance: 380,
+      ramDamageMultiplier: 3,
+      protectionMs: 700
+    });
+    expect(WHEELCHAIR_ACTIVE_SKILLS.reactiveArmor).toMatchObject({
+      cooldownMs: 20000,
+      durationMs: 4000,
+      damageTakenMultiplier: 0.35,
+      releaseMultiplier: 3,
+      releaseHealRatio: 0.3
+    });
+    expect(WHEELCHAIR_ACTIVE_SKILLS.fortressStance).toMatchObject({
+      cooldownMs: 24000,
+      durationMs: 5000,
+      damageTakenMultiplier: 0.5,
+      sizeMultiplier: 1.5,
+      speedMultiplier: 0.8
+    });
+  });
+
+  it("uses the strongest active collision defense without multiplicative stacking", () => {
+    expect(wheelchairActiveDamageTakenMultiplier(false, false, false)).toBe(1);
+    expect(wheelchairActiveDamageTakenMultiplier(false, true, false)).toBe(0.35);
+    expect(wheelchairActiveDamageTakenMultiplier(false, true, true)).toBe(0.35);
+    expect(wheelchairActiveDamageTakenMultiplier(true, true, true)).toBe(0.3);
+  });
+
+  it("releases reactive armor as triple damage and heals thirty percent", () => {
+    expect(reactiveArmorRelease(100)).toEqual({ damage: 300, healing: 90 });
+    expect(reactiveArmorRelease(-50)).toEqual({ damage: 0, healing: 0 });
+  });
+
+  it("damages only the selected trinity Boss and derives the shared bar from all three", () => {
+    const health = [1000, 1000, 1000];
+    health[1] = independentBossHealthAfterDamage(health[1], 250);
+    expect(health).toEqual([1000, 750, 1000]);
+    expect(health.reduce((sum, value) => sum + value, 0)).toBe(2750);
+    expect(independentBossHealthAfterDamage(250, 500)).toBe(0);
+    expect(independentBossHealthAfterDamage(250, -50)).toBe(250);
+  });
+
   it("scales minion damage every 1000 max health with a 5% health floor", () => {
     expect(minionHealthDamageMultiplier(999)).toBe(1);
     expect(minionHealthDamageMultiplier(1000)).toBe(1.2);
     expect(minionHealthDamageMultiplier(2000)).toBe(1.4);
     expect(minionPercentDamageFloor(1000)).toBe(50);
     expect(minionPercentDamageFloor(2500)).toBe(125);
+  });
+
+  it("adds all three devour healing sources", () => {
+    expect(devourHealingAmount(100, 50, 200)).toBe(10);
+    expect(devourHealingAmount(-100, Number.NaN, 250)).toBe(10);
+  });
+
+  it("raises devour size, defense and max-health gain without exceeding six health", () => {
+    expect(DEVOUR_SWALLOW_LEVELS.map((tier) => tier.maxHealthGain)).toEqual([
+      1.5, 2.5, 3.5, 4.5, 6
+    ]);
+    expect(DEVOUR_SWALLOW_LEVELS.at(-1)?.maxHealthGain).toBe(6);
+    expect(DEVOUR_SWALLOW_LEVELS.at(-1)?.sizeGain).toBeGreaterThan(
+      DEVOUR_SWALLOW_LEVELS[0].sizeGain
+    );
+    expect(DEVOUR_SWALLOW_LEVELS.map((tier) => tier.maxSizeMultiplier)).toEqual([
+      2, 2.15, 2.3, 2.45, 2.6
+    ]);
+    expect(DEVOUR_SWALLOW_LEVELS.at(-1)?.maxSizeMultiplier).toBe(
+      DEVOUR_SWALLOW_LEVELS[0].maxSizeMultiplier * 1.3
+    );
+    expect(DEVOUR_SWALLOW_LEVELS.at(-1)?.damageTakenMultiplier).toBe(0.8);
   });
 
   it("keeps the last selected mode, difficulty and multiplayer variant", () => {
@@ -332,13 +503,13 @@ describe("nine battle boss campaign", () => {
       emergency: 0,
       reroll: 0
     };
-    expect(remainingStoreUnlockCost(emptyUpgrades, ["standard"])).toBe(10764);
+    expect(remainingStoreUnlockCost(emptyUpgrades, ["standard"])).toBe(9764);
     expect(FINAL_CAMPAIGN_CLEAR_BONUS).toBe(1888);
-    expect(finalCampaignReward(emptyUpgrades, ["standard"])).toBe(12652);
+    expect(finalCampaignReward(emptyUpgrades, ["standard"])).toBe(11652);
     expect(
       remainingStoreUnlockCost(
         { hull: 12, firepower: 12, engine: 10, armor: 10, recovery: 8, emergency: 5, reroll: 3 },
-        ["standard", "aurora", "inferno", "void"]
+        ["standard"]
       )
     ).toBe(0);
   });
