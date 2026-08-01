@@ -125,9 +125,9 @@ body {
   display: none;  /* topbar 内不显示,改用 fixed 浮在右下方 */
 }
 
-/* 固定浮在屏幕右上(避开 resource-chip)— resource-chip 在顶部,brand-mini 在顶部下方 */
+/* 浮在游戏面板右上(避开 resource-chip)— 必须 absolute 相对面板,fixed 会在缩放时飘出面板 */
 .app-shell:not(.playing) .brand-mini {
-  position: fixed;
+  position: absolute;
   top: 64px;
   right: 24px;
   z-index: 80;
@@ -1197,14 +1197,20 @@ kbd {
 }
 
 .screen-header {
+  position: sticky;
+  top: 0;
+  z-index: 90;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 26px;
-  /* 避开固定在右上角的返回键(14 + 38 + 14 = 66px) */
-  padding-right: 66px;
+  padding: 10px 0;
   min-height: 38px;
+  /* 滚动时盖住下方内容 */
+  background: linear-gradient(180deg, rgba(4, 10, 22, 0.96), rgba(4, 10, 22, 0.82));
+  backdrop-filter: blur(6px);
 }
 
 .screen-title h2 {
@@ -1223,12 +1229,10 @@ kbd {
   color: #9fc3d3;
 }
 
-/* 固定在屏幕右上角的返回键(所有 menu/pilot/hangar 等页面通用) */
+/* 返回键跟随 .screen-header 停在面板顶部:header 用 sticky,返回键回归普通流。
+   历史坑:用 fixed 会在缩放/宽屏时飘到面板外;用 absolute 会随 .screen 的 overflow 滚走。 */
 .back-button {
-  position: fixed;
-  top: 14px;
-  right: 14px;
-  z-index: 90;
+  flex: 0 0 auto;
   border-radius: 6px;
   box-shadow: 0 0 12px rgba(45, 244, 255, 0.18);
   cursor: pointer;
@@ -1704,6 +1708,82 @@ kbd {
   color: #ffbd3e;
   font: 8px/1 "Roboto Mono", Consolas, monospace;
   letter-spacing: 0.14em;
+}
+
+/* === 终局抉择:损坏的黑暗核心 === */
+.dark-core-panel {
+  border-color: rgba(140, 37, 255, 0.5);
+  box-shadow: 0 0 60px rgba(140, 37, 255, 0.22);
+}
+
+.dark-core-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.dark-core-card {
+  padding: 16px 14px;
+  text-align: left;
+  border: 1px solid rgba(140, 37, 255, 0.32);
+  background: linear-gradient(150deg, rgba(28, 8, 48, 0.92), rgba(8, 4, 18, 0.9));
+  color: #eadfff;
+  cursor: pointer;
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.dark-core-card:hover {
+  border-color: rgba(200, 120, 255, 0.85);
+  transform: translateY(-3px);
+}
+
+.dark-core-card .core-icon {
+  display: block;
+  font-size: 26px;
+  color: #c678ff;
+  margin-bottom: 6px;
+}
+
+.dark-core-card h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+
+.dark-core-card p {
+  margin: 0 0 8px;
+  color: #a99bc4;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.dark-core-card .core-warn {
+  display: block;
+  color: #ff6ec7;
+  font: 9px/1.4 "Roboto Mono", Consolas, monospace;
+  letter-spacing: 0.1em;
+}
+
+/* === 黑影结局结算面板 === */
+.shadow-ending-panel {
+  border-color: rgba(140, 37, 255, 0.55);
+  background: linear-gradient(160deg, rgba(22, 4, 38, 0.96), rgba(4, 2, 10, 0.96));
+  box-shadow: 0 0 80px rgba(90, 20, 160, 0.34);
+}
+
+.shadow-ending-panel .eyebrow {
+  color: #c678ff;
+}
+
+.shadow-ending-panel h2 {
+  color: #e6d4ff;
+  text-shadow: 0 0 22px rgba(160, 60, 255, 0.7);
+}
+
+.shadow-ending-panel > p {
+  color: #b3a3cc;
 }
 
 .evolution-note {

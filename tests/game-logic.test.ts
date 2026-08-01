@@ -8,6 +8,8 @@ import {
   boostedSpecializationReduction,
   boostedSpecializationStat,
   chooseUnique,
+  chooseUniqueWeighted,
+  isSpecializationUpgradeId,
   collisionBossDamageScale,
   collisionHullAttackMultiplier,
   dailyLoginOffer,
@@ -25,7 +27,6 @@ import {
 import {
   BOSS_CAMPAIGN_ENCOUNTERS,
   BOSS_CAMPAIGN_POWER_SCALES,
-  CAMPAIGN_CLEAR_SCORE_SCALE,
   FINAL_BOSS_STAT_SCALE,
   FINAL_CAMPAIGN_CLEAR_BONUS,
   INCOMPLETE_TRINITY_STAT_SCALE,
@@ -51,17 +52,54 @@ describe("progression", () => {
     }
   });
 
-  it("uses 25000 for the opening score gate and keeps later gates one quarter longer", () => {
-    expect(CAMPAIGN_CLEAR_SCORE_SCALE).toBe(1.25);
+  it("uses per-difficulty score gates whose increments never shrink", () => {
+    // 噩梦档为设计基准
+    expect(
+      Array.from({ length: 5 }, (_, wave) => campaignClearScoreRequirement(wave, 5))
+    ).toEqual([30000, 52500, 80000, 100000, 120000]);
     expect(
       Array.from({ length: 5 }, (_, wave) => campaignClearScoreRequirement(wave, 3))
-    ).toEqual([25000, 45625, 56875, 68125, 79375]);
+    ).toEqual([24000, 42000, 64000, 80000, 96000]);
+    // 五档难度:门槛递增,且段间增量不得越来越小
+    for (let level = 1; level <= 5; level += 1) {
+      const gates = Array.from({ length: 5 }, (_, wave) =>
+        campaignClearScoreRequirement(wave, level)
+      );
+      const deltas = gates.slice(1).map((gate, i) => gate - gates[i]);
+      for (let i = 0; i < deltas.length; i += 1) {
+        expect(deltas[i]).toBeGreaterThan(0);
+        if (i > 0) expect(deltas[i]).toBeGreaterThanOrEqual(deltas[i - 1] * 0.7);
+      }
+      // 难度越高门槛越高
+      if (level > 1) {
+        expect(gates[4]).toBeGreaterThan(campaignClearScoreRequirement(4, level - 1));
+      }
+    }
   });
 
   it("draws unique options", () => {
     const pool = ["a", "b", "c", "d"].map((id) => ({ id }));
     const result = chooseUnique(pool, 3, () => 0);
     expect(new Set(result.map((item) => item.id)).size).toBe(3);
+  });
+
+  it("identifies specialization upgrades by id prefix", () => {
+    expect(isSpecializationUpgradeId("power_flamethrower")).toBe(true);
+    expect(isSpecializationUpgradeId("agile_lunge")).toBe(true);
+    expect(isSpecializationUpgradeId("ram_mass")).toBe(true);
+    expect(isSpecializationUpgradeId("laser")).toBe(false);
+    expect(isSpecializationUpgradeId("speed")).toBe(false);
+  });
+
+  it("weights specialization upgrades 10% higher and keeps picks unique", () => {
+    // 池:1 个专属(权重 1.1) + 1 个普通(权重 1),总权重 2.1
+    const pool = [{ id: "power_flamethrower" }, { id: "laser" }];
+    // roll = 0.5 → 0.5 * 2.1 = 1.05 < 1.1,落在专属区间
+    expect(chooseUniqueWeighted(pool, 1, () => 0.5)[0].id).toBe("power_flamethrower");
+    // roll = 0.6 → 1.26 > 1.1,越过专属落到普通
+    expect(chooseUniqueWeighted(pool, 1, () => 0.6)[0].id).toBe("laser");
+    // 抽满时两者都在,且不重复
+    expect(new Set(chooseUniqueWeighted(pool, 2, () => 0.5).map((i) => i.id)).size).toBe(2);
   });
 
   it("recovers from corrupt saves", () => {

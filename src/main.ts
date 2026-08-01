@@ -14,6 +14,7 @@ import {
   boostedSpecializationReduction,
   boostedSpecializationStat,
   chooseUnique,
+  chooseUniqueWeighted,
   collisionBossDamageScale,
   collisionHullAttackMultiplier,
   agileCritEffectSpeedMultiplier,
@@ -49,8 +50,10 @@ const ATTACK_BONUS_SCALE = 2 / 3;
 const SAVE_KEY = "starfall_save_v1";
 const PERFORMANCE_MIGRATION_KEY = "starfall_performance_v051";
 const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
-// 影步突刺(敏捷流派 G 键)：最大突进距离为地图竖直长度的 60%，固定 400ms 完成
-const AGILE_LUNGE_REACH = WORLD_HEIGHT * 0.6;
+// 影步突刺(敏捷流派 G 键)：突进距离固定为当前等级上限，方向由方向键/WASD 决定，固定 400ms 完成
+// 距离上限为地图竖直长度的 60%(满级)
+const AGILE_LUNGE_REACHES = [WORLD_HEIGHT * 0.4, WORLD_HEIGHT * 0.5, WORLD_HEIGHT * 0.6] as const;
+const AGILE_LUNGE_REACH = AGILE_LUNGE_REACHES[AGILE_LUNGE_REACHES.length - 1];
 const AGILE_LUNGE_DURATION = 400;
 const AGILE_LUNGE_HIT_WIDTH = [56, 68, 80] as const;
 const AGILE_LUNGE_MAX_HEAL_HITS = 5;
@@ -64,7 +67,7 @@ const AGILE_CLONE_HP_RATIOS = [0, 0.1, 0.25, 0.4] as const;
 // 召唤间隔随等级递减(秒),一次只补充 1 个
 const AGILE_CLONE_INTERVALS = [30, 25, 20, 15] as const;
 
-type UpgradeKind = "weapon" | "passive";
+type UpgradeKind = "weapon" | "passive" | "support";
 
 interface UpgradeDefinition {
   id: string;
@@ -86,6 +89,7 @@ interface RunResult {
   bosses: number;
   missionLevel: number;
   score2?: number;
+  shadowEnding?: ShadowEnding | null;
 }
 
 const SHIPS: Record<
@@ -704,6 +708,54 @@ type BossPowerId =
 type EnemyMutation = "homing" | "mine_burst" | "armor" | "dash" | "suppress";
 type EnemyDamageSource = "minion" | "boss";
 type TemporarySkill = "overdrive" | "prism" | "singularity";
+
+// === 终局四种黑影结局:摧毁/保留 × 阵亡/打完 ===
+type ShadowEnding =
+  | "destroyed_fallen"    // 摧毁核心后被残党击毁
+  | "destroyed_consumed"  // 摧毁核心后侵蚀达到 100%,被黑暗吞没
+  | "destroyed_embraced"  // 摧毁核心后在侵蚀满之前清空残党,主动接下这份黑暗
+  | "kept_fallen"         // 保留核心后被残党击毁
+  | "kept_possessed";     // 保留核心并清空残党,核心自我修复并占据玩家
+
+const SHADOW_ENDINGS: Record<
+  ShadowEnding,
+  { code: string; title: string; detail: string }
+> = {
+  destroyed_fallen: {
+    code: "ENDING · SHATTERED VESSEL",
+    title: "你已成为黑影",
+    detail: "核心碎了，碎片找到了新的容器。残骸撕开你的舱门时，你没能撑住。"
+  },
+  destroyed_consumed: {
+    code: "ENDING · TOTAL ECLIPSE",
+    title: "你已成为黑影",
+    detail: "侵蚀爬满了全身。你还握着操纵杆，但手不再听你的了。"
+  },
+  destroyed_embraced: {
+    code: "ENDING · WILLING HOST",
+    title: "你已成为黑影",
+    detail: "残党清完了，你还活着。代价是它已经住进来，而你没有赶它走。"
+  },
+  kept_fallen: {
+    code: "ENDING · HOLLOW CUSTODY",
+    title: "你已成为黑影",
+    detail: "你把核心锁进货舱，以为看管就够了。它在你倒下时接住了你。"
+  },
+  kept_possessed: {
+    code: "ENDING · PERFECT VESSEL",
+    title: "你已成为黑影",
+    detail: "航线净空。货舱里的核心不再损坏——它修好了自己，然后换了驾驶者。"
+  }
+};
+// 终局黑暗核心:摧毁后的侵蚀节奏与残党强化
+// 侵蚀满 100% 需 25 段 × 2.6s ≈ 65s;残党 8 波(每波间隔 2.4s)最快约 20s 出完,
+// 所以手速够快能在侵蚀满之前清完 → 走 destroyed_embraced,否则被吞没。
+const DARK_CORRUPTION_TICK_MS = 2600;      // 每 2.6s 侵蚀 +1 段
+const DARK_CORRUPTION_PER_TICK = 4;        // 每段 +4 点(0-100)
+const DARK_CORRUPTION_HP_DRAIN = 0.008;    // 每段额外扣 0.8% 最大生命
+const DARK_SWARM_HP_SCALE = 1.55;          // 摧毁后残党血量倍率
+const DARK_SWARM_DAMAGE_SCALE = 1.4;       // 摧毁后残党伤害倍率
+
 type AgileTrajectory = "fan" | "arc" | "helix" | "scatter" | "cross" | "circle";
 type AirSupportSkillId =
   | "piercing_bombardment"
@@ -833,37 +885,46 @@ const BOSS_POWER_OPTIONS: Array<{
     icon: "☄",
     name: "裂渊陨星权柄",
     source: "裂渊泰坦",
-    description: "G 键召唤持续 7 秒的逆向陨星轰炸，冷却 40 秒。"
+    description: "V 键召唤持续 7 秒的逆向陨星轰炸，冷却 40 秒。"
   },
   {
     id: "mirror_copy",
     icon: "◫",
     name: "万象镜像权柄",
     source: "镜像猎手",
-    description: "G 键复制当前支援与临时强化 7 秒，并生成两架镜像僚机，冷却 40 秒。"
+    description: "V 键复制当前支援与临时强化 7 秒，并生成两架镜像僚机，冷却 40 秒。"
   },
   {
     id: "usurper_lock",
     icon: "⌁",
     name: "权限篡夺权柄",
     source: "技能篡夺者",
-    description: "G 键封锁全部敌机与 Boss 行动 7 秒，冷却 40 秒。"
+    description: "V 键封锁全部敌机与 Boss 行动 7 秒，冷却 40 秒。"
   },
   {
     id: "shadow_rift_blade",
     icon: "✦",
     name: "裂隙黑暗爪刀",
     source: "力量掠夺者 · 黑影",
-    description: "G 键释放 5 道暗影爪刀横向切割全场，每道造成 0.18 最大生命伤害,持续 4 秒,冷却 40 秒。"
+    description: "V 键释放 5 道暗影爪刀横向切割全场，每道造成 0.18 最大生命伤害,持续 4 秒,冷却 40 秒。"
   },
   {
     id: "dark_deity_pact",
     icon: "☩",
     name: "黑暗魔神契约",
     source: "黑暗魔神飞机",
-    description: "G 键 3 秒内免疫所有伤害并向四方释放 12 颗追踪暗影弹幕,冷却 40 秒。"
+    description: "V 键 3 秒内免疫所有伤害并向四方释放 12 颗追踪暗影弹幕,冷却 40 秒。"
   }
 ];
+
+// 每种 Boss 击破后授予的首领权柄(V 键释放,一直保留到本局结束)
+const BOSS_KIND_TO_POWER: Record<BossKind, BossPowerId> = {
+  titan: "titan_meteor",
+  mirror: "mirror_copy",
+  usurper: "usurper_lock",
+  shadow: "shadow_rift_blade",
+  dark_deity: "dark_deity_pact"
+};
 
 const DOCTRINE_EVOLUTIONS = [
   {
@@ -914,6 +975,29 @@ const DOCTRINE_EVOLUTIONS = [
   }
 ];
 
+// 支援协议削弱系数:并入通用强化池后,强度只比普通通用强化高一点点,
+// 满级(Lv.5)时大致与流派专属强化持平。约为原数值的 0.62 倍。
+const AIR_SUPPORT_NERF = 0.62;
+
+// 支援协议的分级数值:描述文本与实战效果共用同一份计算,避免两边写死后走偏
+const AIR_SUPPORT_VALUES = {
+  // 贯穿轰炸:弹数与单枚伤害
+  bombardmentCount: (level: number) => 2 + level,
+  bombardmentDamage: (level: number) => (82 + level * 34 * ATTACK_BONUS_SCALE) * AIR_SUPPORT_NERF,
+  // 引力航迹:持续毫秒与减速百分比
+  stasisDuration: (level: number) => (5000 + level * 500) * AIR_SUPPORT_NERF,
+  stasisSlowPercent: (level: number) => Math.round((65 + level * 3) * AIR_SUPPORT_NERF),
+  // 绝对零度:冻结毫秒
+  freezeDuration: (level: number) => (3200 + level * 350) * AIR_SUPPORT_NERF,
+  // 相位护航:无敌毫秒
+  escortDuration: (level: number) => (2400 + level * 300) * AIR_SUPPORT_NERF,
+  // 维修纵队:回复最大生命占比
+  repairRatio: (level: number) => (0.1 + level * 0.03) * AIR_SUPPORT_NERF,
+  // 猎杀编队:小兵伤害与 Boss 核心伤害
+  sweepDamage: (level: number) => (72 + level * 32 * ATTACK_BONUS_SCALE) * AIR_SUPPORT_NERF,
+  sweepBossDamage: (level: number) => (260 + level * 110 * ATTACK_BONUS_SCALE) * AIR_SUPPORT_NERF
+} as const;
+
 const AIR_SUPPORT_SKILLS: Array<{
   id: AirSupportSkillId;
   code: string;
@@ -933,9 +1017,9 @@ const AIR_SUPPORT_SKILLS: Array<{
     colorHex: 0xffbd3e,
     cooldown: 10800,
     description: (level) =>
-      `支援轰炸机自下而上穿越战场，投射 ${3 + level} 枚无限贯穿弹，单枚伤害 ${
-        Math.round(82 + level * 34 * ATTACK_BONUS_SCALE)
-      }。`
+      `支援轰炸机自下而上穿越战场，投射 ${AIR_SUPPORT_VALUES.bombardmentCount(
+        level
+      )} 枚无限贯穿弹，单枚伤害 ${Math.round(AIR_SUPPORT_VALUES.bombardmentDamage(level))}。`
   },
   {
     id: "stasis_wake",
@@ -946,7 +1030,7 @@ const AIR_SUPPORT_SKILLS: Array<{
     colorHex: 0x9b7dff,
     cooldown: 16200,
     description: (level) =>
-      `阻断机留下 ${5 + level * 0.5} 秒引力航迹，敌机推进速度降低 ${65 + level * 3}%。`
+      `阻断机留下 ${formatRoundedNumberForDisplay(AIR_SUPPORT_VALUES.stasisDuration(level) / 1000)} 秒引力航迹，敌机推进速度降低 ${AIR_SUPPORT_VALUES.stasisSlowPercent(level)}%。`
   },
   {
     id: "absolute_freeze",
@@ -957,7 +1041,7 @@ const AIR_SUPPORT_SKILLS: Array<{
     colorHex: 0x79f4ff,
     cooldown: 19800,
     description: (level) =>
-      `低温支援机冻结全部敌机、Boss 与敌弹 ${formatRoundedNumberForDisplay(3.2 + level * 0.35)} 秒。`
+      `低温支援机冻结全部敌机、Boss 与敌弹 ${formatRoundedNumberForDisplay(AIR_SUPPORT_VALUES.freezeDuration(level) / 1000)} 秒。`
   },
   {
     id: "phase_escort",
@@ -968,7 +1052,7 @@ const AIR_SUPPORT_SKILLS: Array<{
     colorHex: 0x43ff9a,
     cooldown: 20800,
     description: (level) =>
-      `护航机掠过后获得 ${formatRoundedNumberForDisplay(2.4 + level * 0.3)} 秒完全无敌，并清除近身敌弹。`
+      `护航机掠过后获得 ${formatRoundedNumberForDisplay(AIR_SUPPORT_VALUES.escortDuration(level) / 1000)} 秒完全无敌，并清除近身敌弹。`
   },
   {
     id: "repair_convoy",
@@ -978,7 +1062,7 @@ const AIR_SUPPORT_SKILLS: Array<{
     color: "#8dffb8",
     colorHex: 0x8dffb8,
     cooldown: 22600,
-    description: (level) => `维修纵队恢复 ${10 + level * 3}% 最大生命，并释放一圈排斥脉冲。`
+    description: (level) => `维修纵队恢复 ${Math.round(AIR_SUPPORT_VALUES.repairRatio(level) * 100)}% 最大生命，并释放一圈排斥脉冲。`
   },
   {
     id: "hunter_sweep",
@@ -989,9 +1073,9 @@ const AIR_SUPPORT_SKILLS: Array<{
     colorHex: 0xff5a8a,
     cooldown: 14800,
     description: (level) =>
-      `三机编队由下向上扫过，所有敌机受到 ${Math.round(72 + level * 32 * ATTACK_BONUS_SCALE)} 伤害，Boss 核心受到 ${
-        Math.round(260 + level * 110 * ATTACK_BONUS_SCALE)
-      } 伤害。`
+      `三机编队由下向上扫过，所有敌机受到 ${Math.round(
+        AIR_SUPPORT_VALUES.sweepDamage(level)
+      )} 伤害，Boss 核心受到 ${Math.round(AIR_SUPPORT_VALUES.sweepBossDamage(level))} 伤害。`
   }
 ];
 
@@ -1271,7 +1355,7 @@ const UPGRADES: UpgradeDefinition[] = [
     icon: "»",
     kind: "weapon",
     description: (level) =>
-      `G 键沿准星方向突进 · 射程 ${Math.round(AGILE_LUNGE_REACH)} · 耗时 ${AGILE_LUNGE_DURATION}ms · 扫掠宽度 ${AGILE_LUNGE_HIT_WIDTH[level] ?? AGILE_LUNGE_HIT_WIDTH[2]} · 途经敌人全部受击 · 移动期间无敌 · 每命中回复 2% 最大生命(最多 10%) · 冷却 ${[30, 25, 20][level] || 20}s`
+      `G 键沿方向键指向突进 · 固定位移 ${Math.round(AGILE_LUNGE_REACHES[level] ?? AGILE_LUNGE_REACH)} · 耗时 ${AGILE_LUNGE_DURATION}ms · 扫掠宽度 ${AGILE_LUNGE_HIT_WIDTH[level] ?? AGILE_LUNGE_HIT_WIDTH[2]} · 途经敌人全部受击 · 移动期间无敌 · 每命中回复 2% 最大生命(最多 10%) · 冷却 ${[30, 25, 20][level] || 20}s`
   },
   {
     id: "agile_shadow_clone",
@@ -1315,7 +1399,18 @@ const UPGRADES: UpgradeDefinition[] = [
     kind: "passive",
     description: () =>
       `子弹命中同帧生成 1 条链子锁住敌人(最多 8 条,每个单位最多 1 条)· 链子扣 50% 玩家伤害 · 锚定后按 0.3s 节奏回血 · 单目标 80% · 每多一个 +5%(上限 120%) · 链子持续 1.2s`
-  }
+  },
+  // === 逆航支援协议(原 Boss 击破掉落的强化,削弱后并入通用池,全流派可选) ===
+  ...AIR_SUPPORT_SKILLS.map((skill) => ({
+    id: skill.id,
+    name: skill.name,
+    icon: skill.icon,
+    kind: "support" as const,
+    description: (level: number) =>
+      `${skill.description(level)} 冷却 ${formatRoundedNumberForDisplay(
+        skill.cooldown / 1000
+      )}s，自动释放。`
+  }))
 ];
 
 let save: SaveData = loadSave(localStorage.getItem(SAVE_KEY));
@@ -1557,7 +1652,7 @@ function showMenu(): void {
     <section class="screen home-screen" aria-label="主菜单">
       <div class="home-hero">
         <div class="menu-logo">
-          <div class="eyebrow">STARGUARD · v0.6.1</div>
+          <div class="eyebrow">STARGUARD · v0.6.2</div>
           <h1>星际守护者</h1>
           <span class="en">NEON ABYSS</span>
         </div>
@@ -1836,7 +1931,7 @@ function showAbout(): void {
     <section class="screen">
       ${screenHeader("ABOUT / FLIGHT MANUAL", "关于与操作")}
       <div class="about-panel">
-        <div class="about-logo">星际守护者 <small>v0.6.1</small></div>
+        <div class="about-logo">星际守护者 <small>v0.6.2</small></div>
         <p>三类空域协议：普通战役最终通关、无尽模式分段存币、九战 Boss 固定终局。</p>
         <div class="key-table">
           <div><kbd>WASD / 方向键</kbd><span>移动战机</span></div>
@@ -1844,7 +1939,8 @@ function showAbout(): void {
           <div><kbd>1 / 2 / 3</kbd><span>激光、导弹、无人机技能（撞击流派禁用）</span></div>
           <div><kbd>Q</kbd><span>EMP 一键清屏</span></div>
           <div><kbd>E</kbd><span>星核超载；撞击流派为破阵冲刺</span></div>
-          <div><kbd>G</kbd><span>撞击流派全速推进；获得权柄时释放首领能力</span></div>
+          <div><kbd>G</kbd><span>流派专属主动技能：力量龙息喷火、敏捷影步突刺、撞击全速推进</span></div>
+          <div><kbd>V</kbd><span>首领权柄：击破 Boss 后获得，保留到本局结束</span></div>
           <div><kbd>F</kbd><span>相位闪避：位移并短暂无敌</span></div>
           <div><kbd>R</kbd><span>纳米修复：恢复 18% 最大生命</span></div>
           <div><kbd>X</kbd><span>一键自动投降</span></div>
@@ -2169,7 +2265,7 @@ function startRun(): void {
   game = new Phaser.Game(config);
 }
 
-function showUpgrade(scene: BattleScene): void {
+function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
   scene.isModal = true;
   scene.physics.world.pause();
   const collisionUpgradeIds = new Set([
@@ -2185,12 +2281,18 @@ function showUpgrade(scene: BattleScene): void {
     "arc",
     "blade"
   ]);
+  // 支援协议的等级存在 airSupportLevels,其余存在 upgradeLevels
+  const airSupportIds = new Set<string>(AIR_SUPPORT_SKILLS.map((skill) => skill.id));
+  const levelOf = (id: string): number =>
+    airSupportIds.has(id)
+      ? scene.airSupportLevels[id as AirSupportSkillId] ?? 0
+      : scene.upgradeLevels[id] ?? 0;
   // 流派专属升级 — id 前缀等于流派名,只对应该流派
   const available = UPGRADES.filter(
     (upgrade) =>
-      (scene.upgradeLevels[upgrade.id] ?? 0) < 5 &&
+      levelOf(upgrade.id) < 5 &&
       (save.selectedSpecialization === "wheelchair"
-        ? collisionUpgradeIds.has(upgrade.id)
+        ? collisionUpgradeIds.has(upgrade.id) || airSupportIds.has(upgrade.id)
         : !upgrade.id.startsWith("ram_")) &&
       // 流派专属升级:仅当 id 前缀匹配当前流派时显示
       (!upgrade.id.startsWith("power_") || save.selectedSpecialization === "power") &&
@@ -2201,7 +2303,7 @@ function showUpgrade(scene: BattleScene): void {
       (!upgrade.id.startsWith("wheelchair_") || save.selectedSpecialization === "wheelchair")
   );
   const draw = (): void => {
-    const options = chooseUnique(available, 3);
+    const options = chooseUniqueWeighted(available, 3);
     overlayRoot.innerHTML = `
       <div class="overlay">
         <div class="overlay-panel">
@@ -2215,7 +2317,7 @@ function showUpgrade(scene: BattleScene): void {
           <div class="upgrade-grid">
             ${options
               .map((upgrade, index) => {
-                const level = scene.upgradeLevels[upgrade.id] ?? 0;
+                const level = levelOf(upgrade.id);
                 return `
                   <button class="upgrade-card" data-upgrade="${upgrade.id}">
                     <span class="upgrade-icon"><span>${upgrade.icon}</span></span>
@@ -2243,6 +2345,7 @@ function showUpgrade(scene: BattleScene): void {
         scene.isModal = false;
         scene.physics.world.resume();
         sfx("upgrade");
+        onComplete?.();
       });
     });
     document.querySelector("#reroll-upgrade")?.addEventListener("click", () => {
@@ -2313,93 +2416,46 @@ function showDoctrineEvolution(scene: BattleScene, onComplete: () => void): void
   });
 }
 
-function showAirSupportSelection(
+// === 终局抉择:损坏的黑暗核心 —— 摧毁还是保留 ===
+function showDarkCoreChoice(
   scene: BattleScene,
-  onComplete: () => void,
-  stolenBossKind?: BossKind
+  onChosen: (choice: "destroyed" | "kept") => void
 ): void {
   scene.isModal = true;
   scene.physics.world.pause();
-  const available = AIR_SUPPORT_SKILLS.filter(
-    (skill) => (scene.airSupportLevels[skill.id] ?? 0) < 5
-  );
-  if (available.length === 0) {
-    scene.isModal = false;
-    scene.physics.world.resume();
-    scene.showBanner("逆航支援协议已全部满级", 1100);
-    onComplete();
-    return;
-  }
-  const options = chooseUnique(available, Math.min(3, available.length));
   overlayRoot.innerHTML = `
-    <div class="overlay air-support-overlay">
-      <div class="overlay-panel air-support-panel">
-        <div class="eyebrow">${
-          stolenBossKind ? "STOLEN BOSS ENHANCEMENT" : "BOTTOM-UP AIR SUPPORT"
-        }</div>
-        <h2>${
-          stolenBossKind
-            ? `${BOSS_NAMES[stolenBossKind]}强化碎片`
-            : "逆航支援编队抵达"
-        }</h2>
-        <p>${
-          stolenBossKind
-            ? "黑影夺走了刚才 Boss 的全部能力与强化，但向上隐退时被迫遗落了一枚强化碎片。选择一种支援协议完成回收。"
-            : "选择一种由屏幕下方向上掠过的俯视支援技能。获得后会在战斗中自动循环发动。"
-        }</p>
-        <div class="air-support-grid">
-          ${options
-            .map((skill, index) => {
-              const level = scene.airSupportLevels[skill.id] ?? 0;
-              return `
-                <button
-                  class="air-support-card"
-                  data-air-support="${skill.id}"
-                  style="--support-color:${skill.color}"
-                >
-                  <span class="support-code">${skill.code}</span>
-                  <div class="support-flight-lane">
-                    <i>${skill.icon}</i>
-                    <span></span>
-                  </div>
-                  <span class="upgrade-level">${
-                    level === 0 ? "NEW" : `LV.${level} → ${level + 1}`
-                  } · ${index + 1}</span>
-                  <h3>${skill.name}</h3>
-                  <p>${skill.description(level)}</p>
-                </button>
-              `;
-            })
-            .join("")}
+    <div class="overlay dark-core-overlay">
+      <div class="overlay-panel dark-core-panel">
+        <div class="eyebrow">SALVAGED ARTIFACT · UNSTABLE</div>
+        <h2>损坏的黑暗核心</h2>
+        <p>黑暗魔神陨落，残骸中央悬着一枚裂开的核心。它还在跳动，节奏和你的心率正在同步。残党正从四面涌来，你必须立刻决定。</p>
+        <div class="dark-core-grid">
+          <button class="dark-core-card" data-core-choice="destroyed">
+            <span class="core-icon">✖</span>
+            <h3>摧毁核心</h3>
+            <p>当场碎裂核心。黑暗能量灌入所有残党，同时顺着裂口侵蚀你。侵蚀满 100% 就会吞没你——在那之前清完残党，你还能活下来。</p>
+            <span class="core-warn">残党强化 · 与侵蚀赛跑</span>
+          </button>
+          <button class="dark-core-card" data-core-choice="kept">
+            <span class="core-icon">◈</span>
+            <h3>保留核心</h3>
+            <p>把核心锁进货舱带走。残党不会被强化，你也不会被侵蚀——但没人知道一枚“损坏”的核心在这场战斗里会变成什么。</p>
+            <span class="core-warn">残党维持原状 · 核心状态未知</span>
+          </button>
         </div>
-        <div class="evolution-note">${
-          stolenBossKind
-            ? "此为黑影逃逸时掉落的 Boss 强化 · 每项最高 LV.5"
-            : "支援机始终从座舱后方进入战场 · 每项最高 LV.5"
-        }</div>
+        <div class="evolution-note">这是本局最后一个决定 · 无法撤回</div>
       </div>
     </div>
   `;
-  document.querySelectorAll<HTMLButtonElement>("[data-air-support]").forEach((button) => {
+  document.querySelectorAll<HTMLButtonElement>("[data-core-choice]").forEach((button) => {
     button.addEventListener("click", () => {
-      scene.applyAirSupportUpgrade(button.dataset.airSupport as AirSupportSkillId);
+      const choice = button.dataset.coreChoice as "destroyed" | "kept";
       overlayRoot.innerHTML = "";
       scene.isModal = false;
       scene.physics.world.resume();
       sfx("upgrade");
-      onComplete();
+      onChosen(choice);
     });
-  });
-}
-
-function showDoctrineSequence(scene: BattleScene, count: number, onComplete: () => void): void {
-  if (count <= 0) {
-    onComplete();
-    return;
-  }
-  showDoctrineEvolution(scene, () => {
-    scene.showBanner(`连续强化 · 还可选择 ${count - 1} 次`, 760);
-    showDoctrineSequence(scene, count - 1, onComplete);
   });
 }
 
@@ -2468,11 +2524,14 @@ function finishRun(result: RunResult): void {
   }
   persist();
   sfx(result.victory ? "victory" : "hurt");
+  const shadow = result.shadowEnding ? SHADOW_ENDINGS[result.shadowEnding] : null;
   overlayRoot.innerHTML = `
-    <div class="overlay">
-      <div class="overlay-panel">
+    <div class="overlay${shadow ? " shadow-ending-overlay" : ""}">
+      <div class="overlay-panel${shadow ? " shadow-ending-panel" : ""}">
         <div class="eyebrow">${
-          result.victory
+          shadow
+            ? shadow.code
+            : result.victory
             ? result.mode === "campaign"
               ? "CAMPAIGN COMPLETE"
               : result.mode === "boss"
@@ -2481,7 +2540,9 @@ function finishRun(result: RunResult): void {
             : "INFINITE FLIGHT ARCHIVED"
         }</div>
         <h2>${
-          playVariant === "score_duel"
+          shadow
+            ? shadow.title
+            : playVariant === "score_duel"
             ? result.score >= (result.score2 ?? 0)
               ? "P1 赢得空域"
               : "P2 赢得空域"
@@ -2494,7 +2555,9 @@ function finishRun(result: RunResult): void {
               : "本次无限航迹已封存"
         }</h2>
         <p>${
-          result.victory
+          shadow
+            ? shadow.detail
+            : result.victory
             ? result.mode === "campaign"
               ? "带有小怪增援的九场 Boss 战与最终真身均已击破，本局数据已经永久保存。"
               : result.mode === "boss"
@@ -2759,6 +2822,11 @@ class BattleScene extends Phaser.Scene {
   finalSwarmRemaining = 0;
   finalSwarmWaveIndex = 0;
   finalSwarmNextWaveAt = 0;
+  // === 终局:损坏的黑暗核心(摧毁 / 保留 两种抉择) ===
+  darkCoreChoice: "destroyed" | "kept" | null = null;
+  darkCorruption = 0;                     // 摧毁后玩家的黑暗侵蚀值(0-100)
+  nextCorruptionTick = 0;
+  shadowEnding: ShadowEnding | null = null;
   airSupportLevels: Partial<Record<AirSupportSkillId, number>> = {};
   nextAirSupportAt: Partial<Record<AirSupportSkillId, number>> = {};
   enemySlowUntil = 0;
@@ -3048,7 +3116,7 @@ class BattleScene extends Phaser.Scene {
           ended: this.ended
         }),
         ramEnemy: (type: string) => {
-          this.playerBullets.clear(true, true);
+          this.clearPlayerBullets();
           this.nextCloneShot = this.time.now + 500;
           const enemy = this.spawnEnemy(this.time.now, type);
           enemy
@@ -3172,7 +3240,7 @@ class BattleScene extends Phaser.Scene {
         },
         grantUpgrade: (id: string) => this.applyUpgrade(id),
         ramBoss: () => {
-          this.playerBullets.clear(true, true);
+          this.clearPlayerBullets();
           this.nextCloneShot = this.time.now + 1000;
           const core = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
             (part) => part.active && part.getData("part") === "core"
@@ -3689,7 +3757,7 @@ class BattleScene extends Phaser.Scene {
         WORLD_HEIGHT - 40,
         playVariant === "single"
           ? save.selectedSpecialization === "wheelchair"
-            ? "撞击歼敌  [E]破阵冲刺  [Q]EMP  [G]首领权柄/全速推进  [1/2/3]禁用  后续武装自动释放"
+            ? "撞击歼敌  [E]破阵冲刺  [Q]EMP  [G]全速推进  [V]首领权柄  [1/2/3]禁用  后续武装自动释放"
             : "SPACE 开火  [1]激光 [2]导弹 [3]无人机  [Q]清屏 [E]超载  [F]相位闪避 [R]纳米修复"
           : "P1 WASD/SPACE/1-3/Q/E  ·  P2 方向键/ENTER/J/K/L  ·  友军爆破开启",
         { ...font, fontSize: "11px", color: "#6fa0b4", backgroundColor: "#04111fcc" }
@@ -3785,16 +3853,26 @@ class BattleScene extends Phaser.Scene {
       this.pickupEffect(collector.x, collector.y, true);
     } else if (kind === "boss_upgrade") {
       const onCollected = item.getData("onCollected") as (() => void) | undefined;
+      const stolenKind = value as BossKind;
       item.disableBody(true, true);
       this.pickupEffect(collector.x, collector.y, true);
-      showAirSupportSelection(
-        this,
-        () => {
-          this.showBanner(`${BOSS_NAMES[value as BossKind]}强化回收完成`, 900);
-          onCollected?.();
-        },
-        value as BossKind
+      // 黑影抢走的 Boss 专属强化在此归还:护符(被动) + 权柄(V 键主动)
+      const amulet = BOSS_AMULETS[stolenKind];
+      amulet.apply(this);
+      this.setBossPower(BOSS_KIND_TO_POWER[stolenKind]);
+      this.cameras.main.flash(160, 230, 255, 255);
+      this.showBanner(
+        `◆ 夺回 ${BOSS_NAMES[stolenKind]}强化: ${amulet.code} · ${amulet.description}`,
+        2000
       );
+      this.floatText(WORLD_WIDTH / 2, 340, `${amulet.name} 已嵌入战机`, true);
+      this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.6);
+      // 额外再给一次通用强化三选一
+      this.time.delayedCall(1200, () => {
+        showUpgrade(this, () => {
+          onCollected?.();
+        });
+      });
       return;
     } else {
       this.collectXp(value);
@@ -4713,9 +4791,19 @@ class BattleScene extends Phaser.Scene {
         this.activateWheelchairOverdrive();
         return;
       }
-      // 其余流派:首领权柄
+      // 力量流派未取得喷火强化
+      if (specialization === "power") {
+        showToast("G 键需要先取得「龙息喷火」强化");
+        return;
+      }
+      // 防御/吸血/吞噬:专属强化均为被动,G 键无主动技能
+      showToast("当前流派的专属强化为被动效果，无需 G 键触发");
+    });
+    // V 键:首领权柄(击破 Boss 后获得,保留到本局结束)
+    this.input.keyboard!.on("keydown-V", (e: KeyboardEvent) => {
+      if (isComposing(e)) return;
       if (this.bossPower) this.activateBossPower();
-      else showToast("G 键尚未装备首领权柄");
+      else showToast("V 键尚未获得首领权柄（击破 Boss 后获得）");
     });
     this.input.keyboard!.on("keydown-R", (e: KeyboardEvent) => { if (!isComposing(e)) this.activateNanoRepair(); });
     this.input.keyboard!.on("keydown-J", (e: KeyboardEvent) => {
@@ -4762,6 +4850,7 @@ class BattleScene extends Phaser.Scene {
     this.updateDarkEffects(time);
     this.updateTemporaryConfiscation(time);
     this.updateFinalSwarm(time);
+    this.updateDarkCorruption(time);
     this.updateWheelchairKnocked(time);
     this.updateFlamethrower(time);
     this.updateLunge(time);
@@ -4832,12 +4921,7 @@ class BattleScene extends Phaser.Scene {
     for (const b of bullets) {
       if (!b.active) {
         // 销毁附属特效
-        const halo = b.getData("skinHalo") as Phaser.GameObjects.Ellipse | null;
-        const trail = b.getData("skinTrail") as Phaser.GameObjects.Ellipse | null;
-        halo?.destroy();
-        trail?.destroy();
-        b.setData("skinHalo", null);
-        b.setData("skinTrail", null);
+        this.releaseSkinBulletFx(b);
         continue;
       }
       const halo = b.getData("skinHalo") as Phaser.GameObjects.Ellipse | null;
@@ -5515,8 +5599,26 @@ class BattleScene extends Phaser.Scene {
     return bullet;
   }
 
+  // 释放子弹上挂的皮肤特效(光环 + 尾迹),对象池复用与销毁前都必须调用
+  releaseSkinBulletFx(bullet: Phaser.Physics.Arcade.Image): void {
+    (bullet.getData("skinHalo") as Phaser.GameObjects.Ellipse | null)?.destroy();
+    (bullet.getData("skinTrail") as Phaser.GameObjects.Ellipse | null)?.destroy();
+    bullet.setData("skinHalo", null);
+    bullet.setData("skinTrail", null);
+  }
+
+  // 清空玩家子弹:必须先释放挂在子弹上的特效,否则光环会永久留在原地
+  clearPlayerBullets(): void {
+    for (const child of this.playerBullets.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      this.releaseSkinBulletFx(child);
+    }
+    this.playerBullets.clear(true, true);
+  }
+
   // 皮肤弹道特效:每个皮肤给玩家子弹加 1-2 个附加视觉(尾迹粒子 / 光环 / 中心高光)
   applySkinBulletFx(bullet: Phaser.Physics.Arcade.Image, owner: number): void {
+    // 子弹来自对象池,先清掉上一发残留的特效,否则旧椭圆会永久留在原地
+    this.releaseSkinBulletFx(bullet);
     const fx = (SKINS[save.equippedSkin].fx ?? "none") as string;
     if (fx === "none") return;
     // 给 bullet 加:中心高亮 + 不同尺寸发光椭圆,跟随子弹移动
@@ -6884,7 +6986,7 @@ class BattleScene extends Phaser.Scene {
     this.bossPower = power;
     this.bossPowerReadyAt = this.time.now + 1000;
     const definition = BOSS_POWER_OPTIONS.find((item) => item.id === power);
-    this.showBanner(`G · ${definition?.name ?? "首领权柄"} 已装备`, 1200);
+    this.showBanner(`V · ${definition?.name ?? "首领权柄"} 已获得`, 1200);
   }
 
   activateBossPower(): void {
@@ -6907,16 +7009,16 @@ class BattleScene extends Phaser.Scene {
     if (this.bossPower === "shadow_rift_blade") {
       this.bossPowerActiveUntil = this.time.now + 4000;
       this.nextBossPowerPulse = 0;
-      this.showBanner("G · 裂隙爪刀 · 横向切割", 1050);
+      this.showBanner("V · 裂隙爪刀 · 横向切割", 1050);
       this.burst(this.player.x, this.player.y, 0x9b5cff, 2.6);
     } else if (this.bossPower === "dark_deity_pact") {
       this.bossPowerActiveUntil = this.time.now + 3000;
       this.darkDeityInvulnUntil = this.time.now + 3000;
-      this.showBanner("G · 黑暗契约 · 3 秒无敌 + 追踪弹幕", 1050);
+      this.showBanner("V · 黑暗契约 · 3 秒无敌 + 追踪弹幕", 1050);
       this.burst(this.player.x, this.player.y, 0xff2d8f, 3.0);
     } else if (this.bossPower === "usurper_lock") {
       this.enemyFreezeUntil = Math.max(this.enemyFreezeUntil, this.bossPowerActiveUntil);
-      this.showBanner("G · 权限篡夺 · 敌方封锁 7 秒", 1050);
+      this.showBanner("V · 权限篡夺 · 敌方封锁 7 秒", 1050);
     } else if (this.bossPower === "mirror_copy") {
       this.bossPowerClones.forEach((clone) => clone.destroy());
       this.bossPowerClones = [-1, 1].map((side) =>
@@ -6927,9 +7029,9 @@ class BattleScene extends Phaser.Scene {
           .setAlpha(0.82)
           .setDepth(18)
       );
-      this.showBanner("G · 万象镜像 · 能力复制 7 秒", 1050);
+      this.showBanner("V · 万象镜像 · 能力复制 7 秒", 1050);
     } else {
-      this.showBanner("G · 裂渊权柄 · 陨星轰炸 7 秒", 1050);
+      this.showBanner("V · 裂渊权柄 · 陨星轰炸 7 秒", 1050);
     }
     this.burst(this.player.x, this.player.y, 0xffbd3e, 2.4);
   }
@@ -7097,6 +7199,11 @@ class BattleScene extends Phaser.Scene {
   }
 
   applyUpgrade(id: string): void {
+    // 支援协议并入了通用强化池,但等级存在 airSupportLevels 里,需要转交
+    if (AIR_SUPPORT_SKILLS.some((skill) => skill.id === id)) {
+      this.applyAirSupportUpgrade(id as AirSupportSkillId);
+      return;
+    }
     const previous = this.upgradeLevels[id] ?? 0;
     this.upgradeLevels[id] = Math.min(5, previous + 1);
     if (id === "armor") {
@@ -7162,14 +7269,14 @@ class BattleScene extends Phaser.Scene {
     if (id === "piercing_bombardment") {
       this.time.delayedCall(180, () => {
         if (this.ended) return;
-        const count = 3 + level;
+        const count = AIR_SUPPORT_VALUES.bombardmentCount(level);
         for (let i = 0; i < count; i += 1) {
           const x = ((i + 0.5) / count) * WORLD_WIDTH + Phaser.Math.Between(-28, 28);
           const shell = this.spawnPlayerBullet(
             x,
             WORLD_HEIGHT + 36,
             "missile",
-            82 + level * 34 * ATTACK_BONUS_SCALE,
+            AIR_SUPPORT_VALUES.bombardmentDamage(level),
             -1180,
             "support-bombardment"
           );
@@ -7184,21 +7291,23 @@ class BattleScene extends Phaser.Scene {
     } else if (id === "stasis_wake") {
       this.enemySlowUntil = Math.max(
         this.enemySlowUntil,
-        this.time.now + (5000 + level * 500)
+        this.time.now + AIR_SUPPORT_VALUES.stasisDuration(level)
       );
-      this.showBanner(`引力滞空 · 敌军推进 -${65 + level * 3}%`, 720);
+      this.showBanner(`引力滞空 · 敌军推进 -${AIR_SUPPORT_VALUES.stasisSlowPercent(level)}%`, 720);
     } else if (id === "absolute_freeze") {
       this.enemyFreezeUntil = Math.max(
         this.enemyFreezeUntil,
-        this.time.now + 3200 + level * 350
+        this.time.now + AIR_SUPPORT_VALUES.freezeDuration(level)
       );
       this.cameras.main.flash(120, 120, 244, 255);
       this.showBanner(
-        `绝对零度 · 全场冻结 ${formatRoundedNumberForDisplay(3.2 + level * 0.35)} 秒`,
+        `绝对零度 · 全场冻结 ${formatRoundedNumberForDisplay(
+          AIR_SUPPORT_VALUES.freezeDuration(level) / 1000
+        )} 秒`,
         780
       );
     } else if (id === "phase_escort") {
-      const duration = 2400 + level * 300;
+      const duration = AIR_SUPPORT_VALUES.escortDuration(level);
       this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + duration);
       this.enemyBullets.children.each((child) => {
         const bullet = child as Phaser.Physics.Arcade.Image;
@@ -7226,7 +7335,7 @@ class BattleScene extends Phaser.Scene {
         760
       );
     } else if (id === "repair_convoy") {
-      this.healPlayer(this.stats.maxHp * (0.1 + level * 0.03), "逆航维修");
+      this.healPlayer(this.stats.maxHp * AIR_SUPPORT_VALUES.repairRatio(level), "逆航维修");
       this.enemyBullets.children.each((child) => {
         const bullet = child as Phaser.Physics.Arcade.Image;
         if (
@@ -7238,11 +7347,14 @@ class BattleScene extends Phaser.Scene {
         }
         return true;
       });
-      this.showBanner(`纳米维修纵队 · 舰体 +${10 + level * 3}%`, 720);
+      this.showBanner(
+        `纳米维修纵队 · 舰体 +${Math.round(AIR_SUPPORT_VALUES.repairRatio(level) * 100)}%`,
+        720
+      );
     } else if (id === "hunter_sweep") {
       this.time.delayedCall(360, () => {
         if (this.ended) return;
-        const damage = 72 + level * 32 * ATTACK_BONUS_SCALE;
+        const damage = AIR_SUPPORT_VALUES.sweepDamage(level);
         (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).forEach((enemy) => {
           if (enemy.active) {
             enemy.setData("lastOwner", 1);
@@ -7253,10 +7365,7 @@ class BattleScene extends Phaser.Scene {
           (part) => part.active && part.getData("part") === "core"
         );
         if (core) {
-          this.damageBossPart(
-            core,
-            260 + level * 110 * ATTACK_BONUS_SCALE
-          );
+          this.damageBossPart(core, AIR_SUPPORT_VALUES.sweepBossDamage(level));
         }
         this.cameras.main.flash(90, 255, 80, 125);
         this.showBanner("猎杀编队 · 全域扫荡", 620);
@@ -7521,32 +7630,33 @@ class BattleScene extends Phaser.Scene {
     const length = this.flamethrowerLength ?? 80;
     const width = this.flamethrowerWidth ?? 80;
     const dmg = this.flamethrowerDmgPerFrame ?? 18;
-    // 火焰锥(玩家前方)
-    const facing = this.player.x > WORLD_WIDTH / 2 ? 1 : -1;
-    const cx = this.player.x + facing * (length * 0.4);
-    const cy = this.player.y - 10;
-    // 锥形 sprite — 4 个长椭圆叠加
+    // 火焰锥朝正上方(纵向卷轴,敌人从上方来),起点在机头
+    const originY = this.player.y - 26;
+    const cx = this.player.x;
+    // 锥形 = 4 段椭圆,越远越宽越淡
     for (let i = 0; i < 4; i += 1) {
+      const t = i / 3;
+      const segY = originY - length * (0.18 + t * 0.72);
       const r = this.add
-        .ellipse(cx, cy + (i - 1.5) * 4, length + i * 8, width * 0.6 - i * 8, 0xff7a2d, 0.7)
-        .setRotation(facing > 0 ? 0 : Math.PI)
+        .ellipse(cx, segY, width * (0.4 + t * 0.6), length * 0.42, 0xff7a2d, 0.6 - t * 0.14)
         .setDepth(8)
         .setBlendMode(Phaser.BlendModes.ADD);
       this.tweens.add({
         targets: r,
         alpha: 0,
-        scale: { from: 1, to: 0.6 },
+        scaleY: { from: 1, to: 1.25 },
         duration: 180,
         onComplete: () => r.destroy()
       });
     }
-    // 命中敌人
+    // 命中敌人:锥体覆盖 x ∈ 玩家 ± width/2,y ∈ [originY - length, originY]
+    const halfWidth = width * 0.5;
     const targets = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
       (e) =>
         e.active &&
-        e.x > Math.min(this.player.x, cx) - 16 &&
-        e.x < Math.max(this.player.x, cx) + 16 &&
-        Math.abs(e.y - this.player.y) < width * 0.45
+        e.y <= originY + 16 &&
+        e.y >= originY - length - 16 &&
+        Math.abs(e.x - cx) < halfWidth
     );
     for (const enemy of targets) {
       enemy.setData("lastOwner", 1);
@@ -7554,8 +7664,13 @@ class BattleScene extends Phaser.Scene {
     }
     // 命中首领
     for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
-      if (part.active && part.getData("part") === "core" &&
-        Math.abs(part.x - cx) < 80 && Math.abs(part.y - this.player.y) < width * 0.45) {
+      if (
+        part.active &&
+        part.getData("part") === "core" &&
+        part.y <= originY + 16 &&
+        part.y >= originY - length - 40 &&
+        Math.abs(part.x - cx) < halfWidth + 40
+      ) {
         this.damageBossPart(part, dmg);
       }
     }
@@ -7574,22 +7689,21 @@ class BattleScene extends Phaser.Scene {
       return;
     }
     if (this.time.now < this.lungingUntil) return; // 正在突刺中
-    // 目标点 = 鼠标位置,并限制在最大突进距离内
-    const pointer = this.input.activePointer;
-    const desiredX = Phaser.Math.Clamp(pointer.x, 50, WORLD_WIDTH - 50);
-    const desiredY = Phaser.Math.Clamp(pointer.y, 100, WORLD_HEIGHT - 60);
-    const reach = AGILE_LUNGE_REACH;
-    const rawDist = Phaser.Math.Distance.Between(
-      this.player.x,
-      this.player.y,
-      desiredX,
-      desiredY
+    // 方向由方向键/WASD 决定(没有按键时沿当前移动方向,静止则朝正上方)
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    const direction = new Phaser.Math.Vector2(
+      Number(this.wasd.D.isDown || this.cursors.right.isDown) -
+        Number(this.wasd.A.isDown || this.cursors.left.isDown),
+      Number(this.wasd.S.isDown || this.cursors.down.isDown) -
+        Number(this.wasd.W.isDown || this.cursors.up.isDown)
     );
-    // 鼠标超出射程时沿同方向截断到射程边缘;过近则给一个最小突进距离
-    const angle = Math.atan2(desiredY - this.player.y, desiredX - this.player.x);
-    const dist = Phaser.Math.Clamp(rawDist, 120, reach);
-    const tx = Phaser.Math.Clamp(this.player.x + Math.cos(angle) * dist, 50, WORLD_WIDTH - 50);
-    const ty = Phaser.Math.Clamp(this.player.y + Math.sin(angle) * dist, 100, WORLD_HEIGHT - 60);
+    if (direction.lengthSq() < 0.1) direction.set(body.velocity.x, body.velocity.y);
+    if (direction.lengthSq() < 10) direction.set(0, -1);
+    direction.normalize();
+    // 距离强制使用当前等级的上限,不再受鼠标位置影响
+    const reach = AGILE_LUNGE_REACHES[level - 1] ?? AGILE_LUNGE_REACH;
+    const tx = Phaser.Math.Clamp(this.player.x + direction.x * reach, 50, WORLD_WIDTH - 50);
+    const ty = Phaser.Math.Clamp(this.player.y + direction.y * reach, 100, WORLD_HEIGHT - 60);
     this.lungingFromX = this.player.x;
     this.lungingFromY = this.player.y;
     this.lungingToX = tx;
@@ -8716,15 +8830,31 @@ class BattleScene extends Phaser.Scene {
     this.clearBossEntities();
     this.cameras.main.flash(260, 255, 240, 255);
     if (save.settings.screenShake) this.cameras.main.shake(900, 0.023);
-    this.showBanner(`三神共斗终结 · ◆ +${reward} · 连续三级进化`, 1800);
-    this.time.delayedCall(1200, () => {
-      showDoctrineSequence(this, 3, () => {
-        if (selectedMode === "campaign") {
-          this.startCampaignInterlude(7, 4);
-        } else {
-          this.startCampaignEncounter(7);
-        }
+    this.showBanner(`三神共斗终结 · ◆ +${reward} · 三神强化全部回收`, 1800);
+    // 三神共斗:只给三个 Boss 各自的专属强化(护符 + 权柄),不给通用强化与流派进化
+    const raidKinds = this.trinityDefeatedKinds.length
+      ? this.trinityDefeatedKinds
+      : (["titan", "mirror", "usurper"] as BossKind[]);
+    raidKinds.forEach((kind, i) => {
+      this.time.delayedCall(900 + i * 900, () => {
+        const amulet = BOSS_AMULETS[kind];
+        amulet.apply(this);
+        // 权柄只能持有一个,按击破顺序覆盖,最后一个生效
+        this.setBossPower(BOSS_KIND_TO_POWER[kind]);
+        this.showBanner(
+          `◆ ${BOSS_NAMES[kind]}强化: ${amulet.code} · ${amulet.description}`,
+          1500
+        );
+        this.floatText(WORLD_WIDTH / 2, 340, `${amulet.name} 已嵌入战机`, true);
+        this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.6);
       });
+    });
+    this.time.delayedCall(900 + raidKinds.length * 900 + 600, () => {
+      if (selectedMode === "campaign") {
+        this.startCampaignInterlude(7, 4);
+      } else {
+        this.startCampaignEncounter(7);
+      }
     });
   }
 
@@ -8887,11 +9017,29 @@ class BattleScene extends Phaser.Scene {
     if (!this.finalSwarmActive) return;
     if (time < this.finalSwarmNextWaveAt) return;
     if (this.finalSwarmRemaining <= 0) {
+      // 待生成数为 0 还不够,场上残党也必须全部清掉才算清空
+      const aliveSwarm = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).some(
+        (e) => e.active && e.getData("finalSwarm") === true
+      );
+      if (aliveSwarm) {
+        this.finalSwarmNextWaveAt = time + 500;
+        return;
+      }
       this.finalSwarmActive = false;
+      this.unlockAchievement("after_storm");
+      // 摧毁核心:在侵蚀满之前清空残党 → 活着,但主动接下了这份黑暗
+      if (this.darkCoreChoice === "destroyed") {
+        this.triggerShadowEnding("destroyed_embraced");
+        return;
+      }
+      // 保留核心并清空残党:核心已自我修复,反过来占据玩家
+      if (this.darkCoreChoice === "kept") {
+        this.triggerShadowEnding("kept_possessed");
+        return;
+      }
       this.showBanner("◆ 残党清空 · 终局航线净空", 1500);
       this.cameras.main.flash(220, 200, 240, 255);
       if (save.settings.screenShake) this.cameras.main.shake(560, 0.014);
-      this.unlockAchievement("after_storm");
       this.time.delayedCall(1500, () => this.finishFinalCampaignVictory());
       return;
     }
@@ -8913,7 +9061,16 @@ class BattleScene extends Phaser.Scene {
       );
       enemy.setData("finalSwarm", true);
       // 2 段 HP 提升,让冲杀有挑战
-      const hpScale = 1.4 + this.finalSwarmWaveIndex * 0.12;
+      let hpScale = 1.4 + this.finalSwarmWaveIndex * 0.12;
+      // 摧毁核心:黑暗能量灌入残党,血量与伤害全面提升
+      if (this.darkCoreChoice === "destroyed") {
+        hpScale *= DARK_SWARM_HP_SCALE;
+        enemy.setData(
+          "damage",
+          (enemy.getData("damage") ?? 10) * DARK_SWARM_DAMAGE_SCALE
+        );
+        enemy.setTint(0x8c25ff);
+      }
       const currentHp = enemy.getData("hp") ?? 1;
       enemy.setData("hp", currentHp * hpScale);
       enemy.setData("maxHp", (enemy.getData("maxHp") ?? 1) * hpScale);
@@ -8924,6 +9081,67 @@ class BattleScene extends Phaser.Scene {
       `残党第 ${this.finalSwarmWaveIndex} 波 · 剩余 ${this.finalSwarmRemaining} 只`,
       550
     );
+  }
+
+  // 摧毁核心后:黑暗能量持续侵蚀玩家(掉血 + 侵蚀值累积)
+  updateDarkCorruption(time: number): void {
+    if (this.darkCoreChoice !== "destroyed" || this.ended) return;
+    if (!this.finalSwarmActive) return;
+    if (time < this.nextCorruptionTick) return;
+    this.nextCorruptionTick = time + DARK_CORRUPTION_TICK_MS;
+    this.darkCorruption = Math.min(100, this.darkCorruption + DARK_CORRUPTION_PER_TICK);
+    // 侵蚀掉血不触发无敌判定,直接扣
+    this.stats.hp = roundHealth(
+      this.stats.hp - this.stats.maxHp * DARK_CORRUPTION_HP_DRAIN,
+      this.stats.maxHp
+    );
+    this.player.setTint(0x8c25ff);
+    this.time.delayedCall(180, () => this.player.active && this.player.clearTint());
+    if (this.darkCorruption % 20 === 0) {
+      const alive = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
+        (e) => e.active
+      ).length;
+      this.showBanner(
+        `◆ 黑暗侵蚀 ${this.darkCorruption}% · 场上 ${alive} · 待出 ${this.finalSwarmRemaining}`,
+        900
+      );
+      this.cameras.main.flash(120, 90, 0, 130);
+    }
+    // 侵蚀满 100% → 被黑暗吞没;或先被侵蚀扣到没血
+    if (this.darkCorruption >= 100 || this.stats.hp <= 0) {
+      this.finalSwarmActive = false;
+      this.triggerShadowEnding("destroyed_consumed");
+    }
+  }
+
+  // 触发黑影结局:四条路都算失败结算
+  triggerShadowEnding(ending: ShadowEnding): void {
+    if (this.ended || this.shadowEnding) return;
+    this.shadowEnding = ending;
+    this.finalSwarmActive = false;
+    const info = SHADOW_ENDINGS[ending];
+    this.showBanner(`◆ ${info.title}`, 2400);
+    this.cameras.main.flash(600, 40, 0, 60);
+    if (save.settings.screenShake) this.cameras.main.shake(900, 0.024);
+    // 玩家战机被黑暗吞没
+    this.player.setTint(0x2a0040);
+    this.tweens.add({
+      targets: this.player,
+      alpha: 0.25,
+      scale: this.player.scale * 1.15,
+      duration: 1400
+    });
+    for (let i = 0; i < 10; i += 1) {
+      this.time.delayedCall(i * 130, () =>
+        this.burst(
+          this.player.x + Phaser.Math.Between(-90, 90),
+          this.player.y + Phaser.Math.Between(-90, 90),
+          i % 2 ? 0x8c25ff : 0x2a0040,
+          Phaser.Math.FloatBetween(1.4, 2.4)
+        )
+      );
+    }
+    this.time.delayedCall(2200, () => this.endRun(false));
   }
 
   startCampaignEncounter(index: number, skipStory = false): void {
@@ -11353,31 +11571,41 @@ class BattleScene extends Phaser.Scene {
     });
     this.bossEliteAura?.destroy();
     this.bossEliteAura = undefined;
-    // === BOSS 护符:击破获得该 boss 专属被动 ===
-    const amulet = BOSS_AMULETS[defeatedKind];
-    amulet.apply(this);
-    this.cameras.main.flash(160, 230, 255, 255);
-    if (save.settings.screenShake) this.cameras.main.shake(600, 0.018);
-    this.showBanner(
-      `◆ 解锁护符: ${amulet.code} · ${amulet.description}`,
-      2000
-    );
-    this.floatText(
-      WORLD_WIDTH / 2,
-      340,
-      `${amulet.name} 已嵌入战机`,
-      true
-    );
-    this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.6);
-    for (let i = 0; i < 8; i += 1) {
-      this.time.delayedCall(i * 110, () =>
-        this.burst(
-          WORLD_WIDTH / 2 + Phaser.Math.Between(-180, 180),
-          190 + Phaser.Math.Between(-90, 90),
-          i % 2 ? 0xff3dbb : 0xffbd3e,
-          Phaser.Math.FloatBetween(1.2, 2.2)
-        )
+    // 九战前三场普通 Boss:能力会被黑影抢走,击破当场不给护符/权柄,
+    // 等打完对应的黑影追逐战再一次性掉落。
+    const stolenByShadow = campaignEncounter?.kind === "boss";
+    if (!stolenByShadow) {
+      // === BOSS 护符:击破获得该 boss 专属被动 ===
+      const amulet = BOSS_AMULETS[defeatedKind];
+      amulet.apply(this);
+      this.cameras.main.flash(160, 230, 255, 255);
+      if (save.settings.screenShake) this.cameras.main.shake(600, 0.018);
+      this.showBanner(
+        `◆ 解锁护符: ${amulet.code} · ${amulet.description}`,
+        2000
       );
+      this.floatText(
+        WORLD_WIDTH / 2,
+        340,
+        `${amulet.name} 已嵌入战机`,
+        true
+      );
+      this.burst(WORLD_WIDTH / 2, 340, 0xc16cff, 1.6);
+      for (let i = 0; i < 8; i += 1) {
+        this.time.delayedCall(i * 110, () =>
+          this.burst(
+            WORLD_WIDTH / 2 + Phaser.Math.Between(-180, 180),
+            190 + Phaser.Math.Between(-90, 90),
+            i % 2 ? 0xff3dbb : 0xffbd3e,
+            Phaser.Math.FloatBetween(1.2, 2.2)
+          )
+        );
+      }
+      // === 首领权柄:击破该 Boss 即获得其专属技能,V 键释放,保留到本局结束 ===
+      this.setBossPower(BOSS_KIND_TO_POWER[defeatedKind]);
+    } else {
+      this.cameras.main.flash(160, 230, 255, 255);
+      if (save.settings.screenShake) this.cameras.main.shake(600, 0.018);
     }
     this.unlockAchievement("boss_slayer");
     this.bossTier = defeatedTier;
@@ -11427,8 +11655,23 @@ class BattleScene extends Phaser.Scene {
         }
         this.bossShattered = false;
       }
-      this.showBanner("◆ 黑暗魔神击破 · 无强化 · 残党涌入 · 冲杀出去", 2200);
-      this.time.delayedCall(1900, () => this.startFinalMinionSwarm());
+      this.showBanner("◆ 黑暗魔神击破 · 残骸中留下一枚损坏的黑暗核心", 2200);
+      // 终局抉择:摧毁 or 保留损坏的黑暗核心,再进入残党阶段
+      this.time.delayedCall(1900, () => {
+        showDarkCoreChoice(this, (choice) => {
+          this.darkCoreChoice = choice;
+          if (choice === "destroyed") {
+            this.darkCorruption = 0;
+            this.nextCorruptionTick = this.time.now + DARK_CORRUPTION_TICK_MS;
+            this.showBanner("◆ 核心已碎裂 · 黑暗能量灌入残党 · 你也开始被侵蚀", 2000);
+            this.cameras.main.flash(320, 120, 0, 160);
+            if (save.settings.screenShake) this.cameras.main.shake(700, 0.02);
+          } else {
+            this.showBanner("◆ 核心已封存于货舱 · 残党涌入 · 冲杀出去", 2000);
+          }
+          this.time.delayedCall(1200, () => this.startFinalMinionSwarm());
+        });
+      });
       return;
     }
     if (selectedMode === "endless") {
@@ -11439,7 +11682,8 @@ class BattleScene extends Phaser.Scene {
       );
     }
     this.time.delayedCall(1700, () => {
-      showAirSupportSelection(this, () => {
+      // Boss 击破奖励:先额外一次通用强化三选一(池内已含支援协议),选完再进流派进化
+      showUpgrade(this, () => {
         showDoctrineEvolution(this, () => {
           this.bossPhase = 0;
           this.showBanner(
@@ -11543,6 +11787,15 @@ class BattleScene extends Phaser.Scene {
         showToast("魔神契约 · 契约已耗尽");
       }
     }
+    // 终局残党阶段阵亡:按黑暗核心的抉择走对应的黑影结局
+    if (!victory && this.finalSwarmActive && this.darkCoreChoice && !this.shadowEnding) {
+      this.ended = false;
+      this.physics.world.resume();
+      this.triggerShadowEnding(
+        this.darkCoreChoice === "destroyed" ? "destroyed_fallen" : "kept_fallen"
+      );
+      return;
+    }
     // 终局残党阶段被小兵击毁 → 解锁「功亏一篑」(代币已通过 reward 字段保留)
     if (!victory && this.finalSwarmActive) {
       this.unlockAchievement("fell_short");
@@ -11567,7 +11820,8 @@ class BattleScene extends Phaser.Scene {
         reward,
         combatTokens,
         bosses: this.bossTier,
-        missionLevel: selectedLevel
+        missionLevel: selectedLevel,
+        shadowEnding: this.shadowEnding
       });
     if (victory) this.playVictoryCG(complete);
     else this.time.delayedCall(850, complete);

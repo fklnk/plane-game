@@ -293,6 +293,51 @@ export function chooseUnique<T extends { id: string }>(
   return result;
 }
 
+// 流派专属强化的 id 前缀(ram_ 属于撞击流派)
+const SPECIALIZATION_UPGRADE_PREFIXES = [
+  "power_",
+  "agile_",
+  "defender_",
+  "vampire_",
+  "devour_",
+  "wheelchair_",
+  "ram_"
+] as const;
+
+// 专属强化相对普通强化的权重:出现概率提高 10%
+export const SPECIALIZATION_UPGRADE_WEIGHT = 1.1;
+
+export function isSpecializationUpgradeId(id: string): boolean {
+  return SPECIALIZATION_UPGRADE_PREFIXES.some((prefix) => id.startsWith(prefix));
+}
+
+// 带权重的不重复抽取:专属强化权重 1.1,其余为 1
+export function chooseUniqueWeighted<T extends { id: string }>(
+  pool: T[],
+  count: number,
+  random: () => number = Math.random
+): T[] {
+  const copy = [...pool];
+  const result: T[] = [];
+  while (copy.length && result.length < count) {
+    const weights = copy.map((item) =>
+      isSpecializationUpgradeId(item.id) ? SPECIALIZATION_UPGRADE_WEIGHT : 1
+    );
+    const total = weights.reduce((sum, w) => sum + w, 0);
+    let roll = random() * total;
+    let picked = copy.length - 1;
+    for (let i = 0; i < copy.length; i += 1) {
+      roll -= weights[i];
+      if (roll < 0) {
+        picked = i;
+        break;
+      }
+    }
+    result.push(copy.splice(picked, 1)[0]);
+  }
+  return result;
+}
+
 export function rewardForRun(mode: GameMode, score: number, victory: boolean): number {
   const base = mode === "boss" ? 30 : mode === "endless" ? 18 : 24;
   return Math.floor(base + score / 2500 + (victory ? 35 : 0));

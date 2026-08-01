@@ -113,21 +113,29 @@ export const BOSS_CAMPAIGN_POWER_SCALES = [
 export const INCOMPLETE_TRINITY_STAT_SCALE = 2 / 3;
 export const FINAL_BOSS_STAT_SCALE = 2 / 3;
 export const FINAL_CAMPAIGN_CLEAR_BONUS = 1888;
-export const CAMPAIGN_CLEAR_SCORE_SCALE = 1.25;
+
+/**
+ * 普通战役五段清兵的累计分数门槛。
+ * 按区域难度分档写死:每段增量比上一段更大(或持平),避免线性公式导致的
+ * 「第一段跨度大、后面增量恒定」的观感问题。
+ * 噩梦档为设计基准,普通/困难按比例下调。
+ */
+const CAMPAIGN_CLEAR_SCORE_TABLE: Record<number, readonly [number, number, number, number, number]> = {
+  1: [18000, 31500, 48000, 60000, 72000],
+  2: [21000, 36750, 56000, 70000, 84000],
+  3: [24000, 42000, 64000, 80000, 96000],   // 普通
+  4: [27000, 47250, 72000, 90000, 108000],  // 困难
+  5: [30000, 52500, 80000, 100000, 120000]  // 噩梦(设计基准)
+};
 
 /**
  * Ordinary campaign clearing phases use the score pacing from the previous
- * campaign flow, with the requested 25% extension. Boss Rush skips these
- * phases entirely.
+ * campaign flow. Boss Rush skips these phases entirely.
  */
 export function campaignClearScoreRequirement(waveNumber: number, level: number): number {
   const wave = Math.max(0, Math.min(4, Math.floor(waveNumber)));
   const threatLevel = Math.max(1, Math.min(5, Math.floor(level)));
-  const originalRequirement =
-    wave === 0
-      ? 20000
-      : 23000 + wave * 9000 + threatLevel * 1500;
-  return Math.round(originalRequirement * CAMPAIGN_CLEAR_SCORE_SCALE);
+  return CAMPAIGN_CLEAR_SCORE_TABLE[threatLevel][wave];
 }
 
 export function campaignEncounterPowerScale(encounterIndex: number): number {
