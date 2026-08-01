@@ -1557,7 +1557,7 @@ function showMenu(): void {
     <section class="screen home-screen" aria-label="主菜单">
       <div class="home-hero">
         <div class="menu-logo">
-          <div class="eyebrow">STARGUARD · v0.6.0</div>
+          <div class="eyebrow">STARGUARD · v0.6.1</div>
           <h1>星际守护者</h1>
           <span class="en">NEON ABYSS</span>
         </div>
@@ -1836,7 +1836,7 @@ function showAbout(): void {
     <section class="screen">
       ${screenHeader("ABOUT / FLIGHT MANUAL", "关于与操作")}
       <div class="about-panel">
-        <div class="about-logo">星际守护者 <small>v0.5.1</small></div>
+        <div class="about-logo">星际守护者 <small>v0.6.1</small></div>
         <p>三类空域协议：普通战役最终通关、无尽模式分段存币、九战 Boss 固定终局。</p>
         <div class="key-table">
           <div><kbd>WASD / 方向键</kbd><span>移动战机</span></div>
@@ -5807,12 +5807,13 @@ class BattleScene extends Phaser.Scene {
       0.07,
       0.34
     );
+    // 精英:调用方强制指定 elite_ 前缀时必为精英,否则按难度/压力概率决定。
+    // Boss 召唤等指定兵种的生成同样参与掷骰,因此也可以是精英。
     const eliteVariant =
       forcedElite ||
-      (!forcedType &&
-        (isNineBattleMode() ? rollCampaignElite(selectedLevel) : Math.random() < eliteChance));
-    const mutated =
-      !forcedType && isNineBattleMode() && rollCampaignMutation(selectedLevel);
+      (isNineBattleMode() ? rollCampaignElite(selectedLevel) : Math.random() < eliteChance);
+    // 突变独立于精英:普通小兵也可以突变,精英同样可以叠加突变
+    const mutated = rollCampaignMutation(selectedLevel);
     const mutation: EnemyMutation | null = mutated
       ? Phaser.Utils.Array.GetRandom(["homing", "mine_burst", "armor", "dash", "suppress"] as EnemyMutation[])
       : null;
@@ -8936,9 +8937,10 @@ class BattleScene extends Phaser.Scene {
     }
     this.bossKind = encounter.bossKind;
     this.bossElite = rollCampaignElite(selectedLevel);
-    this.bossMutated =
-      ["boss", "trinity"].includes(encounter.kind) && rollCampaignMutation(selectedLevel);
-    if (this.bossMutated && ["titan", "mirror", "usurper"].includes(this.bossKind)) {
+    // 任何 Boss(含黑影追逐、完全体与最终真身)都可以精英突变
+    this.bossMutated = rollCampaignMutation(selectedLevel);
+    if (this.bossMutated) {
+      // 突变会借用其他 Boss 的招式,黑影系借用原始三神的能力
       const otherKinds = (["titan", "mirror", "usurper"] as BossKind[]).filter(
         (kind) => kind !== this.bossKind
       );

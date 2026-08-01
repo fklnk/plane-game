@@ -262,7 +262,8 @@ describe("nine battle boss campaign", () => {
     expect(rollCampaignElite(3, () => 0)).toBe(false);
     expect(rollCampaignElite(4, () => 0.49)).toBe(true);
     expect(rollCampaignElite(4, () => 0.5)).toBe(false);
-    expect(rollCampaignElite(5, () => 0.99)).toBe(true);
+    expect(rollCampaignElite(5, () => 0.74)).toBe(true);
+    expect(rollCampaignElite(5, () => 0.75)).toBe(false);
     expect(rollCampaignMutation(5, () => 0.24)).toBe(true);
     expect(rollCampaignMutation(5, () => 0.25)).toBe(false);
   });

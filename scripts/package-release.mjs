@@ -108,7 +108,7 @@ const instructions = `飞机大战：星际守护者
 
 const manifest = {
   name: "starfall-airstrike",
-  packageVersion: "0.5.1",
+  packageVersion: "0.6.1",
   runtimeTarget: "ES2022 modern browsers",
   minifier: "esbuild",
   sourcemap: false,

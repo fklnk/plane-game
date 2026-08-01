@@ -173,8 +173,8 @@ export const BOSS_CAMPAIGN_DIFFICULTIES: Record<
   nightmare: {
     id: "nightmare",
     name: "噩梦",
-    description: "全员精英；25% 小兵与 25% Boss 会额外获得其他单位的突变能力。",
-    eliteChance: 1,
+    description: "约 75% 敌军与 Boss 为精英；25% 单位会额外获得其他单位的突变能力。",
+    eliteChance: 0.75,
     mutationChance: 0.25,
     rewardMultiplier: 2.35
   }
