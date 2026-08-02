@@ -453,8 +453,9 @@ export function boostedSpecializationReduction(value: number): number {
 }
 
 export function collisionHullAttackMultiplier(gainedMaxHp: number): number {
+  // 每 500 HP 提供 20% 加成 → 削弱 1/6,实际每 500 HP + 约 16.67%
   const tiers = Math.floor(Math.max(0, gainedMaxHp) / 500);
-  return 1 + tiers * 0.2;
+  return 1 + tiers * 0.2 * (5 / 6);
 }
 
 export function agileCritRateAttackBonus(critChance: number): number {
@@ -466,11 +467,21 @@ export function agileCritEffectSpeedMultiplier(critEffect: number): number {
   return 1 + Math.max(0, critEffect) * 0.3;
 }
 
+// 撞击流派 maxHp>1000 后,Boss 主动撞玩家不再享受免伤:之前 0.75 减伤会让 Boss
+// 撞到玩家时几乎不扣血,被 BUG 报告为"双方不互撞"。同时把 Boss 撞玩家的
+// 伤害下限设为玩家最大生命的 8%。
+export const WHEELCHAIR_BOSS_BONUS_MAX_HP_THRESHOLD = 400;
+export const WHEELCHAIR_BOSS_BONUS_SCALE = 1.25;
+export const WHEELCHAIR_BOSS_COLLISION_MAX_HP_PERCENT = 0.08;
 export function collisionBossDamageScale(
   maxHp: number,
   collisionSpecialization: boolean
 ): number {
-  return collisionSpecialization && maxHp > 1000 ? 0.75 : 1;
+  // 撞击流派任何血量都不再因 maxHp>1000 享受 25% 减伤,改为 maxHp>400 时
+  // 把 Boss 撞玩家的伤害再加 25%,确保 boss 对玩家至少 8% 最大生命。
+  if (!collisionSpecialization) return 1;
+  if (maxHp > WHEELCHAIR_BOSS_BONUS_MAX_HP_THRESHOLD) return WHEELCHAIR_BOSS_BONUS_SCALE;
+  return 1;
 }
 
 export function minionHealthDamageMultiplier(maxHp: number): number {

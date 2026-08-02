@@ -6,7 +6,10 @@ export type PlayerBossPowerId =
   | "usurper_lock"
   | "shadow_rift_blade"
   | "dark_deity_pact"
-  | "absolute_freeze";
+  | "absolute_freeze"
+  | "pulsar_railgun"
+  | "gravity_well"
+  | "photon_barrage";
 
 export type PlayerBossPassiveId =
   | "titan_bulwark"
@@ -23,7 +26,10 @@ export type PlayerBossPassiveId =
   | "shadow_phase"
   | "deity_pact"
   | "deity_hunger"
-  | "deity_abyss";
+  | "deity_abyss"
+  | "pulsar_overcharge"
+  | "gravity_resonance"
+  | "photon_spectrum";
 
 export const PLAYER_BOSS_POWER_IDS: readonly PlayerBossPowerId[] = [
   "titan_meteor",
@@ -31,7 +37,10 @@ export const PLAYER_BOSS_POWER_IDS: readonly PlayerBossPowerId[] = [
   "usurper_lock",
   "shadow_rift_blade",
   "dark_deity_pact",
-  "absolute_freeze"
+  "absolute_freeze",
+  "pulsar_railgun",
+  "gravity_well",
+  "photon_barrage"
 ];
 
 export const PLAYER_BOSS_PASSIVE_IDS_BY_KIND: Record<
@@ -43,6 +52,17 @@ export const PLAYER_BOSS_PASSIVE_IDS_BY_KIND: Record<
   usurper: ["usurper_blight", "usurper_override", "usurper_recycle"],
   shadow: ["shadow_echo", "shadow_edge", "shadow_phase"],
   dark_deity: ["deity_pact", "deity_hunger", "deity_abyss"]
+};
+
+export const PLAYER_BOSS_POWER_IDS_BY_KIND: Record<
+  CampaignBossKind,
+  readonly PlayerBossPowerId[]
+> = {
+  titan: ["titan_meteor", "pulsar_railgun", "gravity_well"],
+  mirror: ["mirror_copy", "photon_barrage", "pulsar_railgun"],
+  usurper: ["usurper_lock", "absolute_freeze", "photon_barrage"],
+  shadow: ["shadow_rift_blade", "gravity_well", "titan_meteor"],
+  dark_deity: ["dark_deity_pact", "absolute_freeze", "shadow_rift_blade"]
 };
 
 export function bossPassiveDropChoices(
@@ -71,16 +91,36 @@ export function bossPassiveDropChoices(
 }
 
 export function bossPowerDropChoices(
-  primary: PlayerBossPowerId,
+  kind: CampaignBossKind,
   current: PlayerBossPowerId | null,
   random: () => number = Math.random
 ): PlayerBossPowerId[] {
-  const choices: PlayerBossPowerId[] = [primary];
-  if (current && current !== primary) choices.push(current);
-  const pool = PLAYER_BOSS_POWER_IDS.filter((power) => !choices.includes(power));
+  // 只从当前 boss 自己的权柄池里选 3 个,完全不使用其他 boss 的 power
+  const pool = [...(PLAYER_BOSS_POWER_IDS_BY_KIND[kind] ?? [])];
+  if (!pool.length) {
+    // 回退:以防配置缺失
+    const fallback = [...PLAYER_BOSS_POWER_IDS];
+    const out: PlayerBossPowerId[] = [];
+    while (out.length < 3 && fallback.length) {
+      const idx = Math.min(fallback.length - 1, Math.floor(random() * fallback.length));
+      out.push(fallback.splice(idx, 1)[0]);
+    }
+    return out;
+  }
+  // 把当前已装备的同名 power 优先放在候选 1,便于玩家延续既有路线
+  const choices: PlayerBossPowerId[] = [];
+  if (current && pool.includes(current)) {
+    choices.push(current);
+    const remaining = pool.filter((p) => p !== current);
+    while (choices.length < 3 && remaining.length) {
+      const idx = Math.min(remaining.length - 1, Math.floor(random() * remaining.length));
+      choices.push(remaining.splice(idx, 1)[0]);
+    }
+    return choices;
+  }
   while (choices.length < 3 && pool.length) {
-    const index = Math.min(pool.length - 1, Math.floor(random() * pool.length));
-    choices.push(pool.splice(index, 1)[0]);
+    const idx = Math.min(pool.length - 1, Math.floor(random() * pool.length));
+    choices.push(pool.splice(idx, 1)[0]);
   }
   return choices;
 }
@@ -146,6 +186,7 @@ export interface BossCampaignDifficulty {
   eliteChance: number;
   mutationChance: number;
   rewardMultiplier: number;
+  bossSkillCap: number;
 }
 
 export const BOSS_CAMPAIGN_ENCOUNTERS: BossCampaignEncounter[] = [
@@ -286,18 +327,20 @@ export const BOSS_CAMPAIGN_DIFFICULTIES: Record<
   normal: {
     id: "normal",
     name: "普通",
-    description: "所有敌军与 Boss 均为普通形态，不出现突变。",
+    description: "所有敌军与 Boss 均为普通形态，不出现突变。每个 Boss 最多使用 2 个技能。",
     eliteChance: 0,
     mutationChance: 0,
-    rewardMultiplier: 1
+    rewardMultiplier: 1,
+    bossSkillCap: 2
   },
   hard: {
     id: "hard",
     name: "困难",
-    description: "普通与精英敌军各占约 50%，Boss 也有一半概率进入精英形态。",
+    description: "普通与精英敌军各占约 50%，Boss 也有一半概率进入精英形态。每个 Boss 最多使用 3 个技能。",
     eliteChance: 0.5,
     mutationChance: 0,
-    rewardMultiplier: 1.55
+    rewardMultiplier: 1.55,
+    bossSkillCap: 3
   },
   nightmare: {
     id: "nightmare",
@@ -305,7 +348,8 @@ export const BOSS_CAMPAIGN_DIFFICULTIES: Record<
     description: "约 75% 敌军与 Boss 为精英；25% 单位会额外获得其他单位的突变能力。",
     eliteChance: 0.75,
     mutationChance: 0.25,
-    rewardMultiplier: 2.35
+    rewardMultiplier: 2.35,
+    bossSkillCap: 3
   }
 };
 

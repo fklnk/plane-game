@@ -56,17 +56,17 @@ import {
 
 describe("progression", () => {
   it("offers exactly three unique Boss powers and guarantees the defeated Boss signature", () => {
-    const choices = bossPowerDropChoices("titan_meteor", null, () => 0);
+    const choices = bossPowerDropChoices("titan", null, () => 0);
     expect(choices).toHaveLength(3);
     expect(new Set(choices).size).toBe(3);
     expect(choices).toContain("titan_meteor");
   });
 
   it("keeps the currently equipped Boss power as one of the three choices", () => {
-    const choices = bossPowerDropChoices("mirror_copy", "absolute_freeze", () => 0.99);
+    const choices = bossPowerDropChoices("mirror", "photon_barrage", () => 0.99);
     expect(choices).toHaveLength(3);
     expect(choices).toContain("mirror_copy");
-    expect(choices).toContain("absolute_freeze");
+    expect(choices).toContain("photon_barrage");
   });
 
   it("offers three unique exclusive passives for the shadow-stolen Boss core", () => {
@@ -288,11 +288,11 @@ describe("progression", () => {
     expect(boostedSpecializationReduction(1)).toBeCloseTo(5 / 6);
   });
 
-  it("scales collision attack by 20% for every 500 gained max health", () => {
+  it("scales collision attack by 16.67% for every 500 gained max health", () => {
     expect(collisionHullAttackMultiplier(0)).toBe(1);
     expect(collisionHullAttackMultiplier(499)).toBe(1);
-    expect(collisionHullAttackMultiplier(500)).toBe(1.2);
-    expect(collisionHullAttackMultiplier(1000)).toBe(1.4);
+    expect(collisionHullAttackMultiplier(500)).toBeCloseTo(1 + 0.2 * (5 / 6));
+    expect(collisionHullAttackMultiplier(1000)).toBeCloseTo(1 + 0.4 * (5 / 6));
     expect(collisionHullAttackMultiplier(-500)).toBe(1);
   });
 
@@ -304,10 +304,12 @@ describe("progression", () => {
     expect(agileCritEffectSpeedMultiplier(1.2)).toBeCloseTo(1.36);
   });
 
-  it("reduces boss damage by one quarter for high-health collision builds", () => {
-    expect(collisionBossDamageScale(1000, true)).toBe(1);
-    expect(collisionBossDamageScale(1001, true)).toBe(0.75);
-    expect(collisionBossDamageScale(5000, true)).toBe(0.75);
+  it("scales boss damage on the collision build by max health tier", () => {
+    // 撞击流派任何血量都不再 0.75 减伤;maxHp>400 时再加 25%
+    expect(collisionBossDamageScale(0, true)).toBe(1);
+    expect(collisionBossDamageScale(400, true)).toBe(1);
+    expect(collisionBossDamageScale(500, true)).toBe(1.25);
+    expect(collisionBossDamageScale(5000, true)).toBe(1.25);
     expect(collisionBossDamageScale(5000, false)).toBe(1);
   });
 
