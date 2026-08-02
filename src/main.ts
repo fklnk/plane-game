@@ -9503,13 +9503,13 @@ export class BattleScene extends Phaser.Scene {
           this.impactBurst(clone.x, clone.y, 0x9b5cff);
         } else {
           const bulletDamage = (enemyBulletHit.getData("damage") as number) ?? 10;
-          // 单发弹幕对分身伤害设上限:无融合技时最多 50% 最大生命(扛 2 发);
-          // 拥有万象影袭后最多 1/3 最大生命(保底 1 点),满血分身至少扛 3 发
+          // 单发弹幕对分身伤害设上限:无融合技时最多 1/3 最大生命(保底 1 点),满血分身至少扛 3 发;
+          // 拥有万象影袭后最多 1/5 最大生命(保底 1 点),满血分身至少扛 5 发
           const cloneMaxHp = Math.max(1, (clone.getData("maxHp") as number) ?? 1);
           const fusionOwned = (this.upgradeLevels.agile_shadow_lunge ?? 0) > 0;
           const cappedDamage = fusionOwned
-            ? Math.min(bulletDamage, Math.max(1, Math.floor((cloneMaxHp - 1) / 3)))
-            : Math.min(bulletDamage, Math.max(2, Math.ceil(cloneMaxHp * 0.5)));
+            ? Math.min(bulletDamage, Math.max(1, Math.floor((cloneMaxHp - 1) / 5)))
+            : Math.min(bulletDamage, Math.max(1, Math.floor((cloneMaxHp - 1) / 3)));
           const cloneHp = ((clone.getData("hp") as number) ?? 1) - cappedDamage;
           if (cloneHp <= 0) {
             clone.setData("hp", 0);
