@@ -36,11 +36,11 @@ export type PlayVariantId = "single" | "coop" | "score_duel";
 
 export const WHEELCHAIR_ACTIVE_SKILLS = {
   breachHorn: {
-    cooldownMs: 9000,
-    distance: 380,
+    cooldownMs: 12000,
+    distance: 500,
     ramDamageMultiplier: 3,
     damageTakenMultiplier: 0.3,
-    protectionMs: 700
+    protectionMs: 800
   },
   reactiveArmor: {
     cooldownMs: 20000,
@@ -519,12 +519,14 @@ const SPECIALIZATION_UPGRADE_PREFIXES = [
 
 // 专属强化相对普通强化的权重:在原 +10% 基础上再提高 5%，合计 +15%。
 export const SPECIALIZATION_UPGRADE_WEIGHT = 1.15;
+// 防御流派「荆棘护甲」出现概率额外提高 25%(在原专属权重 1.15 上再 ×1.25)。
+export const DEFENDER_THORNS_APPEARANCE_BOOST = 1.25;
 
 export function isSpecializationUpgradeId(id: string): boolean {
   return SPECIALIZATION_UPGRADE_PREFIXES.some((prefix) => id.startsWith(prefix));
 }
 
-// 带权重的不重复抽取:专属强化权重 1.15,其余为 1
+// 带权重的不重复抽取:专属强化权重 1.15,其余为 1;荆棘护甲再 ×1.25
 export function chooseUniqueWeighted<T extends { id: string }>(
   pool: T[],
   count: number,
@@ -533,9 +535,10 @@ export function chooseUniqueWeighted<T extends { id: string }>(
   const copy = [...pool];
   const result: T[] = [];
   while (copy.length && result.length < count) {
-    const weights = copy.map((item) =>
-      isSpecializationUpgradeId(item.id) ? SPECIALIZATION_UPGRADE_WEIGHT : 1
-    );
+    const weights = copy.map((item) => {
+      const base = isSpecializationUpgradeId(item.id) ? SPECIALIZATION_UPGRADE_WEIGHT : 1;
+      return item.id === "defender_thorns" ? base * DEFENDER_THORNS_APPEARANCE_BOOST : base;
+    });
     const total = weights.reduce((sum, w) => sum + w, 0);
     let roll = random() * total;
     let picked = copy.length - 1;

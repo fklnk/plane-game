@@ -315,10 +315,10 @@ describe("progression", () => {
 
   it("maps the three collision active skills to the selected combat values", () => {
     expect(WHEELCHAIR_ACTIVE_SKILLS.breachHorn).toMatchObject({
-      cooldownMs: 9000,
-      distance: 380,
+      cooldownMs: 12000,
+      distance: 500,
       ramDamageMultiplier: 3,
-      protectionMs: 700
+      protectionMs: 800
     });
     expect(WHEELCHAIR_ACTIVE_SKILLS.reactiveArmor).toMatchObject({
       cooldownMs: 20000,
