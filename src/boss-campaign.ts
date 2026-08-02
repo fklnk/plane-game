@@ -388,13 +388,13 @@ export function remainingStoreUnlockCost(
   _unlockedSkins: string[]
 ): number {
   const caps: Record<string, number> = {
-    hull: 12,
-    firepower: 12,
-    engine: 10,
-    armor: 10,
-    recovery: 8,
-    emergency: 5,
-    reroll: 3
+    hull: 15,
+    firepower: 15,
+    engine: 13,
+    armor: 13,
+    recovery: 11,
+    emergency: 8,
+    reroll: 6
   };
   let cost = 0;
   for (const [id, cap] of Object.entries(caps)) {

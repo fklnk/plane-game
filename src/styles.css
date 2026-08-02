@@ -1133,8 +1133,23 @@ kbd {
 }
 
 .medal-card.locked {
+  border-color: rgba(102, 160, 185, 0.1);
+  background: rgba(7, 20, 38, 0.55);
+  opacity: 1;
+}
+
+.medal-card.locked .medal-icon {
   filter: grayscale(1);
-  opacity: 0.45;
+  opacity: 0.5;
+}
+
+.medal-card.locked h3 {
+  color: #9fc2d6;
+}
+
+.medal-card.locked p {
+  color: #6d91a3;
+  font-style: italic;
 }
 
 .medal-card.earned {
@@ -1881,6 +1896,22 @@ kbd {
   margin-top: 4px;
 }
 
+/* 主动权柄三选一底部"保留当前"横排按钮 */
+.boss-power-keep-row {
+  width: 100%;
+  margin: 6px 0 2px;
+}
+
+.boss-power-keep-row .secondary-button {
+  width: 100%;
+}
+
+.boss-power-keep-row .secondary-button.selected {
+  border-color: var(--cyan);
+  background: rgba(45, 244, 255, 0.14);
+  color: #eaffff;
+}
+
 .boss-power-card {
   position: relative;
   min-height: 256px;
@@ -2035,6 +2066,8 @@ kbd {
 /* === 三神共斗合并选择:主动 + 被动 一块选 === */
 .trinity-combined-panel {
   width: min(100%, 980px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   border-color: rgba(193, 108, 255, 0.6);
   background:
     radial-gradient(circle at 50% 0, rgba(255, 189, 62, 0.12), transparent 44%),
@@ -2244,6 +2277,13 @@ kbd {
 }
 
 /* === 黑影结局结算面板 === */
+.shadow-ending-overlay {
+  background:
+    radial-gradient(circle at 50% 40%, rgba(140, 37, 255, 0.16), transparent 55%),
+    radial-gradient(circle at 50% 105%, rgba(58, 10, 94, 0.3), transparent 60%),
+    linear-gradient(180deg, rgba(8, 2, 16, 0.93), rgba(3, 1, 8, 0.96));
+}
+
 .shadow-ending-panel {
   border-color: rgba(140, 37, 255, 0.55);
   background: linear-gradient(160deg, rgba(22, 4, 38, 0.96), rgba(4, 2, 10, 0.96));

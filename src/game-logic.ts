@@ -196,13 +196,13 @@ export const DEFAULT_SAVE: SaveData = {
 export const UPGRADE_EXPERIENCE_SCALE = 1.1;
 
 const PERMANENT_UPGRADE_CAPS: Record<string, number> = {
-  hull: 12,
-  firepower: 12,
-  engine: 10,
-  armor: 10,
-  recovery: 8,
-  emergency: 5,
-  reroll: 3
+  hull: 15,
+  firepower: 15,
+  engine: 13,
+  armor: 13,
+  recovery: 11,
+  emergency: 8,
+  reroll: 6
 };
 
 function finiteNumber(value: unknown, fallback: number): number {

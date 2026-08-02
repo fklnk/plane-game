@@ -213,13 +213,13 @@ describe("progression", () => {
     );
     expect(repaired.starCores).toBe(0);
     expect(repaired.permanentUpgrades).toEqual({
-      hull: 12,
+      hull: 15,
       firepower: 0,
       engine: 2,
       armor: 0,
       recovery: 4,
       emergency: 2,
-      reroll: 3
+      reroll: 6
     });
     expect(repaired.settings).toEqual({
       musicVolume: 1,
@@ -505,12 +505,12 @@ describe("nine battle boss campaign", () => {
       emergency: 0,
       reroll: 0
     };
-    expect(remainingStoreUnlockCost(emptyUpgrades, ["standard"])).toBe(9764);
+    expect(remainingStoreUnlockCost(emptyUpgrades, ["standard"])).toBe(16232);
     expect(FINAL_CAMPAIGN_CLEAR_BONUS).toBe(1888);
-    expect(finalCampaignReward(emptyUpgrades, ["standard"])).toBe(11652);
+    expect(finalCampaignReward(emptyUpgrades, ["standard"])).toBe(18120);
     expect(
       remainingStoreUnlockCost(
-        { hull: 12, firepower: 12, engine: 10, armor: 10, recovery: 8, emergency: 5, reroll: 3 },
+        { hull: 15, firepower: 15, engine: 13, armor: 13, recovery: 11, emergency: 8, reroll: 6 },
         ["standard"]
       )
     ).toBe(0);

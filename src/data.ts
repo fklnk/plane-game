@@ -26,20 +26,23 @@ export const ATTACK_BONUS_SCALE = 2 / 3;
 export const SAVE_KEY = "starfall_save_v1";
 export const PERFORMANCE_MIGRATION_KEY = "starfall_performance_v051";
 export const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
-// 影步突刺(敏捷流派 G 键)：突进距离固定为当前等级上限，方向由方向键/WASD 决定，固定 400ms 完成
-// 距离上限为地图竖直长度的 60%(满级)
-export const AGILE_LUNGE_REACHES = [WORLD_HEIGHT * 0.4, WORLD_HEIGHT * 0.5, WORLD_HEIGHT * 0.6] as const;
+// 影步突刺(敏捷流派 G 键)：突进距离固定为当前等级上限，方向由方向键/WASD 决定，固定 550ms 完成
+// 距离上限为地图竖直长度的 84%(满级)；范围整体较旧版扩大 40%
+export const AGILE_LUNGE_REACHES = [WORLD_HEIGHT * 0.56, WORLD_HEIGHT * 0.7, WORLD_HEIGHT * 0.84] as const;
 export const AGILE_LUNGE_REACH = AGILE_LUNGE_REACHES[AGILE_LUNGE_REACHES.length - 1];
-export const AGILE_LUNGE_DURATION = 400;
-export const AGILE_LUNGE_HIT_WIDTH = [56, 68, 80] as const;
+export const AGILE_LUNGE_DURATION = 550;
+export const AGILE_LUNGE_HIT_WIDTH = [78, 95, 112] as const;
 export const AGILE_LUNGE_MAX_HEAL_HITS = 5;
 // 影分身(敏捷流派):数量上限 4,攻击最高为本体 100%,血量最高为本体 40%
-// Lv.1 固定 1 点血;之后血量按本体最大生命的比例成长,超过 4 级只继续提升血量与攻击
+// 血量按本体最大生命的比例成长(Lv.1 即拥有实血,不再 1 点被弹幕一碰即死)
+// 伤害:Lv.1 为玩家弹幕的 30%,每级提升,满级 50%
 export const AGILE_CLONE_MAX_COUNT = 4;
 export const AGILE_CLONE_COUNTS = [1, 2, 3, 4] as const;
-export const AGILE_CLONE_DAMAGE_RATIOS = [0.25, 0.5, 0.75, 1] as const;
-// Lv.1 用 0 表示「固定 1 点血」,后续为本体最大生命占比,上限 40%
-export const AGILE_CLONE_HP_RATIOS = [0, 0.1, 0.25, 0.4] as const;
+export const AGILE_CLONE_DAMAGE_RATIOS = [0.3, 0.37, 0.43, 0.5] as const;
+// 基础血量为本体最大生命占比,上限 40%;融合技(万象影袭)每级再额外叠加
+export const AGILE_CLONE_HP_RATIOS = [0.12, 0.18, 0.28, 0.4] as const;
+// 万象影袭每级额外提升分身血量占比,融合技等级越高分身越抗揍
+export const AGILE_CLONE_FUSION_HP_BONUS = 0.05;
 // 召唤间隔随等级递减(秒),一次只补充 1 个
 export const AGILE_CLONE_INTERVALS = [30, 25, 20, 15] as const;
 
@@ -86,7 +89,7 @@ export const SHIPS: Record<
     tag: "均衡突击",
     description: "装甲、火力和机动均衡，适合初次进入星渊战场。",
     hp: 100,
-    speed: 420,
+    speed: 400,
     damage: 1,
     passive: "火控同步：连续击杀后短暂提升火力",
     asset: "fighter_balanced"
@@ -97,16 +100,16 @@ export const SHIPS: Record<
     description: "牺牲少量机动换取高额火力，擅长快速拆解精英与 Boss。",
     hp: 92,
     speed: 390,
-    damage: 1.28,
-    passive: "爆燃弹头：导弹和清屏伤害提高 30%",
+    damage: 1.2,
+    passive: "爆燃弹头：导弹和清屏伤害提高 24%",
     asset: "fighter_bomber"
   },
   lightning: {
     name: "闪电战机",
     tag: "高速机动",
     description: "较快移动速度与短技能冷却,适合擦弹和走位。",
-    hp: 78,
-    speed: 400,
+    hp: 81,
+    speed: 410,
     damage: 0.92,
     passive: "闪电协议：主动技能冷却缩短 18%",
     asset: "fighter_lightning"
@@ -173,7 +176,7 @@ export const SPECIALIZATIONS: Record<
     damageTaken: 1,
     explosionTaken: 1,
     scale: 0.94,
-    trait: "暴击率 → 攻击力 · 暴击效果 → 移速 · 周期性万花弹环"
+    trait: "暴击率 → 攻击力 · 暴击效果 → 移速 · 周期性万花弹环(每颗 +0.1% 敌方最大生命)"
   },
   defender: {
     name: "防御流派",
@@ -254,11 +257,14 @@ for (const specialization of Object.values(SPECIALIZATIONS)) {
   );
 }
 
-export const POWER_FLAME_LENGTHS = [420, 560, 700, 840] as const;
-export const POWER_FLAME_WIDTHS = [260, 360, 480, 580] as const;
+// 龙息长度:504/672/840/1008 → 450/600/750/900
+export const POWER_FLAME_LENGTHS = [450, 600, 750, 900] as const;
+// 龙息末端宽度:338/468/624/754 → 280/390/500/620
+export const POWER_FLAME_WIDTHS = [280, 390, 500, 620] as const;
 // 龙息持续时间:在原值基础上累计延长 30%(910/1040/1170 → 1183/1352/1521),Lv.4 续延 +169。
 export const POWER_FLAME_DURATIONS = [1183, 1352, 1521, 1690] as const;
-export const POWER_FLAME_DAMAGE = [30, 44, 60, 78] as const;
+// 各档伤害:30 / 41 / 55 / 70.5
+export const POWER_FLAME_DAMAGE = [30, 41, 55, 70.5] as const;
 export const POWER_FLAME_COOLDOWNS = [17, 16, 15, 14] as const;
 
 export type SkinRarity = "rare" | "epic" | "mythic" | "legendary";
@@ -519,7 +525,7 @@ export const DARK_CORRUPTION_HP_DRAIN = 0.008;    // 每段额外扣 0.8% 最大
 export const DARK_SWARM_HP_SCALE = 1.55;          // 摧毁后残党血量倍率
 export const DARK_SWARM_DAMAGE_SCALE = 1.4;       // 摧毁后残党伤害倍率
 
-export type AgileTrajectory = "fan" | "arc" | "helix" | "scatter" | "cross" | "circle";
+export type AgileTrajectory = "fan" | "arc" | "helix" | "scatter" | "cross" | "circle" | "twin";
 export type AirSupportSkillId =
   | "piercing_bombardment"
   | "stasis_wake"
@@ -1171,8 +1177,8 @@ export const ACHIEVEMENTS = [
   { id: "boss_slayer", icon: "⬡", name: "泰坦终结者", detail: "首次击败裂渊泰坦", category: "战斗" },
   { id: "level_five", icon: "▲", name: "深入星渊", detail: "进入第五关", category: "探索" },
   { id: "coop_wing", icon: "∞", name: "双翼同盟", detail: "完成一局双人合作", category: "协作" },
-  { id: "fell_short", icon: "✗", name: "功亏一篑", detail: "终局残党阶段被小兵击毁", category: "终局" },
-  { id: "after_storm", icon: "✺", name: "柳暗花明又一村", detail: "击破终局残党 96 只，净化整条航线", category: "终局" },
+  { id: "fell_short", icon: "✗", name: "残党反噬", detail: "终局残党阶段被小兵击毁", category: "终局" },
+  { id: "after_storm", icon: "✺", name: "净化航线", detail: "击破终局残党 96 只，净化整条航线", category: "终局" },
   { id: "ending_shattered_vessel", icon: "⌁", name: "碎裂容器", detail: "摧毁核心后在残党围攻中阵亡", category: "结局" },
   { id: "ending_total_eclipse", icon: "●", name: "全然日蚀", detail: "摧毁核心后被侵蚀彻底吞没", category: "结局" },
   { id: "ending_willing_host", icon: "◉", name: "愿意的宿主", detail: "摧毁核心、清空残党并主动接纳黑暗", category: "结局" },
@@ -1368,7 +1374,7 @@ export const UPGRADES: UpgradeDefinition[] = [
     kind: "weapon",
     description: (level) => {
       const tier = Math.min(level, POWER_FLAME_LENGTHS.length - 1);
-      return `G 键巨型龙息 · 长 ${POWER_FLAME_LENGTHS[tier]} × 末端宽 ${POWER_FLAME_WIDTHS[tier]} · 持续 ${POWER_FLAME_DURATIONS[tier]}ms · ${POWER_FLAME_DAMAGE[tier]} 伤害/帧 · 冷却 ${POWER_FLAME_COOLDOWNS[tier]}s`;
+      return `G 键巨型龙息 · 长 ${POWER_FLAME_LENGTHS[tier]} × 末端宽 ${POWER_FLAME_WIDTHS[tier]} · 持续 ${POWER_FLAME_DURATIONS[tier]}ms · ${POWER_FLAME_DAMAGE[tier]} 伤害/帧 · 冷却 ${POWER_FLAME_COOLDOWNS[tier]}s · 火焰范围内焚毁敌方弹幕`;
     }
   },
   // === 敏捷流派专属 ===
@@ -1390,10 +1396,13 @@ export const UPGRADES: UpgradeDefinition[] = [
       const count = AGILE_CLONE_COUNTS[tier] ?? AGILE_CLONE_MAX_COUNT;
       const hpRatio = AGILE_CLONE_HP_RATIOS[tier] ?? 0.4;
       const damage = Math.round((AGILE_CLONE_DAMAGE_RATIOS[tier] ?? 1) * 100);
-      const hpText = hpRatio <= 0 ? "1 点血(受伤即消散)" : `本体最大生命 ${Math.round(hpRatio * 100)}%(动态跟随)`;
-      return `与本体同水平线并列作战 · ${count} 个分身(上限 ${AGILE_CLONE_MAX_COUNT}) · ${hpText} · 继承本体 ${damage}% 攻击 · 优先攻击血量最少的目标 · 每 ${
+      const hpText = `本体最大生命 ${Math.round(hpRatio * 100)}%(动态跟随 · 万象影袭每级再 +${Math.round(
+        AGILE_CLONE_FUSION_HP_BONUS * 100
+      )}%)`;
+      const bonusPct = Math.round((0.001 + tier * (0.004 / (AGILE_CLONE_MAX_COUNT - 1))) * 2.1 * 1000) / 10;
+      return `与本体同水平线并列作战 · ${count} 个分身(上限 ${AGILE_CLONE_MAX_COUNT} · 万象影袭等级同步提升) · ${hpText} · 继承本体 ${damage}% 攻击 · 与玩家同向射击(正上方) · 额外造成目标最大生命 ${bonusPct}% 伤害(满级 1.05%) · 每 ${
         AGILE_CLONE_INTERVALS[tier] ?? AGILE_CLONE_INTERVALS[AGILE_CLONE_MAX_COUNT - 1]
-      }s 补充 1 个 · 技能击杀 +1 最大生命 + 回复 1%`;
+      }s 补充 1 个 · 技能击杀最大生命 +2(在场分身≥2 时 +1) · 回复 1% 最大 + 2% 已损生命`;
     }
   },
   {
@@ -1403,9 +1412,9 @@ export const UPGRADES: UpgradeDefinition[] = [
     kind: "weapon",
     description: (level) => {
       const nextLevel = level === 0 ? 2 : level + 1;
-      return `影分身与影步突刺融合升级 · 自动补齐缺失的一半(Lv.1) · 首抽即 Lv.2 · 额外同步残影 ${nextLevel} · 联动伤害 +${Math.round(
-        nextLevel * 55
-      )}% · 扫掠宽度 +${nextLevel * 6} · 突刺冷却 -${formatRoundedNumberForDisplay(
+      return `影分身与影步突刺融合升级 · 自动补齐缺失的一半(Lv.1) · 首抽即 Lv.2 · 万象影袭等级同步提升影分身数量/攻击/血量档位 · 释放期间本体与影分身全部无敌且为实体(只挡弹幕不受伤害,影分身至少扛 3 发) · 突刺路径清除敌方弹幕 · 每个无敌实体命中附加目标最大生命 5.5% 额外伤害 · G 键突刺固定释放 4 个影分身同步突进(伤害×4),结束后消失并爆炸 · 范围与伤害随等级提升(联动伤害 +${Math.round(
+        nextLevel * 220
+      )}% · 范围满级为基础 1.9 倍) · 突刺冷却 -${formatRoundedNumberForDisplay(
         nextLevel * 0.75
       )}s · 技能击杀 +1 最大生命 + 回复 1%`;
     }

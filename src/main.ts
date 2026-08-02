@@ -53,7 +53,7 @@ import {
   rollMinionMutationKind
 } from "./boss-campaign";
 
-import {ACHIEVEMENT_SKIN_IDS, ACHIEVEMENTS, achievementSkinBulletDisplaySize, achievementSkinBulletTextureKey, achievementSkinTextureKey, AGILE_CLONE_COUNTS, AGILE_CLONE_DAMAGE_RATIOS, AGILE_CLONE_HP_RATIOS, AGILE_CLONE_INTERVALS, AGILE_CLONE_MAX_COUNT, AGILE_LUNGE_DURATION, AGILE_LUNGE_HIT_WIDTH, AGILE_LUNGE_MAX_HEAL_HITS, AGILE_LUNGE_REACH, AGILE_LUNGE_REACHES, AgileTrajectory, AIR_SUPPORT_SKILLS, AIR_SUPPORT_VALUES, AirSupportSkillId, ATTACK_BONUS_SCALE, BOSS_KIND_TO_POWER, BOSS_NAMES, BOSS_PASSIVE_OPTIONS, BOSS_POWER_COOLDOWN_MS, BOSS_POWER_DAMAGE_SCALE, BOSS_POWER_FREEZE_MS, BOSS_POWER_FX_KEYS, BOSS_POWER_OPTIONS, BOSS_SKILL_FX, BossKind, BossPassiveDefinition, BossPassiveId, BossPowerId, CAMPAIGN_MYSTERY_MESSAGES, CAMPAIGN_MYSTERY_THRESHOLDS, DARK_CORRUPTION_HP_DRAIN, DARK_CORRUPTION_PER_TICK, DARK_CORRUPTION_TICK_MS, DARK_SWARM_DAMAGE_SCALE, DARK_SWARM_HP_SCALE, DEBUG, distancePointToSegment, DOCTRINE_EVOLUTIONS, EnemyDamageSource, EnemyMutation, EnemyType, LEVELS, MINION_MUTATION_COLORS, PERFORMANCE_MIGRATION_KEY, PlayVariant, POWER_FLAME_COOLDOWNS, POWER_FLAME_DAMAGE, POWER_FLAME_DURATIONS, POWER_FLAME_LENGTHS, POWER_FLAME_WIDTHS, RunResult, SAVE_KEY, SHADOW_ENDING_ACHIEVEMENTS, SHADOW_ENDINGS, ShadowEnding, shadowTextureForAbsorbedPowers, SHIPS, SKIN_RARITY_LABELS, SKINS, SPECIALIZATIONS, specializationStats, TemporarySkill, UPGRADES, WORLD_HEIGHT, WORLD_WIDTH} from "./data";
+import {ACHIEVEMENT_SKIN_IDS, ACHIEVEMENTS, achievementSkinBulletDisplaySize, achievementSkinBulletTextureKey, achievementSkinTextureKey, AGILE_CLONE_COUNTS, AGILE_CLONE_DAMAGE_RATIOS, AGILE_CLONE_FUSION_HP_BONUS, AGILE_CLONE_HP_RATIOS, AGILE_CLONE_INTERVALS, AGILE_CLONE_MAX_COUNT, AGILE_LUNGE_DURATION, AGILE_LUNGE_HIT_WIDTH, AGILE_LUNGE_MAX_HEAL_HITS, AGILE_LUNGE_REACH, AGILE_LUNGE_REACHES, AgileTrajectory, AIR_SUPPORT_SKILLS, AIR_SUPPORT_VALUES, AirSupportSkillId, ATTACK_BONUS_SCALE, BOSS_KIND_TO_POWER, BOSS_NAMES, BOSS_PASSIVE_OPTIONS, BOSS_POWER_COOLDOWN_MS, BOSS_POWER_DAMAGE_SCALE, BOSS_POWER_FREEZE_MS, BOSS_POWER_FX_KEYS, BOSS_POWER_OPTIONS, BOSS_SKILL_FX, BossKind, BossPassiveDefinition, BossPassiveId, BossPowerId, CAMPAIGN_MYSTERY_MESSAGES, CAMPAIGN_MYSTERY_THRESHOLDS, DARK_CORRUPTION_HP_DRAIN, DARK_CORRUPTION_PER_TICK, DARK_CORRUPTION_TICK_MS, DARK_SWARM_DAMAGE_SCALE, DARK_SWARM_HP_SCALE, DEBUG, distancePointToSegment, DOCTRINE_EVOLUTIONS, EnemyDamageSource, EnemyMutation, EnemyType, LEVELS, MINION_MUTATION_COLORS, PERFORMANCE_MIGRATION_KEY, PlayVariant, POWER_FLAME_COOLDOWNS, POWER_FLAME_DAMAGE, POWER_FLAME_DURATIONS, POWER_FLAME_LENGTHS, POWER_FLAME_WIDTHS, RunResult, SAVE_KEY, SHADOW_ENDING_ACHIEVEMENTS, SHADOW_ENDINGS, ShadowEnding, shadowTextureForAbsorbedPowers, SHIPS, SKIN_RARITY_LABELS, SKINS, SPECIALIZATIONS, specializationStats, TemporarySkill, UPGRADES, WORLD_HEIGHT, WORLD_WIDTH} from "./data";
 
 // 永久加点统计(依赖运行时存档,留在入口模块)
 function totalPermanentLevels(): number {
@@ -651,7 +651,9 @@ function showMedalGallery(): void {
           return `
             <article class="medal-card ${obtainedAt ? "earned" : "locked"}">
               <div class="medal-icon">${achievement.icon}</div>
-              <div><span>${achievement.category}</span><h3>${achievement.name}</h3><p>${achievement.detail}</p>
+              <div><span>${achievement.category}</span><h3>${achievement.name}</h3><p>${
+                obtainedAt ? achievement.detail : "解锁后可见"
+              }</p>
               <time>${obtainedAt ? new Date(obtainedAt).toLocaleString("zh-CN") : "尚未获得"}</time></div>
             </article>
           `;
@@ -684,13 +686,13 @@ function showMedalGallery(): void {
 
 function showHangar(restoredScrollTop = 0): void {
   const permanentDefinitions = [
-    { id: "hull", icon: "⬡", name: "舰体强化", effect: "初始最大生命 +4%/级", max: 12 },
-    { id: "firepower", icon: "▲", name: "火力校准", effect: "全部武器伤害 +2%/级", max: 12 },
-    { id: "engine", icon: "⌁", name: "引擎超频", effect: "基础移动速度 +2.5%/级", max: 10 },
-    { id: "armor", icon: "◈", name: "相位装甲", effect: "受到伤害 -1.5%/级", max: 10 },
-    { id: "recovery", icon: "◆", name: "代币回收", effect: "每局星核币收益 +4%/级", max: 8 },
-    { id: "emergency", name: "紧急修复", effect: "首次濒危时自动修复", max: 5 },
-    { id: "reroll", icon: "↻", name: "战术重构", effect: "每级额外获得 1 次重抽", max: 3 }
+    { id: "hull", icon: "⬡", name: "舰体强化", effect: "初始最大生命 +4%/级", max: 15 },
+    { id: "firepower", icon: "▲", name: "火力校准", effect: "全部武器伤害 +2%/级", max: 15 },
+    { id: "engine", icon: "⌁", name: "引擎超频", effect: "基础移动速度 +2.5%/级", max: 13 },
+    { id: "armor", icon: "◈", name: "相位装甲", effect: "受到伤害 -1.5%/级", max: 13 },
+    { id: "recovery", icon: "◆", name: "代币回收", effect: "每局星核币收益 +4%/级", max: 11 },
+    { id: "emergency", name: "紧急修复", effect: "首次濒危时自动修复", max: 8 },
+    { id: "reroll", icon: "↻", name: "战术重构", effect: "每级额外获得 1 次重抽", max: 6 }
   ];
   uiRoot.innerHTML = `
     <section class="screen">
@@ -979,17 +981,14 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
       (!upgrade.id.startsWith("wheelchair_") || save.selectedSpecialization === "wheelchair") &&
       // 敏捷进阶规则:
       // - 未选任何基础技能:出突刺 + 影分身,万象影袭不出
-      // - 选完突刺/影分身任意一个:保留第一次选的那个(可升到 4 级),万象影袭解锁
-      // - 一旦选了万象影袭:基础技能全部不再出现,后续专属只出融合技
+      // - 选完突刺/影分身任意一个:基础技能全部不再出现,后续专属只出融合技(首抽即 Lv.2)
       (save.selectedSpecialization !== "agile" ||
         (() => {
           const lunge = scene.upgradeLevels.agile_lunge ?? 0;
           const clone = scene.upgradeLevels.agile_shadow_clone ?? 0;
-          const fusion = scene.upgradeLevels.agile_shadow_lunge ?? 0;
           if (upgrade.id === "agile_shadow_lunge") return lunge > 0 || clone > 0;
-          if (upgrade.id === "agile_lunge") return fusion === 0 && (lunge > 0 || clone === 0);
-          if (upgrade.id === "agile_shadow_clone")
-            return fusion === 0 && (clone > 0 || lunge === 0);
+          if (upgrade.id === "agile_lunge") return lunge === 0 && clone === 0;
+          if (upgrade.id === "agile_shadow_clone") return lunge === 0 && clone === 0;
           return true;
         })())
   );
@@ -1154,6 +1153,14 @@ function showBossPowerChoice(
         <div class="boss-power-grid">
           ${cardHtml}
         </div>
+        ${
+          scene.bossPower
+            ? `
+        <div class="boss-power-keep-row">
+          <button class="secondary-button" id="keep-boss-power">↩ 保留当前主动权柄（不替换）</button>
+        </div>`
+            : ""
+        }
         <div class="evolution-note">本界面只选择主动权柄 · 一次选择一项 · 同时只能装备一个 V 键技能。</div>
       </div>
     </div>
@@ -1167,6 +1174,13 @@ function showBossPowerChoice(
       sfx("upgrade");
       onComplete();
     });
+  });
+  document.querySelector<HTMLButtonElement>("#keep-boss-power")?.addEventListener("click", () => {
+    overlayRoot.innerHTML = "";
+    scene.isModal = false;
+    scene.physics.world.resume();
+    sfx("click");
+    onComplete();
   });
 }
 
@@ -1224,7 +1238,9 @@ function showTrinityCombinedChoice(
     )[0];
     uniquePassives.push(pick);
   }
+  // 最多展示 3 个被动:玩家已装备项 + 新候选去重后可能超过 3,超出的截断
   const passiveOptions = uniquePassives
+    .slice(0, 3)
     .map((id) => BOSS_PASSIVE_OPTIONS.find((option) => option.id === id))
     .filter((option): option is BossPassiveDefinition => Boolean(option));
 
@@ -1272,6 +1288,11 @@ function showTrinityCombinedChoice(
             )
             .join("")}
         </div>
+        ${
+          scene.bossPower
+            ? `<div class="boss-power-keep-row"><button class="secondary-button" data-trinity-keep-power>↩ 保留当前主动权柄</button></div>`
+            : ""
+        }
       </div>
     `
     : "";
@@ -1320,7 +1341,7 @@ function showTrinityCombinedChoice(
     </div>
   `;
 
-  let pickedPower: BossPowerId | null = null;
+  let pickedPower: BossPowerId | "keep" | null = null;
   let pickedPassive: BossPassiveId | null = null;
 
   const refreshConfirm = (): void => {
@@ -1342,10 +1363,27 @@ function showTrinityCombinedChoice(
         document
           .querySelectorAll<HTMLButtonElement>("[data-trinity-power]")
           .forEach((b) => b.classList.remove("selected"));
+        document
+          .querySelector<HTMLButtonElement>("[data-trinity-keep-power]")
+          ?.classList.remove("selected");
         button.classList.add("selected");
         sfx("click");
         refreshConfirm();
       });
+    });
+
+  document
+    .querySelector<HTMLButtonElement>("[data-trinity-keep-power]")
+    ?.addEventListener("click", () => {
+      pickedPower = "keep";
+      document
+        .querySelectorAll<HTMLButtonElement>("[data-trinity-power]")
+        .forEach((b) => b.classList.remove("selected"));
+      document
+        .querySelector<HTMLButtonElement>("[data-trinity-keep-power]")
+        ?.classList.add("selected");
+      sfx("click");
+      refreshConfirm();
     });
 
   document
@@ -1365,7 +1403,7 @@ function showTrinityCombinedChoice(
   document
     .querySelector<HTMLButtonElement>("#trinity-confirm")
     ?.addEventListener("click", () => {
-      if (pickedPower) {
+      if (pickedPower && pickedPower !== "keep") {
         scene.setBossPower(pickedPower);
       }
       if (pickedPassive) {
@@ -1743,6 +1781,9 @@ export class BattleScene extends Phaser.Scene {
   nextSiphonHealAt = 0;
   nextSiphonGroupFxAt = 0;
   invulnerableUntil = 0;
+  // 主动技能无敌(突刺/万象影袭)截止时间:用于区分被动受击无敌帧,
+  // Boss 预警大技能只穿透被动无敌帧,不会抹掉主动技能无敌
+  activeInvulnerableUntil = 0;
   player2FriendlyInvulnerableUntil = 0;
   shieldReadyAt = 0;
   emergencyUsed = false;
@@ -1780,6 +1821,9 @@ export class BattleScene extends Phaser.Scene {
   nextAchievementSkinFx = 0;
   visualEffectsReadyAt = 0;
   levelCompleteTriggered = false;
+  // 清兵期冻结的底层分数:阈值达标瞬间锁定,清兵/Boss 阶段击杀只加显示分数,
+  // 下一阈值以冻结值为基准,避免底层分数被清兵期击杀提前推高
+  bossClearScore = 0;
   playerWasHit = false;
   skillReadyAt: Record<string, number> = { laser: 0, missile: 0, drone: 0, emp: 0 };
   campaignBossAt = 360;
@@ -1911,6 +1955,10 @@ export class BattleScene extends Phaser.Scene {
   targetReticle?: Phaser.GameObjects.Container;
   horizonGlow?: Phaser.GameObjects.Graphics;
   bossTransientEffects = new Set<Phaser.GameObjects.GameObject>();
+  // 裸建的 Boss 本体图(afterimage / 黑影窃取演出),不属于任何对象池,
+  // 只靠 tween onComplete 销毁;若 tween 被中断会永久残留在背景上。
+  // 统一登记后由 clearBossEntities 兜底销毁。
+  bossTransientVisuals = new Set<Phaser.GameObjects.GameObject>();
   activeBossAttackTypes = new Map<string, number>();
   hud!: {
     graphics: Phaser.GameObjects.Graphics;
@@ -1956,21 +2004,36 @@ export class BattleScene extends Phaser.Scene {
     return effect;
   }
 
+  // 登记裸建的 Boss 本体图,确保它们不会因 tween 被中断而残留
+  trackBossVisual<T extends Phaser.GameObjects.GameObject>(visual: T): T {
+    this.bossTransientVisuals.add(visual);
+    visual.once("destroy", () => this.bossTransientVisuals.delete(visual));
+    return visual;
+  }
+
   clearBossAttackEffects(): void {
     for (const effect of this.bossTransientEffects) {
       this.tweens.killTweensOf(effect);
       if (effect.active) effect.destroy();
     }
     this.bossTransientEffects.clear();
+    // 兜底销毁任何残存的 Boss 本体图(正常流程中它们已被 tween 销毁,不会重复触发)
+    for (const visual of this.bossTransientVisuals) {
+      this.tweens.killTweensOf(visual);
+      if (visual.active) visual.destroy();
+    }
+    this.bossTransientVisuals.clear();
     this.activeBossAttackTypes.clear();
   }
 
-  startBossAttackType(type: string, attack: () => void, lifetime = 7000): boolean {
+  startBossAttackType(type: string, attack: () => void, lifetime = 7000, force = false): boolean {
     const now = this.time.now;
     for (const [activeType, expiresAt] of this.activeBossAttackTypes) {
       if (expiresAt <= now) this.activeBossAttackTypes.delete(activeType);
     }
-    if (!this.activeBossAttackTypes.has(type) && this.activeBossAttackTypes.size >= 4) {
+    // force=true 的招牌技能(镜像模仿玩家 / 篡夺者偷取技能)不受 4 类并发上限限制,
+    // 避免场上同时存在 4 个攻击时就"释放不出来"
+    if (!force && !this.activeBossAttackTypes.has(type) && this.activeBossAttackTypes.size >= 4) {
       return false;
     }
     this.activeBossAttackTypes.set(type, now + lifetime);
@@ -3023,8 +3086,8 @@ export class BattleScene extends Phaser.Scene {
     const kind = item.getData("kind") ?? "xp";
     const value = item.getData("value") ?? 1;
     if (kind === "token") {
-      this.runTokens += value;
-      this.floatText(collector.x, collector.y - 54, `飞行代币 ◆ +${value}`, true);
+      this.grantRunTokens(value);
+      this.floatText(collector.x, collector.y - 54, "飞行代币", true);
       this.pickupEffect(collector.x, collector.y, true);
     } else if (kind === "skill") {
       this.activateTemporarySkill(value as TemporarySkill);
@@ -3142,12 +3205,19 @@ export class BattleScene extends Phaser.Scene {
     if (type === "gunship" || type === "bomber") {
       const collisionDamage = maxHp * 0.25;
       enemy.setData("hp", Math.max(1, (enemy.getData("hp") ?? maxHp) - collisionDamage));
-      if (owner === 1) this.damagePlayer(24, "collision", "minion", enemy);
-      else this.damagePlayer2(24, "collision", "minion");
+      // 重炮/轰炸机撞击伤害:按玩家最大生命 30% 计算,不再固定 24(HP>1000 由 damagePlayer 按设定结算)
+      const collisionAmount = Math.max(10, Math.round(this.stats.maxHp * 0.3));
+      if (owner === 1) this.damagePlayer(collisionAmount, "collision", "minion", enemy);
+      else this.damagePlayer2(collisionAmount, "collision", "minion");
       this.floatText(enemy.x, enemy.y, `撞击 -25%`, true);
       enemy.setVelocityY(-180);
     } else {
-      const collisionDamage = Math.max(1, Math.ceil(enemy.getData("hp") ?? maxHp));
+      const rawCollisionDamage = Math.max(1, Math.ceil(enemy.getData("hp") ?? maxHp));
+      // 撞击伤害上限:最多 30% 玩家最大生命(保底 10 点),高血量小兵不再一撞秒杀玩家
+      const collisionDamage = Math.min(
+        rawCollisionDamage,
+        Math.max(10, Math.round(this.stats.maxHp * 0.3))
+      );
       if (owner === 1) this.damagePlayer(collisionDamage, "collision", "minion", enemy);
       else this.damagePlayer2(collisionDamage, "collision", "minion");
       enemy.setData("lastOwner", owner);
@@ -3163,12 +3233,15 @@ export class BattleScene extends Phaser.Scene {
     if (now < readyAt) return;
     const wheelchairRam = owner === 1 && save.selectedSpecialization === "wheelchair";
     const fortressActive = wheelchairRam && now < this.wheelchairFortressUntil;
+    // Boss 撞击伤害:按玩家最大生命 30% 计算,不再固定 38
+    // (HP>1000 由 damagePlayer 按设定 8%~12.5% 结算;撞击流派走碰撞特殊算法)
+    const bossCollisionAmount = Math.max(10, Math.round(this.stats.maxHp * 0.3));
     if (owner === 1) {
       this.collisionReadyAt = now + (fortressActive ? 165 : wheelchairRam ? 325 : 950);
-      this.damagePlayer(38, "collision", "boss");
+      this.damagePlayer(bossCollisionAmount, "collision", "boss");
     } else {
       this.player2CollisionReadyAt = now + 950;
-      this.damagePlayer2(38, "collision", "boss");
+      this.damagePlayer2(bossCollisionAmount, "collision", "boss");
     }
     const hullAttackMultiplier = wheelchairRam ? this.wheelchairHullAttackMultiplier() : 1;
     const reactiveBonus = wheelchairRam
@@ -4496,7 +4569,20 @@ export class BattleScene extends Phaser.Scene {
       !this.levelCompleteTriggered &&
       this.score + this.score2 >= this.nextBossScore
     ) {
+      // 达到分数阈值:立即停止刷兵,玩家需先清完场上剩余小兵,最后才召唤 Boss
       this.levelCompleteTriggered = true;
+      // 冻结底层分数:清兵期击杀只涨显示分数,不推动下一阈值
+      this.bossClearScore = this.score + this.score2;
+      this.nextSpawn = this.time.now + 999999;
+      this.showBanner("◆ 信号锁定 · 清空剩余威胁后首领降临", 1200);
+    }
+    // === 阈值达标且场上小兵已全部清空 → 触发 Boss 降临 ===
+    if (
+      selectedMode === "endless" &&
+      this.levelCompleteTriggered &&
+      !this.bossActive &&
+      !(this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).some((enemy) => enemy.active)
+    ) {
       this.playBossArrivalCG();
     }
     // === 突刺联动:影分身突刺 ===
@@ -5003,6 +5089,10 @@ export class BattleScene extends Phaser.Scene {
   ): void {
     const spread = Math.min(3, Math.floor((level + 1) / 2));
     const powerCount = level >= 4 ? 3 : 2;
+    // 玩家主炮每射击一次,影分身同步射击一次(仅 P1 本体开火时触发)
+    if (owner === 1 && shooter === this.player) {
+      this.shadowClonesSyncFire();
+    }
     if (owner === 1 && save.selectedSpecialization === "agile") {
       const projectileRatio =
         1.14 + Math.min(100, this.level) * 0.01 * ATTACK_BONUS_SCALE;
@@ -5016,7 +5106,7 @@ export class BattleScene extends Phaser.Scene {
           ? Math.max(1, Math.round((bloomLevel + 1) * ATTACK_BONUS_SCALE))
           : 0);
       this.agileVolleyIndex += 1;
-      const patterns: AgileTrajectory[] = ["fan", "arc", "helix", "scatter", "cross", "circle"];
+      const patterns: AgileTrajectory[] = ["fan", "arc", "helix", "scatter", "cross", "circle", "twin"];
       let pattern = Phaser.Utils.Array.GetRandom(patterns);
       if (pattern === "circle" && this.time.now >= this.nextAgileBloom) {
         this.fireAgileBloom(level, shooter, owner);
@@ -5024,14 +5114,25 @@ export class BattleScene extends Phaser.Scene {
         return;
       }
       if (pattern === "circle") pattern = "fan";
+      const twinSideOf = (index: number): number => (index % 2 === 0 ? -1 : 1);
+      // 子弹发散程度削弱 20%:所有图案的发散角度 ×0.8,弹道更聚拢
+      const spreadScale = 0.8;
       for (let i = 0; i < count; i += 1) {
         const normalized = count === 1 ? 0 : i / (count - 1) - 0.5;
-        let angle = -Math.PI / 2 + normalized * (1.18 + bloomLevel * 0.08);
-        if (pattern === "arc") angle = -Math.PI / 2 + normalized * 0.5;
-        if (pattern === "helix") angle = -Math.PI / 2 + normalized * 0.72;
-        if (pattern === "scatter") angle = -Math.PI / 2 + Phaser.Math.FloatBetween(-0.82, 0.82);
+        let angle = -Math.PI / 2 + normalized * ((1.18 + bloomLevel * 0.08) * spreadScale);
+        if (pattern === "arc") angle = -Math.PI / 2 + normalized * 0.5 * spreadScale;
+        if (pattern === "helix") angle = -Math.PI / 2 + normalized * 0.72 * spreadScale;
+        if (pattern === "scatter") {
+          angle = -Math.PI / 2 + Phaser.Math.FloatBetween(-0.82, 0.82) * spreadScale;
+        }
         if (pattern === "cross") {
-          angle = -Math.PI / 2 + (i % 2 === 0 ? -1 : 1) * (0.16 + Math.floor(i / 2) * 0.16);
+          angle =
+            -Math.PI / 2 +
+            (i % 2 === 0 ? -1 : 1) * (0.16 + Math.floor(i / 2) * 0.16) * spreadScale;
+        }
+        // 双子螺旋:左右两束强螺旋交错摆动,像两翼展开
+        if (pattern === "twin") {
+          angle = -Math.PI / 2 + twinSideOf(i) * ((0.42 + normalized * 0.16) * spreadScale);
         }
         const bullet = this.spawnPlayerBullet(
           shooter.x + normalized * 58,
@@ -5043,11 +5144,18 @@ export class BattleScene extends Phaser.Scene {
           owner
         );
         bullet.setVelocity(Math.cos(angle) * 820, Math.sin(angle) * 820);
+        // 双子螺旋:相位按左右两侧反向错开,螺旋更花哨
+        const curvePhase =
+          pattern === "twin"
+            ? twinSideOf(i) * (Math.PI * 0.62) + (i * 0.33) % (Math.PI * 2)
+            : (Math.PI * 2 * i) / count + this.agileVolleyIndex * 0.46;
+        bullet.setData("curvePhase", curvePhase);
         bullet.setData(
-          "curvePhase",
-          (Math.PI * 2 * i) / count + this.agileVolleyIndex * 0.46
+          "curveAmount",
+          pattern === "twin"
+            ? 5.4 + level * 0.22
+            : 3.1 + Math.min(5, level * 0.17) + bloomLevel * 0.62
         );
-        bullet.setData("curveAmount", 3.1 + Math.min(5, level * 0.17) + bloomLevel * 0.62);
         bullet.setData("born", this.time.now);
         bullet.setData("trajectory", pattern);
         bullet.setData("arcDirection", i % 2 === 0 ? -1 : 1);
@@ -5583,6 +5691,13 @@ export class BattleScene extends Phaser.Scene {
             (bullet.getData("curveAmount") ?? 2.4);
         } else if (trajectory === "cross" && age > 220) {
           body.velocity.x = Phaser.Math.Linear(body.velocity.x, -body.velocity.x * 0.85, 0.045);
+        } else if (trajectory === "twin") {
+          // 双子螺旋:左右两侧反向大摆幅螺旋交织
+          bullet.x +=
+            Math.sin(age * 0.017 + (bullet.getData("curvePhase") ?? 0)) *
+            (bullet.getData("curveAmount") ?? 4.6) *
+            1.5;
+          body.velocity.y = Phaser.Math.Linear(body.velocity.y, -820, 0.004);
         }
         // 装备皮肤子弹贴图时不再自转,避免来回翻转影响视觉一致性
         if (!bullet.getData("achievementSkinBullet")) {
@@ -5898,7 +6013,8 @@ export class BattleScene extends Phaser.Scene {
   updateEnemies(time: number, _dt: number): void {
     const ambientEnemiesEnabled =
       (selectedMode === "campaign" && this.campaignInterludeActive) ||
-      (selectedMode === "endless" && !this.bossActive);
+      // 无尽模式:达到阈值后停止刷兵,等玩家清完剩余小兵再打 Boss
+      (selectedMode === "endless" && !this.bossActive && !this.levelCompleteTriggered);
     if (ambientEnemiesEnabled && time >= this.nextSpawn) {
       this.spawnEnemy(time);
       const scorePressure = (this.score + this.score2) / 5000;
@@ -6041,7 +6157,6 @@ export class BattleScene extends Phaser.Scene {
 
   fireMutationPattern(enemy: Phaser.Physics.Arcade.Image, mutation: EnemyMutation): void {
     const damage = 14 * (enemy.getData("damageScale") ?? 1);
-    this.renderMinionMutationCue(enemy, mutation);
     if (mutation === "homing") {
       for (let index = -1; index <= 1; index += 1) {
         this.fireEnemyAngle(enemy.x + index * 20, enemy.y + 28, Math.PI / 2, 205, damage)
@@ -6253,7 +6368,20 @@ export class BattleScene extends Phaser.Scene {
       this.renderBossPowerPulse("titan_meteor", bullet.x, bullet.y, 160, 460);
     }
     enemy.setData("lastOwner", bullet.getData("owner") ?? 1);
-    this.dealDirectDamage(enemy, bullet.getData("damage"), bullet.x, bullet.y);
+    // 影分身子弹:附加目标最大生命 0.21%→1.05% 的额外伤害
+    const cloneMaxHpBonus =
+      weapon === "shadow_clone_bullet" ? this.shadowCloneBonusDamage(enemy) : 0;
+    // 敏捷万花弹环(圆圈弹幕):每颗子弹附加目标最大生命 0.1% 的额外伤害
+    const bloomMaxHpBonus =
+      weapon === "agile-bloom"
+        ? Math.max(1, Math.ceil(((enemy.getData("maxHp") as number) ?? 0) * 0.001))
+        : 0;
+    this.dealDirectDamage(
+      enemy,
+      (bullet.getData("damage") as number) + cloneMaxHpBonus + bloomMaxHpBonus,
+      bullet.x,
+      bullet.y
+    );
     if ((bullet.getData("owner") ?? 1) === 1) this.applyHitTrait();
     // === 吸血流派:子弹命中同帧生成 1 条虹吸链(上限 8 条) ===
     if ((bullet.getData("owner") ?? 1) === 1) this.spawnSiphonChain(enemy);
@@ -6264,10 +6392,7 @@ export class BattleScene extends Phaser.Scene {
       !enemy.active
     ) {
       enemy.setData("eliteKillWeapon", "shadow_clone_bullet");
-      this.stats.maxHp += 1;
-      this.healPlayer(this.stats.maxHp * 0.01);
-      this.recordAgileMaxHpGain(1);
-      this.floatText(enemy.x, enemy.y - 52, "影分身击杀 · MAX HP +1 · 回复1%", true);
+      this.grantShadowCloneKillReward(enemy);
     }
     const remainingPierce = bullet.getData("pierce") ?? 0;
     if (remainingPierce > 0) bullet.setData("pierce", remainingPierce - 1);
@@ -6423,9 +6548,8 @@ export class BattleScene extends Phaser.Scene {
       );
       this.spawnExperiencePickup(x, y, enemy.getData("xp") ?? 5);
       this.enemyPop(x, y, 0xff4d6d);
-      // 商店代币加到 runTokens,左上角数字会自动刷新
-      this.runTokens += difficultyTokens;
-      this.floatText(x + 24, y - 20, `◆ +${difficultyTokens}`, true);
+      // 商店代币加到 runTokens,左上角数字会自动刷新(按对局时间打折后入账,不再飘字)
+      this.grantRunTokens(difficultyTokens);
       this.unlockAchievement("first_blood");
       if (Math.max(this.score, this.score2) >= 10000) this.unlockAchievement("score_10k");
     }
@@ -6441,11 +6565,29 @@ export class BattleScene extends Phaser.Scene {
     const milestone = milestones[this.combo];
     if (!milestone) return;
     const reward = milestone.tokens + selectedLevel;
-    this.runTokens += reward;
+    this.grantRunTokens(reward);
     this.ultimate = Math.min(100, this.ultimate + milestone.ultimate);
-    this.showBanner(`${milestone.title} · ${this.combo} COMBO · ◆ +${reward}`, 760);
+    this.showBanner(`${milestone.title} · ${this.combo} COMBO`, 760);
     this.burst(this.player.x, this.player.y, 0xffbd3e, 1.6);
     sfx("upgrade");
+  }
+
+  // 商店代币时间衰减:按对局进行时间对代币收益打折
+  // (1 分钟内 -75%,1~2 分钟 -50%,2~3 分钟 -1/3,3~4 分钟 -15%,4 分钟后全额)
+  tokenTimeMultiplier(): number {
+    const t = this.elapsedSeconds;
+    if (t < 60) return 0.25;
+    if (t < 120) return 0.5;
+    if (t < 180) return 2 / 3;
+    if (t < 240) return 0.85;
+    return 1;
+  }
+
+  // 按时间折扣发放商店代币,返回实际入账数量(展示文案用返回值,避免"显示全额实际打折")
+  grantRunTokens(raw: number): number {
+    const granted = Math.round(raw * this.tokenTimeMultiplier());
+    this.runTokens += granted;
+    return granted;
   }
 
   applyKillTrait(): void {
@@ -7755,28 +7897,6 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
-  renderMinionMutationCue(enemy: Phaser.Physics.Arcade.Image, mutation: EnemyMutation): void {
-    const color = MINION_MUTATION_COLORS[mutation];
-    const shape = mutation === "armor"
-      ? this.add.circle(enemy.x, enemy.y, 48, color, 0.06).setStrokeStyle(4, 0xffffff, 0.78)
-      : mutation === "mine_burst"
-        ? this.add.circle(enemy.x, enemy.y, 52, color, 0.08).setStrokeStyle(3, 0xffffff, 0.72)
-        : mutation === "dash"
-          ? this.add.ellipse(enemy.x, enemy.y, 92, 24, color, 0.34).setStrokeStyle(3, 0xffffff, 0.78)
-          : mutation === "suppress"
-            ? this.add.rectangle(enemy.x, enemy.y, 118, 12, color, 0.36).setStrokeStyle(2, 0xffffff, 0.75)
-            : this.add.ellipse(enemy.x, enemy.y, 100, 42, color, 0.1).setStrokeStyle(4, 0xffffff, 0.82);
-    shape.setDepth(20).setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({
-      targets: shape,
-      scale: mutation === "dash" ? 2.6 : 1.9,
-      rotation: mutation === "homing" || mutation === "mine_burst" ? Math.PI : shape.rotation,
-      alpha: 0,
-      duration: 460,
-      onComplete: () => shape.destroy()
-    });
-  }
-
   activateBossPower(): void {
     if (!this.bossPower || this.ended || this.isModal) return;
     if (this.skillsConfiscated) {
@@ -8121,9 +8241,10 @@ export class BattleScene extends Phaser.Scene {
       }
       if ((this.upgradeLevels.agile_shadow_clone ?? 0) <= 0) {
         this.upgradeLevels.agile_shadow_clone = 1;
-        this.nextShadowCloneAt = this.time.now;
-        this.spawnShadowClones();
       }
+      // 融合技等级同步提升影分身数量/强度:每次升级立即刷新被动编队,保证多个影分身可见共存
+      this.nextShadowCloneAt = this.time.now;
+      this.spawnShadowClones();
     }
     this.showBanner(`${UPGRADES.find((upgrade) => upgrade.id === id)?.name} · Lv.${this.upgradeLevels[id]}`, 900);
   }
@@ -8603,6 +8724,23 @@ export class BattleScene extends Phaser.Scene {
         this.damageBossPart(part, dmg);
       }
     }
+    // 特殊机制:火焰锥形范围内的敌方弹幕被焚毁(仅限火焰内)
+    for (const bullet of this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (bullet.active && insideFlameCone(bullet.x, bullet.y)) {
+        const spark = this.add
+          .circle(bullet.x, bullet.y, 5, 0xffb84d, 0.9)
+          .setDepth(17)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: spark,
+          scale: 0.1,
+          alpha: 0,
+          duration: 160,
+          onComplete: () => spark.destroy()
+        });
+        bullet.disableBody(true, true);
+      }
+    }
   }
 
   // === 敏捷流派:影步突刺(G 键) ===
@@ -8642,6 +8780,8 @@ export class BattleScene extends Phaser.Scene {
     this.lungingStartedAt = this.time.now;
     this.lungingUntil = this.time.now + this.lungingDuration;
     const fusionLevel = this.upgradeLevels.agile_shadow_lunge ?? 0;
+    // 主动无敌:突刺全程 + 万象影袭结束时额外 0.5 秒(Boss 大技能不会穿透)
+    this.activeInvulnerableUntil = this.lungingUntil + (fusionLevel > 0 ? 500 : 0);
     // G 键冷却减半:基础 30/25/20s → 15/12.5/10s,联动减冷却同步减半,下限 5s
     const cooldown = Math.max(5, (([30, 25, 20][level - 1] ?? 20) - fusionLevel * 1.5) * 0.5);
     this.lungingReadyAt = this.time.now + cooldown * 1000;
@@ -8688,25 +8828,36 @@ export class BattleScene extends Phaser.Scene {
     const texture = this.player.texture.key;
     const maxHp = Math.max(1, this.stats.maxHp * 0.4);
     const fusionLevel = this.upgradeLevels.agile_shadow_lunge ?? 0;
+    // 万象影袭伤害整体提高 2 倍(影分身突刺联动倍率 ×2),再提高 100%(整体 ×4)
     const dmgMul =
-      2.4 +
-      ((this.upgradeLevels.agile_shadow_clone ?? 1) - 1) * 0.4 +
-      fusionLevel * 0.55;
+      (2.4 +
+        ((this.upgradeLevels.agile_shadow_clone ?? 1) - 1) * 0.4 +
+        fusionLevel * 0.55) *
+      4;
     const now = this.time.now;
+    // 影分身与本体突刺时长一致(400ms → 550ms),并排突进清晰可见
     const duration = this.lungingDuration;
     const deltaX = this.lungingToX - this.lungingFromX;
     const deltaY = this.lungingToY - this.lungingFromY;
     this.lungingShadowUntil = now + duration;
-    const comboCount = Math.min(8, sources.length + fusionLevel);
+    // 万象影袭固定释放 4 个影分身同步突刺
+    const comboCount = 4;
+    // 万象影袭范围系数:基础(Lv.2)为 1 倍,随等级提升,满级(Lv.5)为基础 1.9 倍
+    const rangeScale = Math.max(
+      1,
+      1 + (((this.upgradeLevels.agile_shadow_lunge ?? 0) - 2) / 3) * 0.9
+    );
+    // 万象影袭等级越高,分身横向展开越宽(范围随等级变大,最高为基础 1.9 倍)
+    const fanGap = Math.round(110 * rangeScale);
+    // 影分身以玩家为中心向两侧对称展开:与玩家并排、间隔明显、绝不复用玩家中心
+    const fanSlots: number[] = [];
+    for (let k = 1; fanSlots.length < comboCount; k += 1) {
+      if (fanSlots.length < comboCount) fanSlots.push(-k * fanGap);
+      if (fanSlots.length < comboCount) fanSlots.push(k * fanGap);
+    }
     for (let i = 0; i < comboCount; i += 1) {
-      const source = sources[i % sources.length];
-      const echoBand = Math.floor(i / sources.length);
-      const startX = Phaser.Math.Clamp(
-        source.x + (echoBand === 0 ? 0 : (i % 2 ? 1 : -1) * echoBand * 54),
-        42,
-        WORLD_WIDTH - 42
-      );
-      const startY = source.y;
+      const startX = Phaser.Math.Clamp(this.player.x + (fanSlots[i] ?? 0), 42, WORLD_WIDTH - 42);
+      const startY = this.player.y;
       const endX = Phaser.Math.Clamp(startX + deltaX, 42, WORLD_WIDTH - 42);
       const endY = Phaser.Math.Clamp(startY + deltaY, 80, WORLD_HEIGHT - 42);
       const clone = this.physics.add
@@ -8782,6 +8933,18 @@ export class BattleScene extends Phaser.Scene {
   updateLungeShadowClones(_time: number): void {
     if (this.lungingShadowUntil === 0) return;
     const now = this.time.now;
+    // 安全网:突刺时间已过但仍有残留影分身 → 强制全部销毁并爆炸,保证融合技释放的影分身必定消失
+    if (now >= this.lungingShadowUntil) {
+      for (const c of this.lungingShadowClones) {
+        if (c.active) {
+          this.bigExplosion(c.x, c.y, 0x9b5cff, 0.9);
+          c.destroy();
+        }
+      }
+      this.lungingShadowClones = [];
+      this.lungingShadowUntil = 0;
+      return;
+    }
     for (let i = this.lungingShadowClones.length - 1; i >= 0; i -= 1) {
       const c = this.lungingShadowClones[i];
       if (!c.active) {
@@ -8806,16 +8969,35 @@ export class BattleScene extends Phaser.Scene {
       const dmgMul = c.getData("dmgMul") as number;
       const dmg = this.computePlayerDamage() * dmgMul;
       const fusionLevel = this.upgradeLevels.agile_shadow_lunge ?? 0;
+      // 万象影袭范围系数:基础(Lv.2)为 1 倍,满级(Lv.5)为基础 1.9 倍
+      const rangeScale = Math.max(1, 1 + ((fusionLevel - 2) / 3) * 0.9);
+      // 万象影袭:影分身突刺路径清除敌方弹幕(宽度与联动扫掠一致)
+      const sweepWidth = Math.round(81.2 * rangeScale);
+      for (const bullet of this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]) {
+        if (
+          bullet.active &&
+          distancePointToSegment(bullet.x, bullet.y, previousX, previousY, c.x, c.y) <= sweepWidth
+        ) {
+          this.vaporizeEnemyBullet(bullet);
+        }
+      }
       const hit = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).find(
         (e) =>
           e.active &&
-          distancePointToSegment(e.x, e.y, previousX, previousY, c.x, c.y) < 38 + fusionLevel * 6
+          // 联动扫掠宽度随万象影袭等级提升而增大(满级为基础 2.4 倍)
+          distancePointToSegment(e.x, e.y, previousX, previousY, c.x, c.y) <
+            Math.round(81.2 * rangeScale)
       );
       if (hit && !hit.getData("lungeShadowHit")) {
         hit.setData("lungeShadowHit", true);
         hit.setData("lastOwner", 1);
         const before = hit.getData("hp") ?? 1;
-        if (before - dmg <= 0) {
+        // 万象影袭:每个无敌实体命中附加目标最大生命 5.5% 的额外伤害
+        const maxHpBonus = this.fusionLungeActive()
+          ? Math.ceil(((hit.getData("maxHp") as number) ?? before) * 0.055)
+          : 0;
+        const totalDamage = dmg + maxHpBonus;
+        if (before - totalDamage <= 0) {
           hit.setData("wheelchairRamKill", true);
           hit.setData("eliteKillWeapon", "lunge_shadow");
           this.destroyEnemy(hit, true);
@@ -8825,7 +9007,7 @@ export class BattleScene extends Phaser.Scene {
           this.recordAgileMaxHpGain(1);
           this.floatText(hit.x, hit.y - 52, "万象影袭击杀 · MAX HP +1 · 回复1%", true);
         } else {
-          hit.setData("hp", before - dmg);
+          hit.setData("hp", before - totalDamage);
         }
         this.impactBurst(hit.x, hit.y, 0x9b5cff);
       }
@@ -8835,21 +9017,47 @@ export class BattleScene extends Phaser.Scene {
           part.active &&
           ["core", "raid-core"].includes(part.getData("part")) &&
           !part.getData("lungeShadowHit") &&
-          distancePointToSegment(part.x, part.y, previousX, previousY, c.x, c.y) < 72 + fusionLevel * 9
+          // 联动首领扫掠宽度随万象影袭等级提升而增大(满级为基础 2.4 倍)
+          distancePointToSegment(part.x, part.y, previousX, previousY, c.x, c.y) <
+            Math.round(140 * rangeScale)
         ) {
           part.setData("lungeShadowHit", true);
-          this.damageBossPart(part, dmg);
+          const maxHpBonus = this.fusionLungeActive()
+            ? Math.ceil(((part.getData("maxHp") as number) ?? (part.getData("hp") as number) ?? 0) * 0.055)
+            : 0;
+          this.damageBossPart(part, dmg + maxHpBonus);
           this.impactBurst(part.x, part.y, 0x9b5cff);
         }
       }
-      // 突刺结束 → 销毁
+      // 突刺结束 → 影分身消失并爆炸
       if (t >= 1) {
-        this.burst(c.x, c.y, 0x9b5cff, 0.9);
+        this.bigExplosion(c.x, c.y, 0x9b5cff, 0.9);
         c.destroy();
         this.lungingShadowClones.splice(i, 1);
       }
     }
     if (this.lungingShadowClones.length === 0) this.lungingShadowUntil = 0;
+  }
+
+  // 万象影袭:清除单个敌方弹幕(紫色火花焚毁特效)
+  vaporizeEnemyBullet(bullet: Phaser.Physics.Arcade.Image): void {
+    const spark = this.add
+      .circle(bullet.x, bullet.y, 5, 0xb56cff, 0.9)
+      .setDepth(17)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: spark,
+      scale: 0.1,
+      alpha: 0,
+      duration: 160,
+      onComplete: () => spark.destroy()
+    });
+    bullet.disableBody(true, true);
+  }
+
+  // 万象影袭释放中:本体与影分身全部无敌且都是实体,命中敌人附加目标最大生命 5.5% 的额外伤害
+  fusionLungeActive(): boolean {
+    return (this.upgradeLevels.agile_shadow_lunge ?? 0) > 0 && this.lungingUntil > 0;
   }
 
   updateLunge(_time: number): void {
@@ -8860,7 +9068,11 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
     // 强制无敌(同时 invulnerableUntil 设到 lunging 结束)
-    this.invulnerableUntil = Math.max(this.invulnerableUntil, this.lungingUntil);
+    // 拥有万象影袭(融合技)时,突刺结束后额外保持 0.5 秒无敌
+    this.invulnerableUntil = Math.max(
+      this.invulnerableUntil,
+      this.lungingUntil + ((this.upgradeLevels.agile_shadow_lunge ?? 0) > 0 ? 500 : 0)
+    );
     // 沿直线按已经过时间比例插值
     const progress = Phaser.Math.Clamp(
       (this.time.now - this.lungingStartedAt) / Math.max(1, this.lungingDuration),
@@ -8881,6 +9093,18 @@ export class BattleScene extends Phaser.Scene {
     const hitWidth =
       AGILE_LUNGE_HIT_WIDTH[level - 1] ?? AGILE_LUNGE_HIT_WIDTH[AGILE_LUNGE_HIT_WIDTH.length - 1];
     const baseDamage = this.computePlayerDamage() * dmgMul;
+    // 万象影袭:本体突刺路径清除敌方弹幕
+    if ((this.upgradeLevels.agile_shadow_lunge ?? 0) > 0) {
+      for (const bullet of this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]) {
+        if (
+          bullet.active &&
+          distancePointToSegment(bullet.x, bullet.y, prevX, prevY, this.player.x, this.player.y) <=
+            hitWidth
+        ) {
+          this.vaporizeEnemyBullet(bullet);
+        }
+      }
+    }
     for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
       if (!enemy.active || enemy.getData("lungeHit")) continue;
       if (
@@ -8892,7 +9116,12 @@ export class BattleScene extends Phaser.Scene {
       enemy.setData("lungeHit", true);
       enemy.setData("lastOwner", 1);
       const before = enemy.getData("hp") ?? 1;
-      if (before - baseDamage <= 0) {
+      // 万象影袭:每个无敌实体命中附加目标最大生命 5.5% 的额外伤害
+      const maxHpBonus = this.fusionLungeActive()
+        ? Math.ceil(((enemy.getData("maxHp") as number) ?? before) * 0.055)
+        : 0;
+      const totalDamage = baseDamage + maxHpBonus;
+      if (before - totalDamage <= 0) {
         enemy.setData("wheelchairRamKill", true);
         enemy.setData("eliteKillWeapon", "lunge");
         this.destroyEnemy(enemy, true);
@@ -8902,8 +9131,8 @@ export class BattleScene extends Phaser.Scene {
         this.recordAgileMaxHpGain(1);
         this.floatText(enemy.x, enemy.y - 52, "突刺击杀 · MAX HP +1 · 回复1%", true);
       } else {
-        enemy.setData("hp", before - baseDamage);
-        this.floatText(enemy.x, enemy.y, `突刺 ${Math.round(baseDamage)}`, true);
+        enemy.setData("hp", before - totalDamage);
+        this.floatText(enemy.x, enemy.y, `突刺 ${Math.round(totalDamage)}`, true);
       }
       // 回复 2% 最大生命,单次突刺最多累计 5 次
       if (this.lungingHits < AGILE_LUNGE_MAX_HEAL_HITS) {
@@ -8922,7 +9151,10 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
       part.setData("lungeHit", true);
-      this.damageBossPart(part, baseDamage);
+      const maxHpBonus = this.fusionLungeActive()
+        ? Math.ceil(((part.getData("maxHp") as number) ?? (part.getData("hp") as number) ?? 0) * 0.055)
+        : 0;
+      this.damageBossPart(part, baseDamage + maxHpBonus);
       this.impactBurst(part.x, part.y, 0x7ffcff);
     }
   }
@@ -9035,23 +9267,34 @@ export class BattleScene extends Phaser.Scene {
   spawnShadowClones(): void {
     const level = this.upgradeLevels.agile_shadow_clone ?? 0;
     if (level <= 0) return;
-    const tier = Math.min(level, AGILE_CLONE_MAX_COUNT) - 1;
+    // 万象影袭等级同步提升分身数量/攻击/血量档位:有效等级取被动与融合技的较高者
+    const fusionLevel = this.upgradeLevels.agile_shadow_lunge ?? 0;
+    const effectiveLevel = Math.max(level, fusionLevel);
+    const tier = Math.min(effectiveLevel, AGILE_CLONE_MAX_COUNT) - 1;
     // 数量最多 4 个,继续升级只提升血量与攻击
     const count = AGILE_CLONE_COUNTS[tier] ?? AGILE_CLONE_MAX_COUNT;
     const dmgMul = AGILE_CLONE_DAMAGE_RATIOS[tier] ?? 1;
-    const hpRatio = AGILE_CLONE_HP_RATIOS[tier] ?? 0.4;
+    // 分身血量 = 被动基础占比 + 融合技(万象影袭)每级额外加成,融合技等级越高分身越抗揍
+    const hpRatio = (AGILE_CLONE_HP_RATIOS[tier] ?? 0.4) + AGILE_CLONE_FUSION_HP_BONUS * fusionLevel;
     // 清理死亡
     for (let i = this.shadowClones.length - 1; i >= 0; i -= 1) {
       if (!this.shadowClones[i].active) this.shadowClones.splice(i, 1);
     }
-    // 每次只补充一个分身,间隔随等级递减
+    // 被动影分身随召唤间隔逐个产生(与融合技"释放后消失"区分开),死亡后同样逐个补充
     const interval = AGILE_CLONE_INTERVALS[tier] ?? AGILE_CLONE_INTERVALS[AGILE_CLONE_MAX_COUNT - 1];
     this.nextShadowCloneAt = this.time.now + interval * 1000;
     if (this.shadowClones.length >= count) return;
     const texture = this.player.texture.key;
+    const cloneMaxHp = this.shadowCloneMaxHp(hpRatio);
     // 影分身继承当前完整模型，以紫色区分本体。
+    // 生成时直接落在编队槽位左右两侧(±170px),避免先出现在玩家身上造成"重合看不到"
+    const spawnSide = this.shadowClones.length % 2 === 0 ? 170 : -170;
     const clone = this.physics.add
-      .image(this.player.x + Phaser.Math.Between(-60, 60), this.player.y, texture)
+      .image(
+        Phaser.Math.Clamp(this.player.x + spawnSide, 42, WORLD_WIDTH - 42),
+        this.player.y,
+        texture
+      )
       .setDisplaySize(this.player.displayWidth, this.player.displayHeight)
       .setTint(0x9b5cff)  // 中紫色,便于与本体区分
       .setAlpha(0.92)
@@ -9059,9 +9302,7 @@ export class BattleScene extends Phaser.Scene {
     clone.setData("owner", 1);
     clone.setData("shadowClone", true);
     clone.setData("shadowCloneDmgMul", dmgMul);
-    // hpRatio 为 0 时固定 1 点血;否则按本体最大生命比例动态换算
     clone.setData("shadowCloneHpRatio", hpRatio);
-    const cloneMaxHp = this.shadowCloneMaxHp(hpRatio);
     clone.setData("hp", cloneMaxHp);
     clone.setData("maxHp", cloneMaxHp);
     clone.setData("lastShotAt", 0);
@@ -9071,10 +9312,69 @@ export class BattleScene extends Phaser.Scene {
     this.burst(clone.x, clone.y, 0x9b5cff, 1.0);
   }
 
-  // 分身最大生命:Lv.1 固定 1 点,其余按本体当前最大生命的比例动态换算
+  // 影分身击杀奖励:在场活跃分身不足 2 个时 MAX HP +2,2 个及以上时 +1;
+  // 回复 = 1% 最大生命 + 2% 已损生命
+  grantShadowCloneKillReward(enemy: Phaser.Physics.Arcade.Image): void {
+    const activeCloneCount = this.shadowClones.filter((clone) => clone.active).length;
+    const gain = activeCloneCount >= 2 ? 1 : 2;
+    this.stats.maxHp += gain;
+    const missingHp = Math.max(0, this.stats.maxHp - this.stats.hp);
+    this.healPlayer(this.stats.maxHp * 0.01 + missingHp * 0.02);
+    this.recordAgileMaxHpGain(gain);
+    this.floatText(
+      enemy.x,
+      enemy.y - 52,
+      `影分身击杀 · MAX HP +${gain} · 回复1%+2%`,
+      true
+    );
+  }
+
+  // 分身最大生命:按本体当前最大生命的比例动态换算,最低 4 点避免被任意弹幕一碰即死
   shadowCloneMaxHp(hpRatio: number): number {
-    if (hpRatio <= 0) return 1;
-    return Math.max(1, Math.round(this.stats.maxHp * hpRatio));
+    return Math.max(4, Math.round(this.stats.maxHp * Math.max(0, hpRatio)));
+  }
+
+  // 影分身额外伤害比例:基础 0.1%(Lv.1)→0.5%(满级)再提高 110%(×2.1):Lv.1 约 0.21%,满级 1.05%
+  shadowCloneMaxHpBonusRatio(): number {
+    const effectiveLevel = Math.max(
+      this.upgradeLevels.agile_shadow_clone ?? 0,
+      this.upgradeLevels.agile_shadow_lunge ?? 0
+    );
+    const tier = Math.max(0, Math.min(effectiveLevel, AGILE_CLONE_MAX_COUNT) - 1);
+    return (0.001 + tier * (0.004 / (AGILE_CLONE_MAX_COUNT - 1))) * 2.1;
+  }
+
+  // 影分身额外伤害数值:目标最大生命 × 档位比例(至少 1 点)
+  shadowCloneBonusDamage(enemy: Phaser.Physics.Arcade.Image): number {
+    const maxHp = (enemy.getData("maxHp") as number) ?? (enemy.getData("hp") as number) ?? 0;
+    return Math.max(1, Math.ceil(maxHp * this.shadowCloneMaxHpBonusRatio()));
+  }
+
+  // 玩家主炮每射击一次,影分身同步射击一次(fireCannon 内调用)
+  shadowClonesSyncFire(): void {
+    if ((this.upgradeLevels.agile_shadow_clone ?? 0) <= 0) return;
+    // 影分身与玩家主炮同向射击(正上方),不再优先锁定血量最少的目标
+    for (const clone of this.shadowClones) {
+      if (!clone.active) continue;
+      const dmg = this.computePlayerDamage() * ((clone.getData("shadowCloneDmgMul") as number) ?? 1);
+      // 每分身每次射击 2 颗子弹(原 1 颗):横向错开 ±9px 形成小散射
+      for (const side of [-1, 1] as const) {
+        const bx = clone.x + side * 9;
+        const b = this.spawnPlayerBullet(
+          bx,
+          clone.y - 10,
+          "playerBullet",
+          dmg,
+          0,
+          "shadow_clone_bullet"
+        );
+        if (!b) continue;
+        if (!b.getData("achievementSkinBullet")) b.setDisplaySize(10, 18).setTint(0x8c25ff);
+        // 标记为"影分身子弹",击杀敌方给敏捷 MAX HP 奖励
+        b.setData("kind", "player-bullet");
+        b.setVelocity(0, -660);
+      }
+    }
   }
 
   updateShadowClones(time: number): void {
@@ -9084,16 +9384,29 @@ export class BattleScene extends Phaser.Scene {
         this.shadowClones.splice(i, 1);
         continue;
       }
-      // === 站位:与本体保持在同一水平线,只做左右分散 ===
+      // === 站位:分身与本体拉开明显间距,本体占据正中心,分身绝不复用 0 槽位 ===
       const n = this.shadowClones.length;
-      const slot = n === 1 ? 0 : (i - (n - 1) / 2) * 110; // 110px 间隔
+      const spacing = 170; // 分身间隔(原 110,拉大以便明显可见)
+      let slot: number;
+      if (n === 1) {
+        // 单分身放在玩家未贴边的一侧,避免边缘 clamp 后与本体重合
+        slot = this.player.x < WORLD_WIDTH / 2 ? spacing : -spacing;
+      } else {
+        // 按 1,2,3,... 对称展开:-170,+170,-340,+340,...(跳过中心 0,本体专属)
+        const slots: number[] = [];
+        for (let k = 1; slots.length < n; k += 1) {
+          if (slots.length < n) slots.push(-k * spacing);
+          if (slots.length < n) slots.push(k * spacing);
+        }
+        slot = slots[i] ?? 0;
+      }
       const tx = Phaser.Math.Clamp(this.player.x + slot, 42, WORLD_WIDTH - 42);
       clone.setPosition(
         Phaser.Math.Linear(clone.x, tx, 0.18),
         Phaser.Math.Linear(clone.y, this.player.y, 0.18)
       );
       const phaseOffset = (clone.getData("phaseOffset") as number) ?? 0;
-      clone.setAlpha(0.72 + Math.sin(time * 0.008 + phaseOffset) * 0.2);
+      clone.setAlpha(0.85 + Math.sin(time * 0.008 + phaseOffset) * 0.1);
       clone.setScale(this.player.scaleX * (0.96 + Math.sin(time * 0.006 + phaseOffset) * 0.04));
       if (time >= ((clone.getData("nextAfterimageAt") as number) ?? 0)) {
         clone.setData("nextAfterimageAt", time + 190);
@@ -9126,84 +9439,94 @@ export class BattleScene extends Phaser.Scene {
         clone.setData("maxHp", desiredMaxHp);
         clone.setData("hp", Math.max(1, Math.round(desiredMaxHp * healthPercent)));
       }
-      // === 目标:优先攻击当前绝对血量最少的敌人(不限距离) ===
+      // === 撞到敌人:造成伤害并按分身自身血量结算存亡 ===
       const enemyArr = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
-      let target: Phaser.Physics.Arcade.Image | undefined;
-      let lowestHp = Number.POSITIVE_INFINITY;
-      for (const e of enemyArr) {
-        if (!e.active) continue;
-        const hp = (e.getData("hp") as number) ?? 0;
-        if (hp < lowestHp) { lowestHp = hp; target = e; }
-      }
-      // 撞到敌人:造成伤害并按分身自身血量结算存亡
       const collided = enemyArr.find(
         (e) => e.active && Phaser.Math.Distance.Between(clone.x, clone.y, e.x, e.y) < 24
       );
       if (collided) {
-        const dmg = this.computePlayerDamage() * (clone.getData("shadowCloneDmgMul") as number ?? 1);
+        // 分身撞击伤害 = 继承伤害 + 目标最大生命 0.1%→0.5% 额外伤害
+        const dmg =
+          this.computePlayerDamage() * (clone.getData("shadowCloneDmgMul") as number ?? 1) +
+          this.shadowCloneBonusDamage(collided);
         collided.setData("lastOwner", 1);
         const before = collided.getData("hp") ?? 1;
-        if (before - dmg <= 0) {
+        // 万象影袭:每个无敌实体命中附加目标最大生命 5.5% 的额外伤害
+        const maxHpBonus = this.fusionLungeActive()
+          ? Math.ceil(((collided.getData("maxHp") as number) ?? before) * 0.055)
+          : 0;
+        const totalDamage = dmg + maxHpBonus;
+        if (before - totalDamage <= 0) {
           collided.setData("wheelchairRamKill", true);
           collided.setData("eliteKillWeapon", "shadow_clone");
           this.destroyEnemy(collided, true);
-          // 影分身击杀奖励(敏捷流派):MAX HP +1 + 回复 1% 最大生命
-          this.stats.maxHp += 1;
-          this.healPlayer(this.stats.maxHp * 0.01);
-          this.recordAgileMaxHpGain(1);
-          this.floatText(collided.x, collided.y - 52, "影分身击杀 · MAX HP +1 · 回复1%", true);
+          // 影分身击杀奖励:在场分身 <2 → MAX HP +2;≥2 → +1;回复 1% 最大 + 2% 已损
+          this.grantShadowCloneKillReward(collided);
         } else {
-          collided.setData("hp", before - dmg);
+          collided.setData("hp", before - totalDamage);
         }
-        // 分身按敌人真实撞击伤害扣血(无免伤、无特殊减免),血量耗尽才消散
-        const collidedType = collided.getData("type");
-        const collidedElite = Boolean(collided.getData("elite"));
-        const contactDamage =
-          collidedElite || collidedType === "gunship" || collidedType === "bomber"
-            ? 24
-            : collidedType === "striker" ||
-                collidedType === "suppressor" ||
-                collidedType === "mine_layer"
-              ? 18
-              : 14;
-        const cloneHp = ((clone.getData("hp") as number) ?? 1) - contactDamage;
-        if (cloneHp <= 0) {
-          clone.setData("hp", 0);
-          clone.disableBody(true, true);
-          clone.destroy();
-          this.burst(clone.x, clone.y, 0x9b5cff, 1.2);
-          this.shadowClones.splice(i, 1);
-          continue;
-        }
-        clone.setData("hp", cloneHp);
-        this.impactBurst(clone.x, clone.y, 0x9b5cff);
-      }
-      // 周期射击(朝血量最少的目标方向)
-      const lastShot = clone.getData("lastShotAt") as number;
-      if (time - lastShot > 400) {
-        clone.setData("lastShotAt", time);
-        const b = this.spawnPlayerBullet(
-          clone.x,
-          clone.y - 10,
-          "playerBullet",
-          this.computePlayerDamage() * ((clone.getData("shadowCloneDmgMul") as number) ?? 1),
-          0,
-          "shadow_clone_bullet"
-        );
-        if (b) {
-          if (!b.getData("achievementSkinBullet")) b.setDisplaySize(10, 18).setTint(0x8c25ff);
-          // 标记为"影分身子弹",击杀敌方给敏捷 MAX HP 奖励
-          b.setData("kind", "player-bullet");
-          if (target) {
-            const dx = target.x - clone.x;
-            const dy = target.y - clone.y - 10;
-            const dist = Math.hypot(dx, dy) || 1;
-            b.setVelocity((dx / dist) * 660, (dy / dist) * 660);
-          } else {
-            b.setVelocity(0, -660);
+        // 万象影袭期间分身无敌:撞击不扣血
+        if (!this.fusionLungeActive()) {
+          // 分身按敌人真实撞击伤害扣血(无免伤、无特殊减免),血量耗尽才消散
+          const collidedType = collided.getData("type");
+          const collidedElite = Boolean(collided.getData("elite"));
+          const contactDamage =
+            collidedElite || collidedType === "gunship" || collidedType === "bomber"
+              ? 24
+              : collidedType === "striker" ||
+                  collidedType === "suppressor" ||
+                  collidedType === "mine_layer"
+                ? 18
+                : 14;
+          const cloneHp = ((clone.getData("hp") as number) ?? 1) - contactDamage;
+          if (cloneHp <= 0) {
+            clone.setData("hp", 0);
+            clone.disableBody(true, true);
+            clone.destroy();
+            this.burst(clone.x, clone.y, 0x9b5cff, 1.2);
+            this.shadowClones.splice(i, 1);
+            continue;
           }
+          clone.setData("hp", cloneHp);
+          this.impactBurst(clone.x, clone.y, 0x9b5cff);
         }
       }
+      // === 敌方子弹命中分身:分身是实体,会挡下子弹并受伤,血量耗尽才消散 ===
+      const enemyBulletHit = (this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]).find(
+        (b) => b.active && Phaser.Math.Distance.Between(clone.x, clone.y, b.x, b.y) < 26
+      );
+      if (enemyBulletHit) {
+        // 子弹被分身挡下
+        enemyBulletHit.disableBody(true, true);
+        // 万象影袭期间分身无敌:只挡子弹不受伤害
+        if (this.fusionLungeActive()) {
+          this.impactBurst(clone.x, clone.y, 0x9b5cff);
+        } else {
+          const bulletDamage = (enemyBulletHit.getData("damage") as number) ?? 10;
+          // 单发弹幕对分身伤害设上限:无融合技时最多 50% 最大生命(扛 2 发);
+          // 拥有万象影袭后最多 1/3 最大生命(保底 1 点),满血分身至少扛 3 发
+          const cloneMaxHp = Math.max(1, (clone.getData("maxHp") as number) ?? 1);
+          const fusionOwned = (this.upgradeLevels.agile_shadow_lunge ?? 0) > 0;
+          const cappedDamage = fusionOwned
+            ? Math.min(bulletDamage, Math.max(1, Math.floor((cloneMaxHp - 1) / 3)))
+            : Math.min(bulletDamage, Math.max(2, Math.ceil(cloneMaxHp * 0.5)));
+          const cloneHp = ((clone.getData("hp") as number) ?? 1) - cappedDamage;
+          if (cloneHp <= 0) {
+            clone.setData("hp", 0);
+            clone.disableBody(true, true);
+            clone.destroy();
+            this.burst(clone.x, clone.y, 0x9b5cff, 1.2);
+            this.shadowClones.splice(i, 1);
+            continue;
+          }
+          clone.setData("hp", cloneHp);
+          // 受击闪白反馈,增强"实体感";结束后恢复紫色标识而非清除
+          clone.setTintFill(0xffe6ff);
+          this.time.delayedCall(60, () => clone.active && clone.setTint(0x9b5cff));
+          this.impactBurst(clone.x, clone.y, 0x9b5cff);
+        }
+      }
+      // 射击节奏已改为与玩家主炮同步(fireCannon → shadowClonesSyncFire),此处不再周期射击
     }
   }
   activateSkill(kind: "laser" | "missile" | "drone", owner: 1 | 2): void {
@@ -9246,7 +9569,7 @@ export class BattleScene extends Phaser.Scene {
       }
       this.showBanner(`P${owner} · 激光切割`, 700);
     } else if (kind === "missile") {
-      const count = save.selectedShip === "bomber" && owner === 1 ? 10 : 7;
+      const count = save.selectedShip === "bomber" && owner === 1 ? 9 : 7;
       for (let i = 0; i < count; i += 1) {
         const missile = this.spawnPlayerBullet(
           shooter.x + Phaser.Math.Between(-50, 50),
@@ -9312,7 +9635,7 @@ export class BattleScene extends Phaser.Scene {
         enemy.setData("lastOwner", owner);
         this.dealDirectDamage(
           enemy,
-          (save.selectedShip === "bomber" && owner === 1 ? 260 : 200) *
+          (save.selectedShip === "bomber" && owner === 1 ? 248 : 200) *
             ATTACK_BONUS_SCALE,
           enemy.x,
           enemy.y
@@ -9721,10 +10044,20 @@ export class BattleScene extends Phaser.Scene {
       const raidAura = part.getData("raidAura") as Phaser.GameObjects.Arc | undefined;
       raidAura?.destroy();
       // 对象池复用前必须复位:上一场的 tween 会继续改坐标,
-      // 炮台残留的 alpha 0 会让复用者完全不可见。
+      // 炮台残留的 alpha 0 会让复用者完全不可见;隐身阶段的 hittable false
+      // 若残留,下一场 Boss 会"打不着"。一并复位 scale。
       this.tweens.killTweensOf(part);
-      part.setAlpha(1).setAngle(0).clearTint();
-      if (part.active) part.disableBody(true, true);
+      part
+        .setAlpha(1)
+        .setScale(1)
+        .setAngle(0)
+        .setData("hittable", true)
+        .clearTint();
+      // 必须无条件禁用并隐藏。Phaser 渲染只看 visible 不看 active:
+      // 若先 setVisible(true) 再只禁用 active 部件,被上一场 defeatBoss /
+      // 炮台被毁 / 黑暗飞机击毁 提前 disableBody 的部件(active=false)会
+      // 变成 visible=true 的"幽灵 Boss 图",叠在下一场战斗上挡住弹幕。
+      part.disableBody(true, true);
       return true;
     });
     this.enemyBullets.children.each((child) => {
@@ -9754,7 +10087,7 @@ export class BattleScene extends Phaser.Scene {
         (70 + chaseNumber * 55) *
           campaignDifficultyForLevel(selectedLevel).rewardMultiplier
       );
-    this.runTokens += reward;
+    this.grantRunTokens(reward);
     this.score += 5200 + chaseNumber * 1800;
     this.nextSpawn = this.time.now + 999999;
     const stolenBossKind = (["titan", "mirror", "usurper"] as BossKind[])[
@@ -9765,21 +10098,13 @@ export class BattleScene extends Phaser.Scene {
     );
     const escapeX = core?.x ?? WORLD_WIDTH / 2;
     const escapeY = core?.y ?? 230;
-    let afterimage: Phaser.GameObjects.Image | null = null;
-    if (core) {
-      afterimage = this.add
-        .image(
-          core.x,
-          core.y,
-          shadowTextureForAbsorbedPowers(this.campaignBossesDefeated)
-        )
-        .setDisplaySize(core.displayWidth, core.displayHeight)
-        .setDepth(35)
-        .setAlpha(0.94);
-    }
+    const escapeWidth = core?.displayWidth ?? 350;
+    const escapeHeight = core?.displayHeight ?? 525;
+    // 先清理 Boss 实体,再创建退场残影;残影必须登记进
+    // bossTransientVisuals,否则退场 tween 一旦被中断就会残留在背景上。
     this.clearBossEntities();
     this.campaignEncounterIndex += 1;
-    this.showBanner(`黑影受创 ${escapedAfterDamage}% · 正在向上隐退 · ◆ +${reward}`, 1500);
+    this.showBanner(`黑影受创 ${escapedAfterDamage}% · 正在向上隐退`, 1500);
     const continueAfterUpgrade = () => {
       if (selectedMode === "campaign") {
         this.startCampaignInterlude(this.campaignEncounterIndex, chaseNumber);
@@ -9794,21 +10119,28 @@ export class BattleScene extends Phaser.Scene {
         stolenBossKind,
         continueAfterUpgrade
       );
-    if (afterimage) {
-      this.tweens.add({
-        targets: afterimage,
-        y: -430,
-        alpha: 0,
-        duration: 820,
-        ease: "Sine.In",
-        onComplete: () => {
-          afterimage?.destroy();
-          dropUpgrade();
-        }
-      });
-    } else {
-      this.time.delayedCall(820, dropUpgrade);
-    }
+    const afterimage: Phaser.GameObjects.Image | null = this.trackBossVisual(
+      this.add
+        .image(
+          escapeX,
+          escapeY,
+          shadowTextureForAbsorbedPowers(this.campaignBossesDefeated)
+        )
+        .setDisplaySize(escapeWidth, escapeHeight)
+        .setDepth(35)
+        .setAlpha(0.94)
+    );
+    this.tweens.add({
+      targets: afterimage,
+      y: -430,
+      alpha: 0,
+      duration: 820,
+      ease: "Sine.In",
+      onComplete: () => {
+        afterimage?.destroy();
+        dropUpgrade();
+      }
+    });
   }
 
   defeatTrinityRaid(): void {
@@ -9824,7 +10156,7 @@ export class BattleScene extends Phaser.Scene {
     const reward = Math.round(
       560 * campaignDifficultyForLevel(selectedLevel).rewardMultiplier
     );
-    this.runTokens += reward;
+    this.grantRunTokens(reward);
     this.score += 36000;
     this.bossTier += 1;
     this.ultimate = 100;
@@ -9840,7 +10172,7 @@ export class BattleScene extends Phaser.Scene {
     this.clearBossEntities();
     this.cameras.main.flash(260, 255, 240, 255);
     if (save.settings.screenShake) this.cameras.main.shake(900, 0.023);
-    this.showBanner(`三神共斗终结 · ◆ +${reward} · 主动与专属被动各选一项`, 1800);
+    this.showBanner(`三神共斗终结 · 主动与专属被动各选一项`, 1800);
     // 三神共斗：三个本源主动进入一次三选一，随后从三神未取得的专属被动中再选一项。
     const raidKinds = this.trinityDefeatedKinds.length
       ? this.trinityDefeatedKinds
@@ -9931,7 +10263,7 @@ export class BattleScene extends Phaser.Scene {
     const reward = Math.round(
       420 * campaignDifficultyForLevel(selectedLevel).rewardMultiplier
     );
-    this.runTokens += reward;
+    this.grantRunTokens(reward);
     this.bossTier += 1;
     const core = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
       (part) => part.active && part.getData("part") === "core"
@@ -9978,7 +10310,7 @@ export class BattleScene extends Phaser.Scene {
     this.darkDotPerSecond = 0;
     this.darkDotUntil = 0;
     this.campaignEncounterIndex = 8;
-    this.showBanner(`黑暗爆炸 · 生命上限封锁至 3000 · 回血效率 -50% · ◆ +${reward}`, 2200);
+    this.showBanner(`黑暗爆炸 · 生命上限封锁至 3000 · 回血效率 -50%`, 2200);
     this.time.delayedCall(1500, () => {
       this.startCampaignEncounter(8);
     });
@@ -9989,9 +10321,9 @@ export class BattleScene extends Phaser.Scene {
       save.permanentUpgrades,
       save.unlockedSkins
     );
-    this.runTokens += completionBonus;
+    this.grantRunTokens(completionBonus);
     this.bossTier = Math.max(this.bossTier, 9);
-    this.showBanner(`终局核心回收 · 永久强化预算 ◆ +${completionBonus}`, 2200);
+    this.showBanner(`终局核心回收 · 永久强化预算`, 2200);
     this.time.delayedCall(1100, () => this.endRun(true));
   }
 
@@ -10150,28 +10482,122 @@ export class BattleScene extends Phaser.Scene {
     this.unlockAchievement(SHADOW_ENDING_ACHIEVEMENTS[ending]);
     if (selectedMode === "boss") this.unlockAchievement("boss_campaign_legend");
     const info = SHADOW_ENDINGS[ending];
-    this.showBanner(`◆ ${info.title}`, 2400);
-    this.cameras.main.flash(600, 40, 0, 60);
-    if (save.settings.screenShake) this.cameras.main.shake(900, 0.024);
+    // === 黑影结局专属演出界面:全屏黑影主题 CG ===
+    this.isModal = true;
+    this.physics.world.pause();
+    setAdaptiveMusic(0);
+    this.enemies.children.each((child) => {
+      const enemy = child as Phaser.Physics.Arcade.Image;
+      if (enemy.active) enemy.disableBody(true, true);
+      return true;
+    });
+    this.enemyBullets.children.each((child) => {
+      const bullet = child as Phaser.Physics.Arcade.Image;
+      if (bullet.active) bullet.disableBody(true, true);
+      return true;
+    });
+    const backdrop = this.add
+      .rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, WORLD_WIDTH, WORLD_HEIGHT, 0x0a0016, 0.97)
+      .setDepth(118);
+    const topBar = this.add.rectangle(WORLD_WIDTH / 2, 46, WORLD_WIDTH, 92, 0x000000, 0.94).setDepth(120);
+    const bottomBar = this.add
+      .rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT - 46, WORLD_WIDTH, 92, 0x000000, 0.94)
+      .setDepth(120);
+    const auraRing = this.add
+      .circle(WORLD_WIDTH / 2, WORLD_HEIGHT * 0.32, 250, 0x14002a, 0)
+      .setStrokeStyle(16, 0x8c25ff, 0.55)
+      .setDepth(119);
+    // 黑影本体图:从玩家所在位置幻化而生,升到中央
+    const shadowFig = this.add
+      .image(this.player.x, this.player.y, shadowTextureForAbsorbedPowers(3))
+      .setDisplaySize(320, 480)
+      .setTint(0x9b5cff)
+      .setAlpha(0)
+      .setDepth(119);
+    this.tweens.add({
+      targets: shadowFig,
+      alpha: 0.95,
+      x: WORLD_WIDTH / 2,
+      y: WORLD_HEIGHT * 0.32,
+      scale: 1.12,
+      duration: 1500,
+      ease: "Cubic.Out"
+    });
+    const codeText = this.add
+      .text(WORLD_WIDTH / 2, WORLD_HEIGHT * 0.6, info.code, {
+        fontFamily: "Consolas, monospace",
+        fontSize: "20px",
+        color: "#c678ff",
+        stroke: "#2a0a44",
+        strokeThickness: 4
+      })
+      .setOrigin(0.5)
+      .setDepth(122)
+      .setAlpha(0);
+    const titleText = this.add
+      .text(WORLD_WIDTH / 2, WORLD_HEIGHT * 0.67, info.title, {
+        fontFamily: '"Microsoft YaHei", sans-serif',
+        fontSize: "44px",
+        fontStyle: "bold",
+        color: "#e6d4ff",
+        stroke: "#3a0a5e",
+        strokeThickness: 8
+      })
+      .setOrigin(0.5)
+      .setDepth(122)
+      .setAlpha(0);
+    const detailText = this.add
+      .text(WORLD_WIDTH / 2, WORLD_HEIGHT * 0.67 + 78, info.detail, {
+        fontFamily: '"Microsoft YaHei", sans-serif',
+        fontSize: "16px",
+        color: "#b3a3cc",
+        stroke: "#1c0430",
+        strokeThickness: 3,
+        align: "center",
+        wordWrap: { width: WORLD_WIDTH * 0.62 }
+      })
+      .setOrigin(0.5)
+      .setDepth(122)
+      .setAlpha(0);
+    this.tweens.add({ targets: codeText, alpha: 1, duration: 500, delay: 900 });
+    this.tweens.add({ targets: titleText, alpha: 1, duration: 600, delay: 1150 });
+    this.tweens.add({ targets: detailText, alpha: 1, duration: 600, delay: 1450 });
     // 玩家战机被黑暗吞没
     this.player.setTint(0x2a0040);
     this.tweens.add({
       targets: this.player,
-      alpha: 0.25,
-      scale: this.player.scale * 1.15,
-      duration: 1400
+      alpha: 0,
+      scale: this.player.scale * 1.3,
+      duration: 1300,
+      ease: "Cubic.In",
+      onComplete: () => this.player.setVisible(false)
     });
-    for (let i = 0; i < 10; i += 1) {
-      this.time.delayedCall(i * 130, () =>
+    for (let i = 0; i < 12; i += 1) {
+      this.time.delayedCall(i * 120, () =>
         this.burst(
-          this.player.x + Phaser.Math.Between(-90, 90),
-          this.player.y + Phaser.Math.Between(-90, 90),
+          Phaser.Math.Between(0, WORLD_WIDTH),
+          Phaser.Math.Between(0, WORLD_HEIGHT),
           i % 2 ? 0x8c25ff : 0x2a0040,
-          Phaser.Math.FloatBetween(1.4, 2.4)
+          Phaser.Math.FloatBetween(1.2, 2.2)
         )
       );
     }
-    this.time.delayedCall(2200, () => this.endRun(false));
+    this.cameras.main.flash(500, 30, 0, 60);
+    if (save.settings.screenShake) this.cameras.main.shake(700, 0.018);
+    this.time.delayedCall(2900, () => {
+      this.tweens.add({
+        targets: [backdrop, topBar, bottomBar, auraRing, shadowFig, codeText, titleText, detailText],
+        alpha: 0,
+        duration: 450,
+        onComplete: () => {
+          [backdrop, topBar, bottomBar, auraRing, shadowFig, codeText, titleText, detailText].forEach(
+            (item) => item.destroy()
+          );
+          this.isModal = false;
+          this.endRun(false);
+        }
+      });
+    });
   }
 
   startCampaignEncounter(index: number, skipStory = false): void {
@@ -10445,9 +10871,13 @@ export class BattleScene extends Phaser.Scene {
         maxHp: this.bossMaxHp,
         elite: this.bossElite,
         mutated: this.bossMutated,
-        mutationKind: this.bossMutationKind
+        mutationKind: this.bossMutationKind,
+        // 复用旧对象时必须显式可命中,否则黑暗飞机阶段的 hittable false 残留会让 Boss 打不着
+        hittable: true
       })
       .setDepth(14);
+    // 复用对象的 body 尺寸是旧纹理的,必须同步到显示尺寸,否则子弹会"穿模"没伤害
+    core.body?.setSize(displaySize.width, displaySize.height);
     this.bossEliteAura?.destroy();
     this.bossEliteAura = undefined;
     if (this.bossElite || this.bossMutated) {
@@ -10498,6 +10928,18 @@ export class BattleScene extends Phaser.Scene {
       .setAlpha(0)
       .setData({ part: "right", hp: this.bossMaxHp * 0.16 })
       .setDepth(15);
+    // 防御:若上一场战斗被中断,池里可能残留未被本次 get() 复用的活跃部件
+    // (黑暗飞机/影分身/三神核心等),它们会带着旧贴图残留在背景上,必须显式禁用。
+    // 注意:不只处理 active 部件——已 disableBody 的部件若 visible 残留
+    // 同样会以"幽灵图"叠在场上,所以一律无条件禁用隐藏。
+    this.bossParts.children.each((child) => {
+      const part = child as Phaser.Physics.Arcade.Image;
+      if (part !== core && part !== left && part !== right) {
+        this.tweens.killTweensOf(part);
+        part.disableBody(true, true);
+      }
+      return true;
+    });
     const bossEntryY =
       this.bossKind === "dark_deity"
         ? 370
@@ -10595,6 +11037,7 @@ export class BattleScene extends Phaser.Scene {
         .setVisible(true)
         .setDisplaySize(config.width, config.height)
         .setAlpha(1)
+        .setScale(1)
         .setAngle(0)
         .setBlendMode(Phaser.BlendModes.NORMAL)
         .clearTint()
@@ -10619,6 +11062,8 @@ export class BattleScene extends Phaser.Scene {
           raidAura: undefined,
           nextSpecialAt: this.time.now + (config.kind === "usurper" ? 2500 : 0)
         });
+      // 复用对象的 body 尺寸是旧纹理的,必须同步到显示尺寸,否则子弹会"穿模"没伤害
+      core.body?.setSize(config.width, config.height);
       this.tweens.add({
         targets: core,
         y: 190,
@@ -11146,6 +11591,20 @@ export class BattleScene extends Phaser.Scene {
     if (cap >= pool.length) return [...pool];
     const out: string[] = [];
     const remaining = [...pool];
+    // 保证"释放玩家技能"的招牌招式必出:
+    // - 镜像猎手:至少带 1 个模仿玩家技能(copy_g/copy_1/copy_2/copy_3)
+    // - 技能篡夺者:必带"技能掠夺"(drain),否则永远偷不到玩家技能
+    const mirrorCopies = ["copy_g", "copy_1", "copy_2", "copy_3"];
+    const guaranteed =
+      kind === "mirror"
+        ? mirrorCopies[Math.floor(Math.random() * mirrorCopies.length)]
+        : kind === "usurper"
+          ? "drain"
+          : null;
+    if (guaranteed && remaining.includes(guaranteed)) {
+      out.push(guaranteed);
+      remaining.splice(remaining.indexOf(guaranteed), 1);
+    }
     while (out.length < cap && remaining.length) {
       const idx = Math.min(remaining.length - 1, Math.floor(Math.random() * remaining.length));
       out.push(remaining.splice(idx, 1)[0]);
@@ -11205,24 +11664,40 @@ export class BattleScene extends Phaser.Scene {
       const mimicChoices = choices.filter((item) => item.type.startsWith("copy_"));
       const nativeChoices = choices.filter((item) => !item.type.startsWith("copy_"));
       const mimicTurn = this.mirrorMimicIndex % 2 === 0;
-      choice = mimicTurn
-        ? mimicChoices[Math.floor(this.mirrorMimicIndex / 2) % mimicChoices.length]
-        : Phaser.Utils.Array.GetRandom(nativeChoices);
+      // 兜底:若当前回合对应的技能组为空(例如技能池恰好全是 copy_*),
+      // 退回在全部技能里挑,避免取到 undefined 导致技能"释放不出来"
+      const turnPool = mimicTurn
+        ? mimicChoices.length
+          ? mimicChoices
+          : choices
+        : nativeChoices.length
+          ? nativeChoices
+          : choices;
+      choice = turnPool[Math.floor(this.mirrorMimicIndex / 2) % turnPool.length];
       this.mirrorMimicIndex += 1;
     } else {
       choice = Phaser.Utils.Array.GetRandom(choices);
     }
-    this.startBossAttackType(`${kind}:${choice.type}`, () => {
-      this.renderBossSkillImageCue(core, kind, choice.type);
-      choice.run();
-      if (
-        kind === "usurper" &&
-        this.usurperStolenSkill &&
-        this.time.now < this.usurperStolenUntil
-      ) {
-        this.castStolenSkill(core);
-      }
-    });
+    const isPlayerMimic = kind === "mirror" && choice.type.startsWith("copy_");
+    // 镜像模仿玩家的技能属于招牌招式:force=true 绕过 4 类并发上限,保证必出
+    this.startBossAttackType(
+      `${kind}:${choice.type}`,
+      () => {
+        this.renderBossSkillImageCue(core, kind, choice.type);
+        choice.run();
+      },
+      7000,
+      isPlayerMimic
+    );
+    // 篡夺者已偷取的玩家技能:独立于本次攻击施放,同样不受 4 类并发上限限制,
+    // 否则同时存在 4 个攻击时偷到的技能会整体"释放不出来"
+    if (
+      kind === "usurper" &&
+      this.usurperStolenSkill &&
+      this.time.now < this.usurperStolenUntil
+    ) {
+      this.castStolenSkill(core);
+    }
   }
 
   castBorrowedBossMutation(core: Phaser.Physics.Arcade.Image): void {
@@ -11488,10 +11963,10 @@ export class BattleScene extends Phaser.Scene {
         this.tweens.add({
           targets: warning,
           scale: { from: 0.35, to: 1 },
-          alpha: { from: 0.15, to: 0.72 },
-          yoyo: true,
-          repeat: 2,
-          duration: 130,
+          // 预警由浅到深:整个预警期持续加深,最深处才释放爆炸
+          alpha: { from: 0.15, to: 0.9 },
+          duration: 780,
+          ease: "Quad.easeIn",
           onComplete: () => {
             warning.destroy();
             if (!this.bossActive) return;
@@ -11669,10 +12144,10 @@ export class BattleScene extends Phaser.Scene {
         }
         this.tweens.add({
           targets: warning2,
-          alpha: { from: 0.4, to: 0.9 },
-          yoyo: true,
-          repeat: 1,
-          duration: 130,
+          // 预警由浅到深:最深处才释放冲撞
+          alpha: { from: 0.4, to: 0.95 },
+          duration: 520,
+          ease: "Quad.easeIn",
           onComplete: () => {
             warning2.destroy();
             ghosts.forEach((g) => g.destroy());
@@ -12528,10 +13003,10 @@ export class BattleScene extends Phaser.Scene {
       this.tweens.add({
         targets: warning,
         scale: { from: 0.35, to: 1 },
-        alpha: { from: 0.2, to: 0.72 },
-        yoyo: true,
-        repeat: 3,
-        duration: 190,
+        // 预警由浅到深:最深处才释放陨石坠落
+        alpha: { from: 0.2, to: 0.9 },
+        duration: 1520,
+        ease: "Quad.easeIn",
         delay: index * 45,
         onComplete: () => {
           warning.destroy();
@@ -12628,28 +13103,31 @@ export class BattleScene extends Phaser.Scene {
     if (specialization === "power") {
       this.mirrorFlamethrowerAttack(core);
     } else if (specialization === "agile") {
-      this.mirrorDashMimic(core, 0x9b5cff, 30, "影步突刺");
+      this.mirrorDashMimic(core, 0x9b5cff, 24, "影步突刺");
     } else if (specialization === "defender") {
+      // 玩家技能的"范围加强、伤害降低、弹速较慢"版:反射壁垒半径 120→150,
+      // 弹幕伤害降低,弹速 235→190
       const shield = this.trackBossEffect(
-        this.add.circle(core.x, core.y, 120, 0x6f5cff, 0.12)
+        this.add.circle(core.x, core.y, 150, 0x6f5cff, 0.12)
           .setStrokeStyle(9, 0xe8deff, 0.9)
           .setDepth(22),
         1400
       );
-      for (let index = 0; index < 16; index += 1) {
-        const angle = (Math.PI * 2 * index) / 16;
-        this.fireEnemyAngle(core.x, core.y, angle, 235, 14 + this.bossTier, "projectile", "boss")
+      for (let index = 0; index < 20; index += 1) {
+        const angle = (Math.PI * 2 * index) / 20;
+        this.fireEnemyAngle(core.x, core.y, angle, 190, 10 + this.bossTier * 0.6, "projectile", "boss")
           .setTint(index % 2 ? 0x9b5cff : 0xe8deff);
       }
       this.tweens.add({ targets: shield, scale: 1.35, alpha: 0, duration: 850, onComplete: () => shield.destroy() });
     } else if (specialization === "vampire") {
+      // 玩家技能的"范围加强、伤害降低"版:虹吸线束加粗,吸取伤害 26→20
       const beam = this.trackBossEffect(
         this.add.line(0, 0, core.x, core.y, this.player.x, this.player.y, 0xff2d77, 0.72)
-          .setLineWidth(14, 4)
+          .setLineWidth(20, 6)
           .setDepth(23),
         1100
       );
-      this.damageBossHazard(26, "projectile");
+      this.damageBossHazard(20, "projectile");
       if (core.getData("part") === "raid-core") {
         const coreMaxHp = Math.max(1, Number(core.getData("maxHp") ?? 1));
         core.setData(
@@ -12666,8 +13144,9 @@ export class BattleScene extends Phaser.Scene {
     } else if (specialization === "devour") {
       const x = this.player.x;
       const y = this.player.y;
+      // 玩家技能的"范围加强、伤害降低"版:深渊巨口半径 170→210,撕咬伤害降低
       const maw = this.trackBossEffect(
-        this.add.circle(x, y, 170, 0x180020, 0.22)
+        this.add.circle(x, y, 210, 0x180020, 0.22)
           .setStrokeStyle(11, 0xb51cff, 0.94)
           .setDepth(20),
         1800
@@ -12680,14 +13159,14 @@ export class BattleScene extends Phaser.Scene {
         repeat: 2,
         duration: 190,
         onComplete: () => {
-          if (Phaser.Math.Distance.Between(this.player.x, this.player.y, x, y) <= 170) {
-            this.damageBossHazard(34, "explosion");
+          if (Phaser.Math.Distance.Between(this.player.x, this.player.y, x, y) <= 210) {
+            this.damageBossHazard(26, "explosion");
           }
           maw.destroy();
         }
       });
     } else {
-      this.mirrorDashMimic(core, 0xffbd3e, 36, "破阵冲角");
+      this.mirrorDashMimic(core, 0xffbd3e, 28, "破阵冲角");
     }
   }
 
@@ -12703,33 +13182,40 @@ export class BattleScene extends Phaser.Scene {
     if (slot === 1) {
       this.showBanner(`镜像模仿 1 · 极光贯穿 Lv.${level}`, 850);
       const laneX = Phaser.Math.Clamp(this.player.x, 70, WORLD_WIDTH - 70);
-      this.telegraphStrike(laneX, 155, { kind: "mirror", type: "copy_1" });
+      // 玩家技能的"范围加强、伤害降低"版:激光道宽 84→150,伤害 32→24
+      this.telegraphStrike(laneX, 155, { kind: "mirror", type: "copy_1" }, 150, 24);
       if (level >= 3) {
         this.time.delayedCall(180, () => {
           if (this.bossActive) this.telegraphStrike(
             Phaser.Math.Clamp(laneX + (laneX < WORLD_WIDTH / 2 ? 130 : -130), 70, WORLD_WIDTH - 70),
             155,
-            { kind: "mirror", type: "copy_1" }
+            { kind: "mirror", type: "copy_1" },
+            150,
+            24
           );
         });
       }
     } else if (slot === 2) {
       this.showBanner(`镜像模仿 2 · 追踪导弹 Lv.${level}`, 850);
-      this.bossHomingSwarm(core, 6 + level * 2, 0xff7a32);
+      // 玩家技能的"范围加强、伤害降低、弹速较慢"版:弹数 8+2L 更多、散布更宽,
+      // 单发伤害降低,弹速 185→140 / 追踪速度 255→205
+      this.bossHomingSwarm(core, 8 + level * 2, 0xff7a32, 10 + this.bossTier * 0.6, 0.2, 140, 205);
     } else {
       this.showBanner(`镜像模仿 3 · 护航无人机 Lv.${level}`, 850);
       const waves = Math.min(4, 2 + level);
       for (let wave = 0; wave < waves; wave += 1) {
         this.time.delayedCall(wave * 240, () => {
           if (!this.bossActive || !core.active) return;
+          // 玩家技能的"范围加强、伤害降低、弹速较慢"版:每侧 5 条更宽的散射,
+          // 单发伤害降低,弹速 230+12L → 185+10L
           for (const side of [-1, 1]) {
-            for (let offset = -1; offset <= 1; offset += 1) {
+            for (let offset = -2; offset <= 2; offset += 1) {
               this.fireEnemyAngle(
                 core.x + side * 105,
                 core.y + 28,
-                Math.PI / 2 + offset * 0.14,
-                230 + level * 12,
-                12 + level * 2,
+                Math.PI / 2 + offset * 0.18,
+                185 + level * 10,
+                9 + level * 2,
                 "projectile",
                 "boss"
               ).setTint(side < 0 ? 0x2df4ff : 0x9b5cff);
@@ -12750,9 +13236,10 @@ export class BattleScene extends Phaser.Scene {
     const startY = core.y;
     const targetX = this.player.x;
     const targetY = this.player.y;
+    // 玩家技能的"范围加强、伤害降低"版:冲击线宽 52→72,判定范围同步加宽
     const line = this.trackBossEffect(
       this.add.line(0, 0, startX, startY, targetX, targetY, color, 0.22)
-        .setLineWidth(52, 12)
+        .setLineWidth(72, 12)
         .setDepth(17),
       1800
     );
@@ -12774,7 +13261,7 @@ export class BattleScene extends Phaser.Scene {
           this.player.x,
           this.player.y
         );
-        if (distance > 0 && distanceToLine <= 58) this.damageBossHazard(damage, "collision");
+        if (distance > 0 && distanceToLine <= 72) this.damageBossHazard(damage, "collision");
         this.showBanner(`镜像 ${label} · 冲击完成`, 520);
         line.destroy();
       }
@@ -12785,7 +13272,8 @@ export class BattleScene extends Phaser.Scene {
     const originX = core.x;
     const originY = core.y + Math.max(46, core.displayHeight * 0.2);
     const length = Math.min(WORLD_HEIGHT - originY + 120, 920 + this.bossPhase * 70);
-    const width = 650 + this.bossPhase * 55;
+    // 玩家技能的"范围加强、伤害降低"版:火锥宽 650→780,单次完整命中占比 36%→28%
+    const width = 780 + this.bossPhase * 60;
     const bandCount = save.settings.quality === "high" ? 8 : 6;
     const bandHeight = length / bandCount;
     const warningBands = Array.from({ length: bandCount }, (_, index) => {
@@ -12809,10 +13297,10 @@ export class BattleScene extends Phaser.Scene {
     this.showBanner("镜像强化龙息 · 三重喷流 · 金色火环内为危险范围", 1050);
     this.tweens.add({
       targets: warningBands,
-      alpha: { from: 0.38, to: 0.9 },
-      yoyo: true,
-      repeat: 3,
-      duration: 190,
+      // 预警由浅到深:最深处才释放三重喷流
+      alpha: { from: 0.38, to: 0.95 },
+      duration: 1520,
+      ease: "Quad.easeIn",
       onComplete: () => {
         warningBands.forEach((band) => band.destroy());
         if (!this.bossActive || !core.active) return;
@@ -12856,8 +13344,8 @@ export class BattleScene extends Phaser.Scene {
           this.time.delayedCall(delay, () => {
             if (playerHit || !this.bossActive || !insideVisibleCone()) return;
             playerHit = true;
-            // 归一化遭遇倍率后，单次完整命中最多约 36% 最大生命；满血可连续承受两次。
-            const survivableRatio = 0.36 / Math.max(1, this.currentBossEncounterAttackScale());
+            // 归一化遭遇倍率后,单次完整命中最多约 28% 最大生命;满血可连续承受三次。
+            const survivableRatio = 0.28 / Math.max(1, this.currentBossEncounterAttackScale());
             this.damagePlayerDark(0, survivableRatio, "镜像强化龙息");
           });
         }
@@ -12910,17 +13398,25 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  bossHomingSwarm(core: Phaser.Physics.Arcade.Image, count: number, tint: number): void {
+  bossHomingSwarm(
+    core: Phaser.Physics.Arcade.Image,
+    count: number,
+    tint: number,
+    damage = 16 + this.bossTier,
+    spread = 0.16,
+    speed = 185,
+    homingSpeed = 255 + this.bossPhase * 15
+  ): void {
     for (let i = 0; i < count; i += 1) {
       this.time.delayedCall(i * 75, () => {
         if (!this.bossActive || !core.active) return;
-        const angle = Math.PI / 2 + (i - (count - 1) / 2) * 0.16;
+        const angle = Math.PI / 2 + (i - (count - 1) / 2) * spread;
         const bullet = this.fireEnemyAngle(
           core.x + Math.cos(i) * 80,
           core.y + 30,
           angle,
-          185,
-          16 + this.bossTier,
+          speed,
+          damage,
           "projectile",
           "boss"
         );
@@ -12928,7 +13424,7 @@ export class BattleScene extends Phaser.Scene {
           .setTint(tint)
           .setScale(1.2)
           .setData("homingUntil", this.time.now + 1100)
-          .setData("homingSpeed", 255 + this.bossPhase * 15);
+          .setData("homingSpeed", homingSpeed);
       });
     }
   }
@@ -13011,49 +13507,56 @@ export class BattleScene extends Phaser.Scene {
     const aimY = this.player.y;
     const angle = Math.atan2(aimY - core.y, aimX - core.x);
     if (stolen === "laser") {
-      for (let i = -2; i <= 2; i += 1) {
+      // 玩家技能的"范围加强、伤害降低、弹速较慢"版:7 束更宽散射,
+      // 单束伤害降低,弹速 560→420
+      for (let i = -3; i <= 3; i += 1) {
         const beam = this.fireEnemyAngle(
           core.x + i * 22,
           core.y + 18,
-          angle + i * 0.06,
-          560,
-          14 + this.bossTier,
+          angle + i * 0.09,
+          420,
+          10 + this.bossTier * 0.6,
           "projectile",
           "boss"
         );
         beam.setTint(0x6c2fff);
       }
     } else if (stolen === "missile") {
-      for (let i = 0; i < 5; i += 1) {
+      // 玩家技能的"范围加强、伤害降低、弹速较慢"版:7 枚更宽散布,
+      // 单发伤害降低,弹速 380→300
+      for (let i = 0; i < 7; i += 1) {
         const missile = this.fireEnemyAngle(
-          core.x + Phaser.Math.Between(-30, 30),
+          core.x + Phaser.Math.Between(-36, 36),
           core.y + 12,
-          angle + Phaser.Math.FloatBetween(-0.18, 0.18),
-          380,
-          18 + this.bossTier,
+          angle + Phaser.Math.FloatBetween(-0.22, 0.22),
+          300,
+          12 + this.bossTier * 0.6,
           "projectile",
           "boss"
         );
         missile.setTint(0x9b5cff);
       }
     } else if (stolen === "drone") {
-      for (let i = 0; i < 4; i += 1) {
+      // 玩家技能的"范围加强、伤害降低、弹速较慢"版:6 架更宽散射,
+      // 单发伤害降低,弹速 230→185
+      for (let i = 0; i < 6; i += 1) {
         const drone = this.fireEnemyAngle(
           core.x,
           core.y - 20,
-          Math.PI / 2 + i * 0.22,
-          230,
-          12 + this.bossTier,
+          Math.PI / 2 + i * 0.26,
+          185,
+          9 + this.bossTier * 0.6,
           "projectile",
           "boss"
         );
         drone.setTint(0xb15cff);
       }
     } else if (stolen === "emp") {
-      const radius = 220;
+      // 玩家技能的"范围加强、伤害降低"版:EMP 半径 220→300,伤害 30→22
+      const radius = 300;
       const blast = this.add.circle(core.x, core.y, radius, 0x6c2fff, 0.42).setStrokeStyle(8, 0x9b5cff, 0.9).setDepth(24);
       if (Phaser.Math.Distance.Between(this.player.x, this.player.y, core.x, core.y) < radius) {
-        this.damageBossHazard(30, "explosion");
+        this.damageBossHazard(22, "explosion");
       }
       this.tweens.add({ targets: blast, scale: 1.3, alpha: 0, duration: 320, onComplete: () => blast.destroy() });
     }
@@ -13152,10 +13655,10 @@ export class BattleScene extends Phaser.Scene {
       this.trackBossEffect(warning, 2600);
       this.tweens.add({
         targets: warning,
-        alpha: { from: 0.09, to: 0.56 },
-        yoyo: true,
-        repeat: 3,
-        duration,
+        // 预警由浅到深:整个预警期持续加深,最深处才释放攻击
+        alpha: { from: 0.09, to: 0.9 },
+        duration: duration * 8,
+        ease: "Quad.easeIn",
         onComplete: () => {
           warning.destroy();
           if (!this.bossActive) return;
@@ -13189,17 +13692,21 @@ export class BattleScene extends Phaser.Scene {
     const now = this.time.now;
     if (!this.bossActive || this.ended || now - this.lastBossHazardDamageAt < 320) return;
     this.lastBossHazardDamageAt = now;
-    // 大型预警技能命中时不应被此前普通子弹残留的无敌帧吞掉。
-    if (this.ultimateActive <= 0) this.invulnerableUntil = Math.min(this.invulnerableUntil, now);
+    // 大型预警技能命中时不应被此前普通子弹残留的无敌帧吞掉,
+    // 但玩家正处于主动技能无敌(突刺/万象影袭)期间时不穿透
+    if (this.ultimateActive <= 0 && now >= this.activeInvulnerableUntil) {
+      this.invulnerableUntil = Math.min(this.invulnerableUntil, now);
+    }
     this.damagePlayer(amount, damageType, "boss");
   }
 
   telegraphStrike(
     x: number,
     duration = 110,
-    skillFx?: { kind: BossKind; type: string }
+    skillFx?: { kind: BossKind; type: string },
+    damageWidth = 84,
+    damage = 32
   ): void {
-    const damageWidth = 84;
     const warning = this.trackBossEffect(
       this.add.rectangle(x, WORLD_HEIGHT / 2, damageWidth, WORLD_HEIGHT, 0xff3dbb, 0.11).setDepth(6),
       2200
@@ -13207,10 +13714,10 @@ export class BattleScene extends Phaser.Scene {
     warning.setStrokeStyle(8, 0xff4d6d, 0.98);
     this.tweens.add({
       targets: warning,
-      alpha: { from: 0.15, to: 0.7 },
-      yoyo: true,
-      repeat: 3,
-      duration,
+      // 预警由浅到深:整个预警期持续加深,最深处才释放攻击
+      alpha: { from: 0.15, to: 0.9 },
+      duration: duration * 8,
+      ease: "Quad.easeIn",
       onComplete: () => {
         warning.destroy();
         if (!this.bossActive) return;
@@ -13229,7 +13736,7 @@ export class BattleScene extends Phaser.Scene {
           this.add.rectangle(x, WORLD_HEIGHT / 2, damageWidth, WORLD_HEIGHT, 0xff3dbb, 0.74).setDepth(18),
           1200
         );
-        if (Math.abs(this.player.x - x) < 42) this.damageBossHazard(32, "explosion");
+        if (Math.abs(this.player.x - x) < damageWidth / 2) this.damageBossHazard(damage, "explosion");
         this.tweens.add({ targets: beam, alpha: 0, duration: 380, onComplete: () => beam.destroy() });
       }
     });
@@ -13264,19 +13771,20 @@ export class BattleScene extends Phaser.Scene {
   playShadowPowerTheft(
     defeatedKind: BossKind,
     x: number,
-    y: number,
-    tokenReward: number
+    y: number
   ): void {
-    const shadow = this.add
-      .image(
-        WORLD_WIDTH / 2,
-        -340,
-        shadowTextureForAbsorbedPowers(this.campaignBossesDefeated)
-      )
-      .setDisplaySize(260, 390)
-      .setTint(0x9b5cff)
-      .setAlpha(0.9)
-      .setDepth(72);
+    const shadow = this.trackBossVisual(
+      this.add
+        .image(
+          WORLD_WIDTH / 2,
+          -340,
+          shadowTextureForAbsorbedPowers(this.campaignBossesDefeated)
+        )
+        .setDisplaySize(260, 390)
+        .setTint(0x9b5cff)
+        .setAlpha(0.9)
+        .setDepth(72)
+    );
     const stolenCore = this.add
       .circle(x, y, 28, 0xffbd3e, 0.9)
       .setStrokeStyle(9, 0xff3dbb, 0.86)
@@ -13309,7 +13817,7 @@ export class BattleScene extends Phaser.Scene {
           onComplete: () => {
             shadow.destroy();
             this.showBanner(
-              `黑影夺走${BOSS_NAMES[defeatedKind]}专属强化核心 · 主动权柄已保留 · ◆ ${tokenReward} 已回收`,
+              `黑影夺走${BOSS_NAMES[defeatedKind]}专属强化核心 · 主动权柄已保留`,
               1500
             );
             this.startCampaignEncounter(this.campaignEncounterIndex);
@@ -13344,11 +13852,11 @@ export class BattleScene extends Phaser.Scene {
         : 32 + defeatedTier * 20 + selectedLevel * 9;
     // === 削弱:boss 给的数值奖励砍 30%(空中支援 / 教义进化 / boss 护符为主奖励) ===
     const bossTokens = Math.round(baseBossTokens * 0.7 * (defeatedElite ? 1.5 : 1));
-    this.runTokens += bossTokens;
+    this.grantRunTokens(bossTokens);
     this.floatText(
       WORLD_WIDTH / 2,
       300,
-      `${defeatedElite ? "精英 " : ""}${BOSS_NAMES[defeatedKind]} ${defeatedTier} 击破 · ◆ +${bossTokens}`,
+      `${defeatedElite ? "精英 " : ""}${BOSS_NAMES[defeatedKind]} ${defeatedTier} 击破`,
       true
     );
     this.bossParts.children.each((child) => {
@@ -13404,7 +13912,7 @@ export class BattleScene extends Phaser.Scene {
       );
       // 规矩:打完 boss 不掉 boss 强化(主动/被动),统一在打跑黑影后给
       this.time.delayedCall(620, () => {
-        this.playShadowPowerTheft(defeatedKind, defeatedX, defeatedY, bossTokens);
+        this.playShadowPowerTheft(defeatedKind, defeatedX, defeatedY);
       });
       return;
     }
@@ -13549,8 +14057,8 @@ export class BattleScene extends Phaser.Scene {
     if (this.ended) return;
     this.ended = true;
     this.physics.world.pause();
-    // === 魔神契约:玩家死亡时 25% 概率复活并保留 50% HP ===
-    if (!victory && this.deityPactArmed && !this.deityPactTriggered) {
+    // 魔神契约:玩家死亡时 25% 概率复活并保留 50% HP(黑影结局已触发则不再复活)
+    if (!victory && this.deityPactArmed && !this.deityPactTriggered && !this.shadowEnding) {
       if (Math.random() < 0.25) {
         this.deityPactTriggered = true;
         this.deityPactArmed = false;
