@@ -1,4 +1,4 @@
-export type GameMode = "campaign" | "boss" | "endless";
+export type GameMode = "campaign" | "boss" | "endless" | "roguelike";
 export type ShipId = "balanced" | "bomber" | "lightning" | "guardian";
 export type SpecializationId =
   | "power"
@@ -123,6 +123,8 @@ export interface SaveData {
   unlockedShips: ShipId[];
   selectedShip: ShipId;
   selectedSpecialization: SpecializationId;
+  selectedShip2: ShipId;
+  selectedSpecialization2: SpecializationId;
   unlockedSkins: SkinId[];
   equippedSkin: SkinId;
   permanentUpgrades: Record<string, number>;
@@ -132,6 +134,11 @@ export interface SaveData {
     screenShake: boolean;
     damageNumbers: boolean;
     quality: "low" | "high";
+    friendlyFire: boolean;
+    /** 自动开火:开启后无需按住 SPACE/ENTER,持续连发(即时肉鸽推荐) */
+    autoFire: boolean;
+    /** 自定义键位:动作 id → Phaser 键码名(如 "KeyW"/"SPACE"),缺省用默认键 */
+    keybindings: Record<string, string>;
   };
   records: {
     campaignWins: number;
@@ -139,6 +146,8 @@ export interface SaveData {
     endlessBestSeconds: number;
     endlessBestScore: number;
     bossRushBestMs: number | null;
+    roguelikeBestSeconds: number;
+    roguelikeBestWave: number;
   };
   achievements: Record<string, string>;
   seenTutorial: boolean;
@@ -155,6 +164,8 @@ export const DEFAULT_SAVE: SaveData = {
   unlockedShips: ["balanced", "bomber", "lightning", "guardian"],
   selectedShip: "balanced",
   selectedSpecialization: "power",
+  selectedShip2: "balanced",
+  selectedSpecialization2: "power",
   unlockedSkins: ["standard"],
   equippedSkin: "standard",
   permanentUpgrades: {
@@ -171,14 +182,19 @@ export const DEFAULT_SAVE: SaveData = {
     sfxVolume: 0.65,
     screenShake: true,
     damageNumbers: true,
-    quality: "low"
+    quality: "low",
+    friendlyFire: true,
+    autoFire: false,
+    keybindings: {}
   },
   records: {
     campaignWins: 0,
     highestUnlockedLevel: 1,
     endlessBestSeconds: 0,
     endlessBestScore: 0,
-    bossRushBestMs: null
+    bossRushBestMs: null,
+    roguelikeBestSeconds: 0,
+    roguelikeBestWave: 0
   },
   achievements: {},
   seenTutorial: false,
@@ -246,7 +262,7 @@ export function loadSave(raw: string | null): SaveData {
       "boss_slayer_skin",
       "campaign_ace_skin"
     ];
-    const validModes: GameMode[] = ["campaign", "endless", "boss"];
+    const validModes: GameMode[] = ["campaign", "endless", "boss", "roguelike"];
     const validVariants: PlayVariantId[] = ["single", "coop", "score_duel"];
     const selectedShip = validShips.includes(parsed.selectedShip as ShipId)
       ? (parsed.selectedShip as ShipId)
@@ -258,6 +274,17 @@ export function loadSave(raw: string | null): SaveData {
     )
       ? (legacySpecialization as SpecializationId)
       : "power";
+    const selectedShip2 = validShips.includes(parsed.selectedShip2 as ShipId)
+      ? (parsed.selectedShip2 as ShipId)
+      : DEFAULT_SAVE.selectedShip2;
+    const rawSpecialization2 = (parsed as { selectedSpecialization2?: string })
+      .selectedSpecialization2;
+    const legacySpecialization2 = rawSpecialization2 === "assault" ? "power" : rawSpecialization2;
+    const selectedSpecialization2 = validSpecializations.includes(
+      legacySpecialization2 as SpecializationId
+    )
+      ? (legacySpecialization2 as SpecializationId)
+      : DEFAULT_SAVE.selectedSpecialization2;
     const rawUnlockedSkins = Array.isArray(parsed.unlockedSkins)
       ? parsed.unlockedSkins
       : ["standard"];
@@ -304,6 +331,8 @@ export function loadSave(raw: string | null): SaveData {
       starCores: boundedInteger(parsed.starCores, DEFAULT_SAVE.starCores, 0, Number.MAX_SAFE_INTEGER),
       selectedShip,
       selectedSpecialization,
+      selectedShip2,
+      selectedSpecialization2,
       unlockedSkins,
       equippedSkin,
       unlockedShips: validShips,
@@ -322,7 +351,25 @@ export function loadSave(raw: string | null): SaveData {
         quality:
           rawSettings.quality === "low" || rawSettings.quality === "high"
             ? rawSettings.quality
-            : DEFAULT_SAVE.settings.quality
+            : DEFAULT_SAVE.settings.quality,
+        friendlyFire:
+          typeof rawSettings.friendlyFire === "boolean"
+            ? rawSettings.friendlyFire
+            : DEFAULT_SAVE.settings.friendlyFire,
+        autoFire:
+          typeof rawSettings.autoFire === "boolean"
+            ? rawSettings.autoFire
+            : DEFAULT_SAVE.settings.autoFire,
+        keybindings:
+          rawSettings.keybindings &&
+          typeof rawSettings.keybindings === "object" &&
+          !Array.isArray(rawSettings.keybindings)
+            ? Object.fromEntries(
+                Object.entries(rawSettings.keybindings).filter(
+                  ([, value]) => typeof value === "string"
+                )
+              )
+            : DEFAULT_SAVE.settings.keybindings
       },
       records: {
         campaignWins: boundedInteger(
@@ -358,7 +405,19 @@ export function loadSave(raw: string | null): SaveData {
                 0,
                 Number.MAX_SAFE_INTEGER
               )
-            : null
+            : null,
+        roguelikeBestSeconds: finiteNumber(
+          rawRecords.roguelikeBestSeconds,
+          DEFAULT_SAVE.records.roguelikeBestSeconds
+        ) < 0
+          ? 0
+          : finiteNumber(rawRecords.roguelikeBestSeconds, DEFAULT_SAVE.records.roguelikeBestSeconds),
+        roguelikeBestWave: boundedInteger(
+          rawRecords.roguelikeBestWave,
+          DEFAULT_SAVE.records.roguelikeBestWave,
+          0,
+          Number.MAX_SAFE_INTEGER
+        )
       },
       achievements,
       seenTutorial:
@@ -463,8 +522,8 @@ export function agileCritRateAttackBonus(critChance: number): number {
 }
 
 export function agileCritEffectSpeedMultiplier(critEffect: number): number {
-  // 减半:原本 +100% 移速,现在 +30%
-  return 1 + Math.max(0, critEffect) * 0.3;
+  // 每 1% 暴击效果转化为 0.15% 移速(原 0.3%,削弱一半)
+  return 1 + Math.max(0, critEffect) * 0.15;
 }
 
 // 撞击流派 maxHp>1000 后,Boss 主动撞玩家不再享受免伤:之前 0.75 减伤会让 Boss
@@ -517,16 +576,14 @@ const SPECIALIZATION_UPGRADE_PREFIXES = [
   "ram_"
 ] as const;
 
-// 专属强化相对普通强化的权重:在原 +10% 基础上再提高 5%，合计 +15%。
-export const SPECIALIZATION_UPGRADE_WEIGHT = 1.15;
-// 防御流派「荆棘护甲」出现概率额外提高 25%(在原专属权重 1.15 上再 ×1.25)。
-export const DEFENDER_THORNS_APPEARANCE_BOOST = 1.25;
+// 专属强化相对普通强化的权重:出现概率比其他强化高 200%(权重 3,不保证必出)。
+export const SPECIALIZATION_UPGRADE_WEIGHT = 3;
 
 export function isSpecializationUpgradeId(id: string): boolean {
   return SPECIALIZATION_UPGRADE_PREFIXES.some((prefix) => id.startsWith(prefix));
 }
 
-// 带权重的不重复抽取:专属强化权重 1.15,其余为 1;荆棘护甲再 ×1.25
+// 带权重的不重复抽取:专属强化权重为 SPECIALIZATION_UPGRADE_WEIGHT,其余为 1
 export function chooseUniqueWeighted<T extends { id: string }>(
   pool: T[],
   count: number,
@@ -535,10 +592,9 @@ export function chooseUniqueWeighted<T extends { id: string }>(
   const copy = [...pool];
   const result: T[] = [];
   while (copy.length && result.length < count) {
-    const weights = copy.map((item) => {
-      const base = isSpecializationUpgradeId(item.id) ? SPECIALIZATION_UPGRADE_WEIGHT : 1;
-      return item.id === "defender_thorns" ? base * DEFENDER_THORNS_APPEARANCE_BOOST : base;
-    });
+    const weights = copy.map((item) =>
+      isSpecializationUpgradeId(item.id) ? SPECIALIZATION_UPGRADE_WEIGHT : 1
+    );
     const total = weights.reduce((sum, w) => sum + w, 0);
     let roll = random() * total;
     let picked = copy.length - 1;
@@ -555,6 +611,6 @@ export function chooseUniqueWeighted<T extends { id: string }>(
 }
 
 export function rewardForRun(mode: GameMode, score: number, victory: boolean): number {
-  const base = mode === "boss" ? 30 : mode === "endless" ? 18 : 24;
+  const base = mode === "boss" ? 30 : mode === "endless" ? 18 : mode === "roguelike" ? 20 : 24;
   return Math.floor(base + score / 2500 + (victory ? 35 : 0));
 }

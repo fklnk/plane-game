@@ -877,58 +877,79 @@ body {
 .protocol-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
 .protocol-card {
   position: relative;
-  min-height: 228px;
-  padding: 14px;
+  --pc: #2df4ff;
+  --pc-soft: rgba(45, 244, 255, 0.14);
+  min-height: 236px;
+  padding: 18px 14px 14px;
   overflow: hidden;
   border: 1px solid rgba(45, 244, 255, 0.18);
-  background: linear-gradient(145deg, rgba(7, 28, 48, 0.94), rgba(3, 10, 22, 0.96));
+  background: linear-gradient(160deg, rgba(7, 28, 48, 0.94), rgba(3, 10, 22, 0.96));
   color: #eaffff;
   text-align: left;
   cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
-.protocol-card.danger {
-  background: linear-gradient(145deg, rgba(53, 10, 35, 0.94), rgba(10, 4, 18, 0.97));
+.protocol-card.theme-endless {
+  --pc: #ffc96b;
+  --pc-soft: rgba(255, 201, 107, 0.15);
+}
+
+.protocol-card.theme-roguelike {
+  --pc: #b56cff;
+  --pc-soft: rgba(181, 108, 255, 0.15);
+}
+
+.protocol-card.theme-boss {
+  --pc: #ff4d83;
+  --pc-soft: rgba(255, 77, 131, 0.15);
+}
+
+.protocol-card:hover {
+  border-color: var(--pc);
+  transform: translateY(-2px);
 }
 
 .protocol-card.selected {
-  border-color: var(--cyan);
-  box-shadow: inset 0 0 40px rgba(45, 244, 255, 0.09), 0 0 20px rgba(45, 244, 255, 0.08);
+  border-color: var(--pc);
+  box-shadow: inset 0 0 40px var(--pc-soft), 0 0 22px var(--pc-soft);
 }
 
-.protocol-card.danger.selected {
-  border-color: #ff4d83;
-  box-shadow: inset 0 0 40px rgba(255, 61, 131, 0.1), 0 0 20px rgba(255, 61, 131, 0.08);
-}
-
-.protocol-card > span {
-  color: #6b99ad;
-  font: 8px/1 "Roboto Mono", Consolas, monospace;
-  letter-spacing: 0.16em;
-}
-
-.protocol-card > i {
+.protocol-band {
   position: absolute;
-  right: 14px;
-  top: 10px;
-  color: var(--cyan);
-  font: normal 38px/1 "Roboto Mono", Consolas, monospace;
-  opacity: 0.8;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--pc), transparent 72%);
+  opacity: 0.9;
 }
 
-.protocol-card.danger > i {
-  color: #ff4d83;
+.protocol-no {
+  display: block;
+  color: #5c87a0;
+  font: 8px/1 "Roboto Mono", Consolas, monospace;
+  letter-spacing: 0.14em;
+}
+
+.protocol-sigil {
+  display: block;
+  margin: 14px 0 10px;
+  color: var(--pc);
+  font: normal 42px/1 "Roboto Mono", Consolas, monospace;
+  text-shadow: 0 0 18px var(--pc);
+  opacity: 0.95;
 }
 
 .protocol-card h3 {
-  margin: 29px 0 8px;
-  font-size: 17px;
+  margin: 0 0 8px;
+  font-size: 18px;
 }
 
 .protocol-card p {
@@ -939,17 +960,17 @@ body {
   line-height: 1.6;
 }
 
-.protocol-card > div {
+.protocol-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 12px;
 }
 
-.protocol-card b {
+.protocol-tags b {
   padding: 5px 7px;
-  background: rgba(45, 244, 255, 0.07);
-  color: #96d9e2;
+  background: var(--pc-soft);
+  color: #cfeeff;
   font: 7px/1 "Roboto Mono", Consolas, monospace;
 }
 
@@ -1048,6 +1069,55 @@ body {
   border: 1px solid #36576a;
   background: #07111f;
   color: white;
+}
+
+/* 双人模式:友军伤害开关 */
+.ff-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 4px;
+  color: #d6ecf5;
+  white-space: nowrap;
+}
+
+.ff-label {
+  min-width: 24px;
+  color: #9ff7ff;
+  font-weight: 700;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #4a6a7d;
+  border-radius: 999px;
+  background: #10222f;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.toggle-switch .toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #7fa7ba;
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+
+.toggle-switch.on {
+  border-color: #2df4ff;
+  background: rgba(45, 244, 255, 0.18);
+}
+
+.toggle-switch.on .toggle-knob {
+  transform: translateX(16px);
+  background: #2df4ff;
 }
 
 
@@ -1721,6 +1791,70 @@ kbd {
   gap: 16px;
 }
 
+/* === 键位设置界面 === */
+.keybind-hint {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(45, 244, 255, 0.18);
+  background: rgba(45, 244, 255, 0.05);
+  color: #7fa7ba;
+  font-size: 10px;
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+
+.keybind-groups {
+  width: 100%;
+  display: grid;
+  gap: 18px;
+}
+
+.keybind-group h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #9ff7ff;
+  letter-spacing: 0.08em;
+}
+
+.keybind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(98, 158, 188, 0.14);
+  background: rgba(7, 20, 36, 0.7);
+  color: #bddbe7;
+  font-size: 11px;
+}
+
+.keybind-row + .keybind-row {
+  border-top: none;
+}
+
+.keybind-key {
+  min-width: 74px;
+  padding: 5px 12px;
+  border: 1px solid #36576a;
+  background: #0a1a2c;
+  color: #e9fbff;
+  font: 700 11px/1.2 "Roboto Mono", Consolas, monospace;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.keybind-key:hover {
+  border-color: var(--cyan);
+}
+
+.keybind-key.listening {
+  border-color: #ffd95e;
+  background: rgba(255, 217, 94, 0.12);
+  color: #ffd95e;
+}
+
+
 .setting-row {
   padding: 15px 16px;
   border: 1px solid rgba(98, 158, 188, 0.16);
@@ -1856,6 +1990,29 @@ kbd {
   line-height: 1.5;
 }
 
+.upgrade-banish {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 77, 109, 0.5);
+  background: rgba(40, 6, 18, 0.9);
+  color: #ff4d6d;
+  font: 11px/1 Consolas, monospace;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.upgrade-banish:hover {
+  border-color: #ff4d6d;
+  background: rgba(90, 10, 26, 0.95);
+  opacity: 1;
+}
+
 .upgrade-level {
   position: absolute;
   top: 10px;
@@ -1863,6 +2020,103 @@ kbd {
   color: #6e9aac;
   font: 8px/1 "Roboto Mono", Consolas, monospace;
 }
+
+/* === 双人战术升级:同一界面左右分栏,P1 左 / P2 右 === */
+.upgrade-duo-overlay .upgrade-duo-panel {
+  width: min(100%, 880px);
+}
+
+.upgrade-duo-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.upgrade-duo-side {
+  padding: 14px;
+  border: 1px solid rgba(45, 244, 255, 0.18);
+  background: rgba(8, 22, 40, 0.72);
+}
+
+.upgrade-duo-side.done {
+  border-color: rgba(67, 255, 154, 0.4);
+  background: rgba(8, 34, 26, 0.6);
+}
+
+.upgrade-duo-side .upgrade-grid {
+  gap: 8px;
+}
+
+.upgrade-duo-side .upgrade-card {
+  padding: 12px 10px 12px 46px;
+  min-height: 64px;
+}
+
+.upgrade-duo-side .upgrade-card p {
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.upgrade-duo-side .upgrade-icon {
+  left: 10px;
+  top: 14px;
+  width: 26px;
+  height: 26px;
+}
+
+.upgrade-side-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #e9fbff;
+}
+
+.upgrade-side-tag {
+  padding: 2px 8px;
+  font: 700 10px/1.2 "Roboto Mono", Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.upgrade-side-tag.p1 {
+  color: #2df4ff;
+  border: 1px solid rgba(45, 244, 255, 0.5);
+}
+
+.upgrade-side-tag.p2 {
+  color: #c16cff;
+  border: 1px solid rgba(193, 108, 255, 0.5);
+}
+
+.upgrade-side-ship {
+  color: #e9fbff;
+  font-weight: 600;
+}
+
+.upgrade-side-spec {
+  color: #7fa7ba;
+  font-size: 10px;
+}
+
+.upgrade-side-status {
+  margin-top: 10px;
+  min-height: 14px;
+  color: #6e9aac;
+  font-size: 10px;
+  text-align: center;
+}
+
+.upgrade-duo-side.done .upgrade-side-status {
+  color: #43ff9a;
+}
+
+@media (max-width: 760px) {
+  .upgrade-duo-sides {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 .boss-power-card .upgrade-level,
 .boss-passive-card .upgrade-level {

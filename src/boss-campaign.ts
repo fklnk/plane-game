@@ -186,7 +186,6 @@ export interface BossCampaignDifficulty {
   eliteChance: number;
   mutationChance: number;
   rewardMultiplier: number;
-  bossSkillCap: number;
 }
 
 export const BOSS_CAMPAIGN_ENCOUNTERS: BossCampaignEncounter[] = [
@@ -327,29 +326,26 @@ export const BOSS_CAMPAIGN_DIFFICULTIES: Record<
   normal: {
     id: "normal",
     name: "普通",
-    description: "所有敌军与 Boss 均为普通形态，不出现突变。每个 Boss 最多使用 2 个技能。",
+    description: "所有敌军与 Boss 均为普通形态，不出现突变。",
     eliteChance: 0,
     mutationChance: 0,
-    rewardMultiplier: 1,
-    bossSkillCap: 2
+    rewardMultiplier: 1
   },
   hard: {
     id: "hard",
     name: "困难",
-    description: "普通与精英敌军各占约 50%，Boss 也有一半概率进入精英形态。每个 Boss 最多使用 3 个技能。",
-    eliteChance: 0.5,
+    description: "约 55% 敌军与 Boss 为精英形态，不出现突变。Boss 拥有 5% 免伤。",
+    eliteChance: 0.55,
     mutationChance: 0,
-    rewardMultiplier: 1.55,
-    bossSkillCap: 3
+    rewardMultiplier: 1.55
   },
   nightmare: {
     id: "nightmare",
     name: "噩梦",
-    description: "约 75% 敌军与 Boss 为精英；25% 单位会额外获得其他单位的突变能力。",
-    eliteChance: 0.75,
-    mutationChance: 0.25,
-    rewardMultiplier: 2.35,
-    bossSkillCap: 3
+    description: "全部敌军与 Boss 均为精英形态；50% 单位会额外获得其他单位的突变能力。Boss 拥有 15% 免伤。",
+    eliteChance: 1,
+    mutationChance: 0.5,
+    rewardMultiplier: 2.35
   }
 };
 

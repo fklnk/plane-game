@@ -135,14 +135,14 @@ describe("progression", () => {
     expect(isSpecializationUpgradeId("speed")).toBe(false);
   });
 
-  it("weights specialization upgrades 15% higher and keeps picks unique", () => {
-    expect(SPECIALIZATION_UPGRADE_WEIGHT).toBe(1.15);
-    // 池:1 个专属(权重 1.15) + 1 个普通(权重 1),总权重 2.15
+  it("weights specialization upgrades 200% higher and keeps picks unique", () => {
+    expect(SPECIALIZATION_UPGRADE_WEIGHT).toBe(3);
+    // 池:1 个专属(权重 3) + 1 个普通(权重 1),总权重 4
     const pool = [{ id: "power_flamethrower" }, { id: "laser" }];
-    // roll = 0.53 → 0.53 * 2.15 = 1.1395 < 1.15,落在专属区间
-    expect(chooseUniqueWeighted(pool, 1, () => 0.53)[0].id).toBe("power_flamethrower");
-    // roll = 0.54 → 1.161 > 1.15,越过专属落到普通
-    expect(chooseUniqueWeighted(pool, 1, () => 0.54)[0].id).toBe("laser");
+    // roll = 0.74 → 0.74 * 4 = 2.96 < 3,落在专属区间
+    expect(chooseUniqueWeighted(pool, 1, () => 0.74)[0].id).toBe("power_flamethrower");
+    // roll = 0.75 → 3.0 >= 3,越过专属落到普通
+    expect(chooseUniqueWeighted(pool, 1, () => 0.75)[0].id).toBe("laser");
     // 抽满时两者都在,且不重复
     expect(new Set(chooseUniqueWeighted(pool, 2, () => 0.5).map((i) => i.id)).size).toBe(2);
   });
@@ -226,14 +226,19 @@ describe("progression", () => {
       sfxVolume: 0,
       screenShake: true,
       damageNumbers: false,
-      quality: "low"
+      quality: "low",
+      friendlyFire: true,
+      autoFire: false,
+      keybindings: {}
     });
     expect(repaired.records).toEqual({
       campaignWins: 0,
       highestUnlockedLevel: 5,
       endlessBestSeconds: 0,
       endlessBestScore: 12,
-      bossRushBestMs: 0
+      bossRushBestMs: 0,
+      roguelikeBestSeconds: 0,
+      roguelikeBestWave: 0
     });
     expect(repaired.achievements).toEqual({ valid: "2026-08-01" });
     expect(repaired.dailyLogin).toEqual({ lastClaimDay: null, streak: 7, totalClaims: 0 });
@@ -299,9 +304,10 @@ describe("progression", () => {
   it("uses the strengthened agile crit conversions", () => {
     expect(agileCritRateAttackBonus(0.01)).toBeCloseTo(0.02);
     expect(agileCritRateAttackBonus(0.1)).toBeCloseTo(0.2);
-    // 暴击效果 → 移速:每 1% 暴击效果 +0.3% 移速
-    expect(agileCritEffectSpeedMultiplier(0.01)).toBeCloseTo(1.003);
-    expect(agileCritEffectSpeedMultiplier(1.2)).toBeCloseTo(1.36);
+    // 暴击效果 → 移速:每 1% 暴击效果 +0.15% 移速(原 +0.3%)
+    expect(agileCritEffectSpeedMultiplier(0.01)).toBeCloseTo(1.0015);
+    expect(agileCritEffectSpeedMultiplier(1.2)).toBeCloseTo(1.18);
+    expect(agileCritEffectSpeedMultiplier(2)).toBeCloseTo(1.3);
   });
 
   it("scales boss damage on the collision build by max health tier", () => {
@@ -471,12 +477,13 @@ describe("nine battle boss campaign", () => {
     expect(campaignDifficultyForLevel(4).id).toBe("hard");
     expect(campaignDifficultyForLevel(5).id).toBe("nightmare");
     expect(rollCampaignElite(3, () => 0)).toBe(false);
-    expect(rollCampaignElite(4, () => 0.49)).toBe(true);
-    expect(rollCampaignElite(4, () => 0.5)).toBe(false);
-    expect(rollCampaignElite(5, () => 0.74)).toBe(true);
-    expect(rollCampaignElite(5, () => 0.75)).toBe(false);
-    expect(rollCampaignMutation(5, () => 0.24)).toBe(true);
-    expect(rollCampaignMutation(5, () => 0.25)).toBe(false);
+    expect(rollCampaignElite(4, () => 0.54)).toBe(true);
+    expect(rollCampaignElite(4, () => 0.55)).toBe(false);
+    // 噩梦精英率 100%:任何 roll < 1 都判定为精英
+    expect(rollCampaignElite(5, () => 0.99)).toBe(true);
+    // 噩梦突变率 50%
+    expect(rollCampaignMutation(5, () => 0.49)).toBe(true);
+    expect(rollCampaignMutation(5, () => 0.5)).toBe(false);
   });
 
   it("unlocks more minion types after each original boss", () => {
