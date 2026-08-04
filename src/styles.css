@@ -878,15 +878,15 @@ body {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .protocol-card {
   position: relative;
   --pc: #2df4ff;
   --pc-soft: rgba(45, 244, 255, 0.14);
-  min-height: 250px;
-  padding: 20px 16px 16px;
+  min-height: 196px;
+  padding: 16px 14px 14px;
   overflow: hidden;
   border: 1px solid rgba(45, 244, 255, 0.18);
   background: linear-gradient(160deg, rgba(7, 28, 48, 0.94), rgba(3, 10, 22, 0.96));
@@ -935,38 +935,38 @@ body {
 
 .protocol-sigil {
   display: block;
-  margin: 16px 0 12px;
+  margin: 10px 0 8px;
   color: var(--pc);
-  font: normal 46px/1 "Roboto Mono", Consolas, monospace;
+  font: normal 36px/1 "Roboto Mono", Consolas, monospace;
   text-shadow: 0 0 18px var(--pc);
   opacity: 0.95;
 }
 
 .protocol-card h3 {
-  margin: 0 0 10px;
-  font-size: 20px;
+  margin: 0 0 6px;
+  font-size: 17px;
 }
 
 .protocol-card p {
-  min-height: 72px;
+  min-height: 54px;
   margin: 0;
   color: #7198aa;
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 .protocol-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 14px;
+  gap: 4px;
+  margin-top: 10px;
 }
 
 .protocol-tags b {
-  padding: 6px 8px;
+  padding: 5px 7px;
   background: var(--pc-soft);
   color: #cfeeff;
-  font: 8px/1 "Roboto Mono", Consolas, monospace;
+  font: 7px/1 "Roboto Mono", Consolas, monospace;
 }
 
 .danger-select {
@@ -974,12 +974,12 @@ body {
   display: grid;
   grid-template-columns: 1.15fr repeat(3, 1fr);
   gap: 7px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .danger-select > div,
 .danger-select > button {
-  min-height: 82px;
+  min-height: 76px;
   display: grid;
   align-content: center;
   gap: 5px;
@@ -1018,7 +1018,7 @@ body {
   width: 100%;
   display: grid;
   gap: 4px;
-  margin-top: 12px;
+  margin-top: 10px;
   padding: 12px;
   border-left: 2px solid var(--cyan);
   background: rgba(45, 244, 255, 0.055);
@@ -2690,9 +2690,9 @@ kbd {
     display: none;
   }
 
-  /* 主区变窄:三个模式卡片改为单列竖排,避免三列被过度压缩 */
+  /* 主区变窄:模式卡片改为 2 列(2+1),减少滚动高度 */
   .protocol-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
