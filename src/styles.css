@@ -2690,9 +2690,9 @@ kbd {
     display: none;
   }
 
-  /* 主区变窄:模式卡片改为 2 列(2+1),减少滚动高度 */
+  /* 主区变窄:三张模式卡片保持 3 列同一排 */
   .protocol-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
