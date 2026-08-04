@@ -901,11 +901,6 @@ body {
   --pc-soft: rgba(255, 201, 107, 0.15);
 }
 
-.protocol-card.theme-roguelike {
-  --pc: #b56cff;
-  --pc-soft: rgba(181, 108, 255, 0.15);
-}
-
 .protocol-card.theme-boss {
   --pc: #ff4d83;
   --pc-soft: rgba(255, 77, 131, 0.15);

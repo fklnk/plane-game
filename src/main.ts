@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 import "./styles.css";
-import { SeededRng } from "./seeded-rng";
 import {
   DEFAULT_SAVE,
   dailyLoginOffer,
@@ -52,9 +51,8 @@ import {
 } from "./boss-campaign";
 
 import {ACHIEVEMENT_SKIN_IDS, ACHIEVEMENTS, achievementSkinBulletDisplaySize, achievementSkinBulletTextureKey, achievementSkinTextureKey, AGILE_CLONE_COUNTS, AGILE_CLONE_DAMAGE_RATIOS, AGILE_CLONE_FUSION_HP_BONUS, AGILE_CLONE_HP_RATIOS, AGILE_CLONE_INTERVALS, AGILE_CLONE_MAX_COUNT, AGILE_LUNGE_DURATION, AGILE_LUNGE_HIT_WIDTH, AGILE_LUNGE_MAX_HEAL_HITS, AGILE_LUNGE_REACH, AGILE_LUNGE_REACHES, AgileTrajectory, AIR_SUPPORT_SKILLS, AIR_SUPPORT_VALUES, AirSupportSkillId, ATTACK_BONUS_SCALE, BOSS_KIND_TO_POWER, BOSS_NAMES, BOSS_PASSIVE_OPTIONS, BOSS_POWER_COOLDOWN_MS, BOSS_POWER_DAMAGE_SCALE, BOSS_POWER_FREEZE_MS, BOSS_POWER_FX_KEYS, BOSS_POWER_OPTIONS, BOSS_SKILL_FX, BossKind, BossPassiveDefinition, BossPassiveId, BossPowerId, CAMPAIGN_MYSTERY_MESSAGES, CAMPAIGN_MYSTERY_THRESHOLDS, DARK_CORRUPTION_HP_DRAIN, DARK_CORRUPTION_PER_TICK, DARK_CORRUPTION_TICK_MS, DARK_SWARM_DAMAGE_SCALE, DARK_SWARM_HP_SCALE, DEBUG, distancePointToSegment, DOCTRINE_EVOLUTIONS, EnemyDamageSource, EnemyMutation, EnemyType, LEVELS, MINION_MUTATION_COLORS, PlayVariant, POWER_FLAME_COOLDOWNS, POWER_FLAME_DAMAGE, POWER_FLAME_DURATIONS, POWER_FLAME_LENGTHS, POWER_FLAME_WIDTHS, SHADOW_ENDING_ACHIEVEMENTS, SHADOW_ENDINGS, ShadowEnding, shadowTextureForAbsorbedPowers, SHIPS, SKIN_RARITY_LABELS, SKINS, SPECIALIZATIONS, specializationStats, TemporarySkill, UpgradeDefinition, UPGRADES, WORLD_HEIGHT, WORLD_WIDTH} from "./data";
-import { RoguelikeDirectorMixin } from "./roguelike-director";
 import { SpawnDirectorMixin } from "./spawn-director";
-import { buildPoolFor, roguePickFor, setShowUpgrade, UpgradeSystemMixin } from "./upgrade-system";
+import { buildPoolFor, setShowUpgrade, UpgradeSystemMixin } from "./upgrade-system";
 import { finishRun, setSettlementNavigation } from "./run-settlement";
 import {
   activeScene,
@@ -298,7 +296,7 @@ app.innerHTML = `
         <div class="tech-card feature-list">
           <div class="feature-row">
             <span class="feature-index">01</span>
-            <div><div class="feature-name">Roguelite 构筑</div><div class="feature-copy">局内三选一 · 六大武器</div></div>
+            <div><div class="feature-name">流派融合强化</div><div class="feature-copy">主能力 4 级 + 搭配 2 级合成</div></div>
           </div>
           <div class="feature-row">
             <span class="feature-index">02</span>
@@ -313,11 +311,6 @@ app.innerHTML = `
           <div class="stat-kicker">ENDLESS RECORD</div>
           <div class="stat-value" id="rail-endless">00:00</div>
           <div class="stat-sub" id="rail-score">最高分 000000</div>
-        </div>
-        <div class="tech-card">
-          <div class="stat-kicker">ROGUE RECORD</div>
-          <div class="stat-value" id="rail-rogue">存活 00:00</div>
-          <div class="stat-sub" id="rail-rogue-boss">击破首领 0 · 最佳</div>
         </div>
       </aside>
     </section>
@@ -406,7 +399,6 @@ function showMenu(): void {
       </div>
       <div class="menu-status">
         <span>无限纪录 ${save.records.endlessBestScore}</span>
-        <span>轮回最佳存活 ${formatTime(save.records.roguelikeBestSeconds)}</span>
         <span>已获勋章 ${Object.keys(save.achievements).length}/${ACHIEVEMENTS.length}</span>
         <span>星核币 ${save.starCores}</span>
       </div>
@@ -610,17 +602,9 @@ function showLevelSelect(restoredScrollTop = 0): void {
           <p>小怪与 Boss 无限循环。每次击败 Boss 立即把本段代币存入仓库，并延长下一轮清兵时间。</p>
           <div class="protocol-tags"><b>即时存币</b><b>清兵期递增</b><b>无限构筑</b></div>
         </button>
-        <button class="protocol-card theme-roguelike ${selectedMode === "roguelike" ? "selected" : ""}" data-protocol="roguelike">
-          <span class="protocol-band"></span>
-          <span class="protocol-no">PROTOCOL 03 · REBIRTH</span>
-          <span class="protocol-sigil">◈</span>
-          <h3>刹那轮回</h3>
-          <p>直接开打，自动机炮。每 30 秒改一次构筑，60 秒后红/蓝/绿随机航线出现，每 3 分钟首领权柄，15 分钟黑暗魔神终局。</p>
-          <div class="protocol-tags"><b>分钟构筑</b><b>随机航线</b><b>死了重来</b></div>
-        </button>
         <button class="protocol-card theme-boss ${selectedMode === "boss" ? "selected" : ""}" data-protocol="boss">
           <span class="protocol-band"></span>
-          <span class="protocol-no">PROTOCOL 04 · ABYSS</span>
+          <span class="protocol-no">PROTOCOL 03 · ABYSS</span>
           <span class="protocol-sigil">⚠</span>
           <h3>九渊试炼</h3>
           <p>固定九场：三首领与三次黑影追逐、三不完全体同屏、黑影本体和最终真身。终战后本局结束。</p>
@@ -630,9 +614,9 @@ function showLevelSelect(restoredScrollTop = 0): void {
       <div class="danger-select">
         <div><span>STARTING THREAT</span><strong>选择初始威胁等级</strong></div>
         ${[
-          { id: 3, name: "普通", copy: "所有敌方单位均为普通形态" },
-          { id: 4, name: "困难", copy: "约 50% 敌军与 Boss 变为精英" },
-          { id: 5, name: "噩梦", copy: "全员精英，25% 概率追加突变能力" }
+          { id: 3, name: "爽玩", copy: "所有敌方单位均为普通形态，轻松开局" },
+          { id: 4, name: "普通", copy: "约 50% 敌军与 Boss 变为精英" },
+          { id: 5, name: "地狱", copy: "全员精英，25% 概率追加突变能力" }
         ]
           .map(
             (item) => `
@@ -656,8 +640,6 @@ function showLevelSelect(restoredScrollTop = 0): void {
             ? "星渊征途 · 未知深空航线"
             : selectedMode === "endless"
               ? "永夜航线 · 分段存币"
-              : selectedMode === "roguelike"
-                ? "刹那轮回 · 分数推进 · 航线抉择"
               : "九渊试炼 · 固定九战终局"
         }</strong>
         <small>${
@@ -667,9 +649,7 @@ function showLevelSelect(restoredScrollTop = 0): void {
               ? "持续推进并留意异常回波；完全体黑影和最终真身会在战斗中主动召唤小兵。"
               : selectedMode === "endless"
                 ? "每次 Boss 击破立即保存本段代币，死亡或退出也会保护尚未入库的代币。"
-                : selectedMode === "roguelike"
-                  ? "默认自动机炮，专注走位与抢经验。进门选择航线：赤红=强敌与攻击、深蓝=异常事件、翠绿=修复护盾。死亡清空构筑，一键保持流派重开。"
-                  : "没有额外清兵战；完成九场并击破最终真身后胜利结算。"
+                : "没有额外清兵战；完成九场并击破最终真身后胜利结算。"
         }</small>
       </div>
       <button class="primary-button flow-next" id="config-next">配置战机与专精 · 下一步</button>
@@ -734,7 +714,7 @@ function showAbout(): void {
       ${screenHeader("ABOUT / FLIGHT MANUAL", "关于与操作")}
       <div class="about-panel">
         <div class="about-logo">星渊突击 <small>v0.7.1</small></div>
-        <p>四类空域协议：星渊征途推进通关、永夜航线分段存币、刹那轮回十五分钟构筑、九渊试炼固定九战终局。</p>
+        <p>三类空域协议：星渊征途推进通关、永夜航线分段存币、九渊试炼固定九战终局。</p>
         <div class="key-table">
           <div><kbd>WASD / 方向键</kbd><span>移动战机</span></div>
           <div><kbd>SPACE</kbd><span>按住持续开火</span></div>
@@ -975,7 +955,7 @@ function showSettings(): void {
           } /></label>
         </div>
         <div class="setting-row">
-          <label><span>自动开火（推荐轮回）</span><input id="auto-fire" class="switch" type="checkbox" ${
+          <label><span>自动开火（免按 SPACE）</span><input id="auto-fire" class="switch" type="checkbox" ${
             save.settings.autoFire ? "checked" : ""
           } /></label>
         </div>
@@ -1212,7 +1192,7 @@ function startRun(): void {
 }
 
 function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
-  // 升级/构筑选择界面:游戏完全暂停,玩家不会在选择期间被攻击或走位,肉鸽计时同步冻结
+  // 升级/构筑选择界面:游戏完全暂停,玩家不会在选择期间被攻击或走位
   scene.upgradePanelOpen = true;
   scene.isModal = true;
   scene.physics.world.pause();
@@ -1236,7 +1216,7 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
     airSupportIds.has(id)
       ? scene.airSupportLevels[id as AirSupportSkillId] ?? 0
       : (scene.upgradesOf(owner)[id] ?? 0);
-  // 融合技出池条件:主能力 4 级 + 搭配能力 2 级 + 游戏超过 6 分钟(即时肉鸽)
+  // 融合技出池条件:主能力 4 级 + 搭配能力 2 级(全模式通用)
   const FUSION_REQUIREMENTS: Record<string, readonly [string, string]> = {
     power_fusion: ["power_flamethrower", "luck"],
     agile_shadow_lunge: ["agile_lunge", "agile_shadow_clone"],
@@ -1245,23 +1225,16 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
     devour_fusion: ["devour_swallow", "magnetism"],
     wheelchair_fusion: ["ram_shockwave", "ram_armor"]
   };
-  // 自动武器清单(即时肉鸽同时最多四种)
-  const AUTO_WEAPON_IDS = ["laser", "missile", "drone", "arc", "blade"] as const;
-  // 每个玩家按自己的专精/等级独立出池(出池与保底规则已抽至 upgrade-system.ts)
-  const roguePoolConfig = {
+  // 每个玩家按自己的专精/等级独立出池(出池规则抽至 upgrade-system.ts)
+  const upgradePoolConfig = {
     collisionUpgradeIds,
     airSupportIds,
     levelOf,
-    fusionRequirements: FUSION_REQUIREMENTS,
-    autoWeaponIds: AUTO_WEAPON_IDS,
-    isRogue: selectedMode === "roguelike"
+    fusionRequirements: FUSION_REQUIREMENTS
   };
-  const buildPool = (owner: 1 | 2): UpgradeDefinition[] => buildPoolFor(scene, owner, roguePoolConfig);
-  // 单侧三选一:普通模式不再保证本家流派专属必出,专属只凭权重(比其他强化高 60%)提高出现概率;
-  // 即时肉鸽走洗牌袋 + 保底规则(开局核心/攻击/生存、专属连缺必出、至少一张强化已有构筑、放逐过滤)
-  const isRogue = roguePoolConfig.isRogue;
+  const buildPool = (owner: 1 | 2): UpgradeDefinition[] => buildPoolFor(scene, owner, upgradePoolConfig);
+  // 单侧三选一:流派专属不保证必出,专属只凭权重(比其他强化高 60%)提高出现概率
   const pickForOwner = (owner: 1 | 2): UpgradeDefinition[] => {
-    if (isRogue) return roguePickFor(scene, owner, roguePoolConfig);
     const pool = buildPool(owner);
     return chooseUniqueWeighted(pool, 3);
   };
@@ -1275,7 +1248,6 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
   document.addEventListener("keydown", keyHandler);
   const closeUpgrade = (): void => {
     document.removeEventListener("keydown", keyHandler);
-    scene.rogueConstructRequest = null;
     overlayRoot.innerHTML = "";
     scene.upgradePanelOpen = false;
     scene.isModal = false;
@@ -1310,11 +1282,6 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
                   const level = levelOf(1, upgrade.id);
                   return `
                     <button class="upgrade-card" data-upgrade="${upgrade.id}" data-slot="${index}">
-                      ${
-                        isRogue && !scene.rogueBanishUsed
-                          ? `<span class="upgrade-banish" data-banish="${upgrade.id}" title="放逐:本局不再出现该强化">✕</span>`
-                          : ""
-                      }
                       <span class="upgrade-icon"><span>${upgrade.icon}</span></span>
                       <span class="upgrade-level">${level === 0 ? "NEW" : `LV.${level} → ${level + 1}`} · ${index + 1}</span>
                       <h3>${upgrade.name}</h3>
@@ -1337,17 +1304,6 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
         button.addEventListener("click", () => {
           scene.applyUpgrade(button.dataset.upgrade!, 1);
           closeUpgrade();
-        });
-      });
-      // 放逐:每局一次,永久从本局候选池移除该强化并重抽
-      document.querySelectorAll<HTMLButtonElement>("[data-banish]").forEach((button) => {
-        button.addEventListener("click", (event) => {
-          event.stopPropagation();
-          if (scene.rogueBanishUsed) return;
-          scene.rogueBanishUsed = true;
-          scene.rogueBanished.push(button.dataset.banish!);
-          showToast("已放逐 · 本局不再出现该强化");
-          draw();
         });
       });
       document.querySelector("#reroll-upgrade")?.addEventListener("click", () => {
@@ -2071,7 +2027,7 @@ function onWindowBlur(): void {
 }
 
 export class BattleScene extends SpawnDirectorMixin(
-  UpgradeSystemMixin(RoguelikeDirectorMixin(Phaser.Scene))
+  UpgradeSystemMixin(Phaser.Scene)
 ) {
   player!: Phaser.Physics.Arcade.Image;
   player2?: Phaser.Physics.Arcade.Image;
@@ -2224,27 +2180,14 @@ export class BattleScene extends SpawnDirectorMixin(
   nextBossAttack = 0;
   nextBossScore = 5000;
   nextSpawn = 0;
-  // === 即时肉鸽:分数阈值流程状态 ===
-  rogueRng: SeededRng = new SeededRng(Date.now() % 2147483647);
-  rogueStage = 0;               // 阶段计数(每清一个阶段 +1)
-  rogueNextScore = 0;           // 当前阶段分数阈值(与普通模式同一张表)
-  rogueStageCleared = false;    // 当前阶段分数已达标,等待清场/出航线门
-  rogueFirstConstructDone = false;  // 首次三选一(流派核心保底)已触发
-  rogueConstructKindQueue: Array<"core" | "attack" | "survival"> = ["core", "attack", "survival"];
-  rogueBossCount = 0;           // 已击破首领数(含终局黑暗魔神)
-  rogueGates: Phaser.GameObjects.Container[] = [];
-  rogueGateUntil = 0;           // 当前门消失时间(基于 time)
-  rogueBossPending = false;     // 首领降临近触发(防止与门/构筑冲突)
-  rogueFinalPending = false;    // 黑暗魔神终局已排队
-  rogueDeityDefeated = false;   // 黑暗魔神已击破(奖励链结束后胜利结算)
-  rogueBanishUsed = false;      // 放逐已用(每局一次)
-  rogueBanished: string[] = []; // 放逐的强化 id(本局不再进入候选池)
-  rogueConstructRequest: "core" | "attack" | "survival" | "utility" | null = null; // 保底三选一请求
-  rogueLastSpecializationMiss = 0; // 流派专属连续缺席次数(≥2 下次必出)
+  // === 普通战役:航线门流程状态(清兵达标并清场后出现红/蓝/绿三扇门) ===
+  campaignGates: Phaser.GameObjects.Container[] = [];
+  campaignGateUntil = 0;        // 门消失时间(基于 time)
+  campaignGatesOpen = false;    // 门流程进行中(防止重复生成/重复触发)
   // === 升级选择队列:弹窗忙时先排队,逐个弹出(修复同时吸收大量经验丢三选一) ===
   pendingLevelUps = 0;
   levelUpScheduled = false;
-  // === 融合技状态(即时肉鸽六流派融合) ===
+  // === 融合技状态(六流派融合强化) ===
   nextGoldenEmberAt: Record<1 | 2, number> = { 1: 0, 2: 0 };
   thornStarUntil: Record<1 | 2, number> = { 1: 0, 2: 0 };
   thornStarGauge: Record<1 | 2, number> = { 1: 0, 2: 0 };
@@ -2262,13 +2205,12 @@ export class BattleScene extends SpawnDirectorMixin(
   nextDevourMawTickAt: Record<1 | 2, number> = { 1: 0, 2: 0 };
   celestialChargeUntil: Record<1 | 2, number> = { 1: 0, 2: 0 };
   celestialReadyAt: Record<1 | 2, number> = { 1: 0, 2: 0 };
-  // === 肉鸽升级选择面板打开中:游戏完全暂停(isModal + 物理暂停) ===
+  // === 升级选择面板打开中:游戏完全暂停(isModal + 物理暂停) ===
   upgradePanelOpen = false;
-  rogueFusionCoreArmed = false; // 融合核心精英保底(每局一次)
   // === Boss 权柄等级与被动升级 ===
   bossPowerLevel = 1;
   bossPassiveLevels: Record<string, number> = {};
-  // === 死亡来源(肉鸽死亡界面展示) ===
+  // === 死亡来源(结算界面展示) ===
   lastDamageCause = "未知威胁";
   nextFlightToken = 0;
   nextSkillPickup = 0;
@@ -3112,9 +3054,7 @@ export class BattleScene extends SpawnDirectorMixin(
         ? `星渊征途 · ${levelConfig.name} · 未知深空航线`
         : selectedMode === "endless"
           ? `永夜航线 · ${levelConfig.name} · 首轮阈值 ${this.nextBossScore}`
-          : selectedMode === "roguelike"
-            ? `刹那轮回 · ${levelConfig.name} · 首轮阈值 ${this.rogueNextScore}`
-            : `九渊试炼 · ${campaignDifficultyForLevel(selectedLevel).name} · 战斗 1/9`
+          : `九渊试炼 · ${campaignDifficultyForLevel(selectedLevel).name} · 战斗 1/9`
     );
     if (selectedLevel === 5) this.unlockAchievement("level_five");
     if (selectedMode === "campaign") {
@@ -3131,9 +3071,7 @@ export class BattleScene extends SpawnDirectorMixin(
         this.showBanner(
           save.selectedSpecialization === "wheelchair"
             ? "撞击协议 · [1]破阵冲角 · [2]反应装甲 · [3]堡垒姿态 · [E]破阵冲刺"
-            : selectedMode === "roguelike"
-              ? "自动机炮已就绪 · WASD 走位 · 1/2/3 升级快选 · 飞进门选择航线"
-              : "驾驶战机 · SPACE 开火 · F 相位闪避 · R 纳米修复",
+            : "驾驶战机 · SPACE 开火 · F 相位闪避 · R 纳米修复",
           2100
         );
         save.seenTutorial = true;
@@ -3404,30 +3342,10 @@ export class BattleScene extends SpawnDirectorMixin(
     this.bossPowerLevel = 1;
     this.bossPassiveLevels = {};
     this.lastDamageCause = "未知威胁";
-    // === 即时肉鸽:单局种子与分数阈值流程初始化 ===
-    if (selectedMode === "roguelike") {
-      // 每日种子 + 秒级随机混合:同一天同秒重复局可复现,正常游玩几乎不重复
-      this.rogueRng = new SeededRng(
-        SeededRng.daily() ^ (Math.floor(Date.now() / 1000) & 0xffff)
-      );
-      this.rogueStage = 0;
-      // 分数阈值与普通模式同一张表(按区域难度查表)
-      this.rogueNextScore = campaignClearScoreRequirement(0, selectedLevel);
-      this.rogueStageCleared = false;
-      this.rogueFirstConstructDone = false;
-      this.rogueConstructKindQueue = ["core", "attack", "survival"];
-      this.rogueBossCount = 0;
-      this.rogueGates = [];
-      this.rogueBossPending = false;
-      this.rogueFinalPending = false;
-      this.rogueDeityDefeated = false;
-      this.rogueBanishUsed = false;
-      this.rogueBanished = [];
-      this.rogueConstructRequest = null;
-      this.rogueLastSpecializationMiss = 0;
-      this.rogueFusionCoreArmed = false;
-      this.rerolls = 2; // 开局两次重抽,每个 Boss 恢复一次,上限 4
-    }
+    // === 普通战役:航线门流程初始化 ===
+    this.campaignGates = [];
+    this.campaignGateUntil = 0;
+    this.campaignGatesOpen = false;
     // === BOSS 护符:每局重置 ===
     this.mirrorEchoArmed = false;
     this.mirrorEchoTriggered = false;
@@ -5051,7 +4969,7 @@ export class BattleScene extends SpawnDirectorMixin(
       .setAlpha(Phaser.Math.Clamp(alpha * (0.68 + pulse * 0.12), 0, 0.86));
   }
 
-  // === 融合技形态(即时肉鸽六流派融合:金龙炼狱/荆棘星垒/血星网络/星渊巨口/天体碰撞/万象影袭) ===
+  // === 融合技形态(六流派融合:金龙炼狱/荆棘星垒/血星网络/星渊巨口/天体碰撞/万象影袭) ===
   updateFusions(time: number, owner: 1 | 2): void {
     this.updateThornStar(time, owner);
     this.updateDevourMaw(time, owner);
@@ -5534,7 +5452,6 @@ export class BattleScene extends SpawnDirectorMixin(
     this.updateWeapons(time);
     this.updateProjectiles(time);
     this.updateEnemies(time, dt);
-    this.updateRoguelike(time, dt);
     this.updatePickups();
     this.updateCampaignMysteryFeedback();
     if (
@@ -5548,13 +5465,23 @@ export class BattleScene extends SpawnDirectorMixin(
       this.nextSpawn = this.time.now + 999999;
       this.showBanner("◆ 信号锁定 · 清空剩余威胁后首领降临", 1200);
     }
-    // === 普通战役:阈值达标且场上小兵已全部清空 → 完成清兵整备并召唤 Boss ===
+    // === 普通战役:阈值达标且场上小兵已全部清空 → 红/蓝/绿航线门出现,选门后再召唤 Boss ===
     if (
       this.campaignInterludeActive &&
       this.levelCompleteTriggered &&
       !(this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).some((enemy) => enemy.active)
     ) {
-      this.completeCampaignInterlude();
+      if (!this.campaignGatesOpen) {
+        this.spawnCampaignGates(time);
+      } else if (this.campaignGates.length > 0) {
+        if (time >= this.campaignGateUntil) {
+          // 门超时未选:直接进入首领降临
+          this.clearCampaignGates();
+          this.completeCampaignGate();
+        } else {
+          this.checkCampaignGateCollision();
+        }
+      }
     }
     this.updateBoss(time, dt);
     this.lockFrozenHostiles(time);
@@ -5566,9 +5493,7 @@ export class BattleScene extends SpawnDirectorMixin(
     const scoreProgress = this.campaignInterludeActive
       ? (this.score + this.score2 - this.campaignInterludeStartScore) /
         Math.max(1, this.campaignInterludeTarget)
-      : selectedMode === "roguelike"
-        ? Math.min(1, (this.score + this.score2) / Math.max(1, this.rogueNextScore)) // 肉鸽按分数进度推满强度
-        : (this.score + this.score2) / Math.max(1, this.nextBossScore);
+      : (this.score + this.score2) / Math.max(1, this.nextBossScore);
     const intensityStage = this.bossActive
       ? 3
       : scoreProgress >= 0.72
@@ -5986,8 +5911,7 @@ export class BattleScene extends SpawnDirectorMixin(
     const ultimateHaste = this.ultimateActive > 0 ? 1.6 : 1;
     // Game keys always fire, even while an IME is composing pinyin
     if (
-      (selectedMode === "roguelike" ||
-        save.settings.autoFire ||
+      (save.settings.autoFire ||
         this.actionKeys.SPACE.isDown ||
         (this.sys.game.device.input.touch && this.dragActive)) &&
       time >= this.nextShot
@@ -5998,7 +5922,7 @@ export class BattleScene extends SpawnDirectorMixin(
     }
     if (
       this.player2 &&
-      (selectedMode === "roguelike" || save.settings.autoFire || this.actionKeys.ENTER.isDown) &&
+      (save.settings.autoFire || this.actionKeys.ENTER.isDown) &&
       this.specOf(2) !== "wheelchair" &&
       time >= (this.player2.getData("nextShot") ?? 0)
     ) {
@@ -6864,17 +6788,18 @@ export class BattleScene extends SpawnDirectorMixin(
     });
   }
 
-  // 肉鸽保底构筑三选一:弹窗忙时保留请求并稍后重试,不再静默丢弃(注释与实现一致)
-  openRogueConstruct(kind: "core" | "attack" | "survival" | "utility"): void {
+  // 通用升级三选一:弹窗忙时稍后重试,不再静默丢弃(航线门奖励等使用)
+  openUpgradePanel(onComplete?: () => void): void {
     if (this.ended) return;
-    this.rogueConstructRequest = kind;
     if (this.isModal || this.upgradePanelOpen) {
       this.time.delayedCall(120, () => {
-        if (!this.ended && !this.isModal && !this.upgradePanelOpen) showUpgrade(this);
+        if (!this.ended && !this.isModal && !this.upgradePanelOpen) {
+          showUpgrade(this, onComplete);
+        }
       });
       return;
     }
-    showUpgrade(this);
+    showUpgrade(this, onComplete);
   }
 
   fireMutationPattern(enemy: Phaser.Physics.Arcade.Image, mutation: EnemyMutation): void {
@@ -7351,38 +7276,6 @@ export class BattleScene extends SpawnDirectorMixin(
       // 敏捷流派技能击杀奖励已内置于突刺/影分身/联动/影分身子弹的击杀点:
       // 每次 +1 MAX HP + 回复 1% 最大生命,不再在此处按精英额外加成。
       if (eliteKill && Math.random() < 0.21) this.spawnSkillPickup(x, y);
-      // 即时肉鸽保底:生命低于 35% 时,下一名精英必掉修复模块
-      if (
-        selectedMode === "roguelike" &&
-        eliteKill &&
-        this.stats.hp / Math.max(1, this.stats.maxHp) < 0.35
-      ) {
-        this.spawnSkillPickup(x, y);
-        this.floatText(x, y - 70, "保底修复模块", true);
-      }
-      // 即时肉鸽保底:10 分钟后若本流派融合技未拥有,下一名精英必掉融合核心
-      if (
-        selectedMode === "roguelike" &&
-        eliteKill &&
-        !this.rogueFusionCoreArmed &&
-        this.rogueBossCount >= 2
-      ) {
-        const fusionId: Record<SpecializationId, string> = {
-          power: "power_fusion",
-          agile: "agile_shadow_lunge",
-          defender: "defender_fusion",
-          vampire: "vampire_fusion",
-          devour: "devour_fusion",
-          wheelchair: "wheelchair_fusion"
-        };
-        const spec = save.selectedSpecialization as SpecializationId;
-        const fusionIdForSpec = fusionId[spec];
-        if (fusionIdForSpec && (this.upgradesOf(killOwner)[fusionIdForSpec] ?? 0) <= 0) {
-          this.rogueFusionCoreArmed = true;
-          this.spawnSkillPickup(x, y);
-          this.floatText(x, y - 70, "融合核心 · 保底", true);
-        }
-      }
       this.combo += 1;
       this.comboTimer = 2.5;
       this.rewardCombatStreak();
@@ -9262,18 +9155,6 @@ export class BattleScene extends SpawnDirectorMixin(
     });
   }
 
-  selectedModeIsRogue(): boolean {
-    return selectedMode === "roguelike";
-  }
-
-  // 即时肉鸽:同时装备的自动武器数量(上限 4 种)
-  activeWeaponCount(owner: 1 | 2 = 1): number {
-    const ul = this.upgradesOf(owner);
-    return (["laser", "missile", "drone", "arc", "blade"] as const).filter(
-      (id) => (ul[id] ?? 0) > 0
-    ).length;
-  }
-
   // 按倍率提升最大生命并立即补足差值,可选标记为本局敏捷最大生命收益
   private boostMaxHp(multiplier: number, recordGain = false): void {
     const oldMax = this.stats.maxHp;
@@ -9645,7 +9526,7 @@ export class BattleScene extends SpawnDirectorMixin(
     ) {
       return;
     }
-    // 记录死亡来源(肉鸽死亡界面展示)
+    // 记录死亡来源(结算界面展示)
     if (damageType === "collision") this.lastDamageCause = "撞击";
     else if (damageSource === "boss") this.lastDamageCause = "首领攻击";
     else this.lastDamageCause = "敌方弹幕";
@@ -11626,6 +11507,152 @@ export class BattleScene extends SpawnDirectorMixin(
     );
   }
 
+  // === 普通战役航线门:清兵达标并清场后出现红/蓝/绿三扇随机航线门 ===
+  spawnCampaignGates(time: number): void {
+    if (this.campaignGatesOpen || this.campaignGates.length > 0) return;
+    this.campaignGatesOpen = true;
+    this.campaignGateUntil = time + 12000;
+    const kinds = (["red", "blue", "green"] as const).slice().sort(() => Math.random() - 0.5);
+    const xs = [WORLD_WIDTH * 0.22, WORLD_WIDTH * 0.5, WORLD_WIDTH * 0.78];
+    this.campaignGates = kinds.map((kind, index) =>
+      this.buildCampaignGate(kind, xs[index], 300, index)
+    );
+    this.showBanner("◆ 三扇随机航线门开启 · 选择航线获取奖励后首领降临", 1500);
+  }
+
+  buildCampaignGate(
+    kind: "red" | "blue" | "green",
+    x: number,
+    y: number,
+    index: number
+  ): Phaser.GameObjects.Container {
+    const colors = { red: 0xff3d5a, blue: 0x3d8bff, green: 0x43ff9a } as const;
+    const names = {
+      red: "赤红航线 · 强敌与攻击",
+      blue: "深蓝航线 · 异常事件",
+      green: "翠绿航线 · 修复护盾"
+    } as const;
+    const color = colors[kind];
+    const glow = this.add.circle(0, 0, 84, color, 0.14);
+    const ring = this.add
+      .circle(0, 0, 60, 0x000000, 0.4)
+      .setStrokeStyle(5, color, 0.95);
+    const core = this.add
+      .circle(0, 0, 28, color, 0.85)
+      .setStrokeStyle(3, 0xffffff, 0.7);
+    const label = this.add
+      .text(0, 96, names[kind], {
+        fontFamily: '"Microsoft YaHei", sans-serif',
+        fontSize: "15px",
+        color: "#eaffff",
+        backgroundColor: "#0a1622cc",
+        padding: { x: 8, y: 4 }
+      })
+      .setOrigin(0.5);
+    const container = this.add.container(x, y, [glow, ring, core, label]).setDepth(60);
+    container.setData("kind", kind);
+    container.setData("index", index);
+    this.tweens.add({
+      targets: [glow, ring, core],
+      alpha: 0.5,
+      duration: 520,
+      yoyo: true,
+      repeat: -1
+    });
+    return container;
+  }
+
+  clearCampaignGates(): void {
+    this.campaignGates.forEach((gate) => {
+      // 门的脉冲 tween 是 repeat:-1,必须随门销毁一起清理,否则常驻运行
+      this.tweens.killTweensOf(gate.list);
+      gate.destroy();
+    });
+    this.campaignGates = [];
+    this.campaignGateUntil = 0;
+  }
+
+  checkCampaignGateCollision(): void {
+    const targets: Array<{ x: number; y: number }> = [{ x: this.player.x, y: this.player.y }];
+    if (this.player2?.active) targets.push({ x: this.player2.x, y: this.player2.y });
+    for (let i = 0; i < this.campaignGates.length; i += 1) {
+      const gate = this.campaignGates[i];
+      for (const target of targets) {
+        if (Math.hypot(gate.x - target.x, gate.y - target.y) < 72) {
+          const kind = gate.getData("kind") as "red" | "blue" | "green";
+          this.tweens.killTweensOf(gate.list);
+          gate.destroy();
+          this.campaignGates.splice(i, 1);
+          this.campaignGateUntil = 0;
+          this.enterCampaignGate(kind, gate.x, gate.y);
+          return;
+        }
+      }
+    }
+  }
+
+  enterCampaignGate(kind: "red" | "blue" | "green", x: number, y: number): void {
+    this.burst(x, y, 0xffffff, 1.7);
+    this.cameras.main.flash(120, 200, 255, 255);
+    const finishGate = (): void => this.completeCampaignGate();
+    if (kind === "red") {
+      // 红门:敌人强化,必得攻击奖励
+      this.showBanner("赤红航线 · 强敌迫近 · 战术升级锁定", 1300);
+      this.spawnEnemy(this.time.now, "elite_gunship");
+      this.time.delayedCall(450, () => {
+        if (!this.ended) this.spawnEnemy(this.time.now, "elite_bomber");
+      });
+      this.time.delayedCall(900, () => this.openUpgradePanel(finishGate));
+    } else if (kind === "blue") {
+      // 蓝门:异常事件,高随机高收益(小概率风险)
+      const roll = Phaser.Math.Between(0, 5);
+      if (roll <= 1) {
+        // 经验爆发
+        this.spawnExperiencePickup(x, y - 70, 40);
+        this.spawnExperiencePickup(x + 56, y - 24, 40);
+        this.spawnExperiencePickup(x - 56, y - 24, 40);
+        this.showBanner("深蓝航线 · 经验爆发", 1300);
+        this.time.delayedCall(900, finishGate);
+      } else if (roll === 2) {
+        // 模块注入:随机构筑
+        this.showBanner("深蓝航线 · 模块注入", 1300);
+        this.time.delayedCall(700, () => this.openUpgradePanel(finishGate));
+      } else if (roll === 3) {
+        // 星渊遗物:代币
+        const granted = this.grantRunTokens(60);
+        this.showBanner(`深蓝航线 · 星渊遗物 ◆ +${granted}`, 1300);
+        this.time.delayedCall(900, finishGate);
+      } else if (roll === 4) {
+        // 修复爆发
+        this.healPlayer(this.stats.maxHp * 0.25, "深蓝航线 · 治愈回响");
+        this.showBanner("深蓝航线 · 治愈回响 +25%", 1300);
+        this.time.delayedCall(900, finishGate);
+      } else {
+        // 危险回响:损失生命换后续构筑
+        this.stats.hp = roundHealth(this.stats.hp - this.stats.maxHp * 0.08, this.stats.maxHp);
+        this.floatText(x, y, "危险回响 · 损失 8% 生命", true);
+        this.cameras.main.flash(160, 255, 40, 60);
+        this.showBanner("深蓝航线 · 危险回响 · 受损后强制构筑", 1400);
+        this.time.delayedCall(800, () => this.openUpgradePanel(finishGate));
+      }
+    } else {
+      // 绿门:修复、护盾、经验、稳定强化
+      this.healPlayer(this.stats.maxHp * 0.3, "翠绿航线 · 修复");
+      this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + 2500);
+      this.spawnExperiencePickup(x, y - 70, 25);
+      this.showBanner("翠绿航线 · 修复 30% + 护盾 2.5s + 经验", 1400);
+      this.time.delayedCall(800, () => this.openUpgradePanel(finishGate));
+    }
+  }
+
+  // 门流程结束(选门奖励/门超时) → 完成清兵整备并召唤 Boss
+  completeCampaignGate(): void {
+    if (this.ended || this.bossActive || !this.campaignInterludeActive) return;
+    this.clearCampaignGates();
+    this.campaignGatesOpen = false;
+    this.completeCampaignInterlude();
+  }
+
   completeCampaignInterlude(): void {
     if (!this.campaignInterludeActive || this.ended) return;
     const nextEncounterIndex = this.campaignInterludeNextEncounter;
@@ -12053,14 +12080,9 @@ export class BattleScene extends SpawnDirectorMixin(
         : null;
     const incomingKind = campaignEncounter
       ? campaignEncounter.bossKind
-      : selectedMode === "roguelike"
-        ? // 即时肉鸽首领序列:泰坦→镜像→篡夺者→黑影(前 4 场),终局黑暗魔神另走 playRogueDeityArrival
-          (["titan", "mirror", "usurper", "shadow"] as BossKind[])[
-            Math.max(0, Math.min(3, this.rogueBossCount - 1))
-          ]
-        : selectedMode === "campaign" && this.bossTier >= 2
-          ? "dark_deity"
-          : (["titan", "mirror", "usurper"] as BossKind[])[this.bossTier % 3];
+      : selectedMode === "campaign" && this.bossTier >= 2
+        ? "dark_deity"
+        : (["titan", "mirror", "usurper"] as BossKind[])[this.bossTier % 3];
     const incomingElite =
       campaignEncounter?.kind === "trinity"
         ? false
@@ -15601,10 +15623,6 @@ export class BattleScene extends SpawnDirectorMixin(
     this.bossActive = false;
     this.clearBossAttackEffects();
     this.skillsConfiscated = false;
-    // 即时肉鸽:黑暗魔神击破 → 奖励链结束后胜利结算
-    if (selectedMode === "roguelike" && this.bossKind === "dark_deity") {
-      this.rogueDeityDefeated = true;
-    }
     const defeatedTier = this.bossTier + 1;
     const bossScore = Math.round((9000 + defeatedTier * 4200) * (defeatedElite ? 1.5 : 1));
     this.score += bossScore;
@@ -15685,8 +15703,8 @@ export class BattleScene extends SpawnDirectorMixin(
       });
       return;
     }
-    // 终局黑暗魔神:普通战役与即时肉鸽共用黑暗核心抉择 → 残党阶段 → 结局
-    if (campaignEncounter?.kind === "dark_deity" || (selectedMode === "roguelike" && defeatedKind === "dark_deity")) {
+    // 终局黑暗魔神:普通战役黑暗核心抉择 → 残党阶段 → 结局
+    if (campaignEncounter?.kind === "dark_deity") {
       this.nextSpawn = this.time.now + 999999;
       // 解除支离破碎：把玩家攻击 / 血量 / 回血效率还原(如果中途触发了)
       if (this.bossShattered) {
@@ -15746,8 +15764,6 @@ export class BattleScene extends SpawnDirectorMixin(
               );
               // 奖励链全部结束后再恢复刷兵(无尽模式 nextSpawn 在首领波前被冻结)
               if (selectedMode === "endless") this.nextSpawn = this.time.now + 800;
-              // 即时肉鸽:首领击破奖励链结束 → 恢复流程(黑影追击演出 + 下次首领排期)
-              if (selectedMode === "roguelike") this.resumeRogueAfterBoss();
             });
           });
         });
@@ -15830,7 +15846,7 @@ export class BattleScene extends SpawnDirectorMixin(
   endRun(victory: boolean): void {
     if (this.ended) return;
     this.ended = true;
-    this.time.timeScale = 1; // 恢复(可能正处于肉鸽升级减速弹窗)
+    this.time.timeScale = 1; // 恢复(可能正处于升级选择弹窗)
     this.physics.world.timeScale = 1;
     this.physics.world.pause();
     // 魔神契约:玩家死亡时 25% 概率复活并保留 50% HP(黑影结局已触发则不再复活)
@@ -15883,7 +15899,6 @@ export class BattleScene extends SpawnDirectorMixin(
         combatTokens,
         bosses: this.bossTier,
         missionLevel: selectedLevel,
-        waves: this.rogueBossCount,
         shadowEnding: this.shadowEnding
       });
     if (victory) this.playVictoryCG(complete);
@@ -16017,8 +16032,6 @@ export class BattleScene extends SpawnDirectorMixin(
       this.hud.score.setText(this.score.toString().padStart(7, "0"));
     }
     this.hud.time.setText(formatTime(this.elapsedSeconds));
-    const rogueProgressText = (): string =>
-      `${this.score + this.score2} / ${this.rogueNextScore}`;
     const campaignStatus =
       selectedMode === "campaign"
         ? this.campaignInterludeActive
@@ -16026,13 +16039,7 @@ export class BattleScene extends SpawnDirectorMixin(
           : "HOSTILE SIGNAL"
         : isNineBattleMode()
           ? `BOSS ENCOUNTER ${this.campaignEncounterIndex + 1}/9`
-          : selectedMode === "roguelike"
-            ? this.rogueFinalPending || this.rogueDeityDefeated
-              ? "ROGUE // FINAL DEITY"
-              : this.bossActive
-                ? `ROGUE ${rogueProgressText()} // BOSS`
-                : `ROGUE ${rogueProgressText()} // 阶段 ${this.rogueStage + 1}`
-            : `NEXT BOSS ${Math.max(0, this.nextBossScore - this.score - this.score2)}`;
+          : `NEXT BOSS ${Math.max(0, this.nextBossScore - this.score - this.score2)}`;
     const wheelchairActiveStatus: string[] = [];
     if (save.selectedSpecialization === "wheelchair") {
       if (this.time.now < this.wheelchairBreachUntil) wheelchairActiveStatus.push("破阵防护");

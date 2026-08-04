@@ -1,6 +1,5 @@
 // === 单局随机种子(mulberry32 PRNG) ===
-// 即时肉鸽的所有随机抽取(构筑卡/航线门/异常事件/洗牌袋)都走这个 RNG,
-// 由单局种子控制,可复现同种子挑战;dailySeed 提供每日种子。
+// 对局内的随机抽取由单局种子控制,可复现同种子挑战;dailySeed 提供每日种子。
 export class SeededRng {
   private state: number;
 

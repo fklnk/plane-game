@@ -76,7 +76,7 @@ export interface RunResult {
   missionLevel: number;
   score2?: number;
   shadowEnding?: ShadowEnding | null;
-  /** 即时肉鸽模式击破首领数 */
+  /** 击破首领数(历史纪录保留) */
   waves?: number;
 }
 
@@ -270,8 +270,8 @@ export const POWER_FLAME_LENGTHS = [450, 600, 750, 900] as const;
 export const POWER_FLAME_WIDTHS = [280, 390, 500, 620] as const;
 // 龙息持续时间:在原值基础上累计延长 30%(910/1040/1170 → 1183/1352/1521),Lv.4 续延 +169。
 export const POWER_FLAME_DURATIONS = [1183, 1352, 1521, 1690] as const;
-// 各档伤害:30 / 41 / 55 / 70.5 → 29 / 40 / 52 / 65
-export const POWER_FLAME_DAMAGE = [29, 40, 52, 65] as const;
+// 各档伤害:29 / 40 / 52 / 65 → 18 / 25 / 32 / 40(下调约 38%,缓解喷火对 Boss 的每帧秒杀)
+export const POWER_FLAME_DAMAGE = [18, 25, 32, 40] as const;
 // 冷却统一 17s(原 17/16/15/14)
 export const POWER_FLAME_COOLDOWNS = [17, 17, 17, 17] as const;
 
@@ -1500,7 +1500,7 @@ export const UPGRADES: UpgradeDefinition[] = [
       `子弹命中生成暗红虹吸链(最多 8 条,每个单位最多 1 条) · 链子持续 8s 并可连接 Boss · 每 0.3s 回复 1.2% 已损生命 · 满级额外造成目标自身最大生命 1% 伤害`,
     short: () => `命中生成虹吸链 · 持续吸血`
   },
-  // === 融合技(即时肉鸽:主能力 4 级 + 搭配能力 2 级 + 游戏超过 6 分钟出池,改变攻击形态) ===
+  // === 融合技(全模式通用:主能力 4 级 + 搭配能力 2 级出池,改变攻击形态) ===
   {
     id: "power_fusion",
     name: "金龙炼狱",

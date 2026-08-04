@@ -1,4 +1,4 @@
-export type GameMode = "campaign" | "boss" | "endless" | "roguelike";
+export type GameMode = "campaign" | "boss" | "endless";
 export type ShipId = "balanced" | "bomber" | "lightning" | "guardian";
 export type SpecializationId =
   | "power"
@@ -135,7 +135,7 @@ export interface SaveData {
     damageNumbers: boolean;
     quality: "low" | "high";
     friendlyFire: boolean;
-    /** 自动开火:开启后无需按住 SPACE/ENTER,持续连发(即时肉鸽推荐) */
+    /** 自动开火:开启后无需按住 SPACE/ENTER,持续连发 */
     autoFire: boolean;
     /** 自定义键位:动作 id → Phaser 键码名(如 "KeyW"/"SPACE"),缺省用默认键 */
     keybindings: Record<string, string>;
@@ -263,7 +263,7 @@ export function loadSave(raw: string | null): SaveData {
       "boss_slayer_skin",
       "campaign_ace_skin"
     ];
-    const validModes: GameMode[] = ["campaign", "endless", "boss", "roguelike"];
+    const validModes: GameMode[] = ["campaign", "endless", "boss"];
     const validVariants: PlayVariantId[] = ["single", "coop", "score_duel"];
     const selectedShip = validShips.includes(parsed.selectedShip as ShipId)
       ? (parsed.selectedShip as ShipId)
@@ -612,6 +612,6 @@ export function chooseUniqueWeighted<T extends { id: string }>(
 }
 
 export function rewardForRun(mode: GameMode, score: number, victory: boolean): number {
-  const base = mode === "boss" ? 30 : mode === "endless" ? 18 : mode === "roguelike" ? 20 : 24;
+  const base = mode === "boss" ? 30 : mode === "endless" ? 18 : 24;
   return Math.floor(base + score / 2500 + (victory ? 35 : 0));
 }

@@ -1,5 +1,5 @@
 // 运行时共享状态：存档、模式选择、音频、全局 UI 根节点。
-// 独立成模块，供 roguelike-director / spawn-director / upgrade-system / run-settlement
+// 独立成模块，供 spawn-director / upgrade-system / run-settlement
 // 等拆分模块引用，避免与 main.ts 形成运行时循环依赖。
 import Phaser from "phaser";
 import {
@@ -201,9 +201,5 @@ export function refreshRails(): void {
   document.querySelector("#rail-score")!.textContent = `最高分 ${save.records.endlessBestScore
     .toString()
     .padStart(6, "0")}`;
-  document.querySelector("#rail-rogue")!.textContent = `存活 ${formatTime(
-    save.records.roguelikeBestSeconds
-  )}`;
-  document.querySelector("#rail-rogue-boss")!.textContent = `击破首领 ${save.records.roguelikeBestWave} · 最佳`;
 }
 

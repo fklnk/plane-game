@@ -325,7 +325,7 @@ export const BOSS_CAMPAIGN_DIFFICULTIES: Record<
 > = {
   normal: {
     id: "normal",
-    name: "普通",
+    name: "爽玩",
     description: "所有敌军与 Boss 均为普通形态，不出现突变。",
     eliteChance: 0,
     mutationChance: 0,
@@ -333,7 +333,7 @@ export const BOSS_CAMPAIGN_DIFFICULTIES: Record<
   },
   hard: {
     id: "hard",
-    name: "困难",
+    name: "普通",
     description: "约 55% 敌军与 Boss 为精英形态，不出现突变。Boss 拥有 5% 免伤。",
     eliteChance: 0.55,
     mutationChance: 0,
@@ -341,7 +341,7 @@ export const BOSS_CAMPAIGN_DIFFICULTIES: Record<
   },
   nightmare: {
     id: "nightmare",
-    name: "噩梦",
+    name: "地狱",
     description: "全部敌军与 Boss 均为精英形态；50% 单位会额外获得其他单位的突变能力。Boss 拥有 15% 免伤。",
     eliteChance: 1,
     mutationChance: 0.5,

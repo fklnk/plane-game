@@ -1,49 +1,26 @@
-// 升级系统：即时肉鸽的洗牌袋 + 保底规则、流派融合出池、升级选择队列。
+// 升级系统：升级选择队列、流派融合出池规则。
 // 抽卡逻辑为接收 scene 的纯函数（由 showUpgrade 传入运行期配置）；
 // 升级队列以 mixin 形式混入 BattleScene。
 import Phaser from "phaser";
-import { chooseUniqueWeighted, xpToNextLevel } from "./game-logic";
+import { xpToNextLevel } from "./game-logic";
 import { UPGRADES, type UpgradeDefinition } from "./data";
 import type { BattleScene } from "./main";
 
 type Constructor<T = object> = new (...args: any[]) => T;
 
 // 由 showUpgrade 从闭包局部变量传入的运行期配置（出池边界与等级读取方式）
-export interface RoguePoolConfig {
+export interface UpgradePoolConfig {
   collisionUpgradeIds: ReadonlySet<string>;
   airSupportIds: ReadonlySet<string>;
   levelOf: (owner: 1 | 2, id: string) => number;
   fusionRequirements: Record<string, readonly [string, string]>;
-  autoWeaponIds: readonly string[];
-  isRogue: boolean;
-}
-
-// 强化标签：core=流派专属 / attack=主武器 / survival=生存 / utility=其他
-export function rogueTag(id: string): "core" | "attack" | "survival" | "utility" {
-  if (
-    id.startsWith("power_") ||
-    id.startsWith("agile_") ||
-    id.startsWith("defender_") ||
-    id.startsWith("vampire_") ||
-    id.startsWith("devour_") ||
-    id.startsWith("wheelchair_")
-  ) {
-    return "core";
-  }
-  if (["cannon", "laser", "missile", "drone", "arc", "blade"].includes(id)) return "attack";
-  if (
-    ["hull", "armor", "endurance", "recovery", "emergency", "ram_armor", "ram_regen", "ram_mass"].includes(id)
-  ) {
-    return "survival";
-  }
-  return "utility";
 }
 
 // 每个玩家按自己的专精/等级独立出池（满级、互斥、当前流派不可用的强化不进候选）
 export function buildPoolFor(
   scene: BattleScene,
   owner: 1 | 2,
-  config: RoguePoolConfig
+  config: UpgradePoolConfig
 ): UpgradeDefinition[] {
   const spec = scene.specOf(owner);
   const ul = scene.upgradesOf(owner);
@@ -69,30 +46,21 @@ export function buildPoolFor(
       (!upgrade.id.startsWith("vampire_") || spec === "vampire") &&
       (!upgrade.id.startsWith("devour_") || spec === "devour") &&
       (!upgrade.id.startsWith("wheelchair_") || spec === "wheelchair") &&
-      // 融合技出池:肉鸽按主4配2超6分钟;非肉鸽仅万象影袭保持原规则,其余融合技不出
+      // 融合技出池:主能力 4 级 + 搭配能力 2 级(所有模式通用,合成条件见 FUSION_REQUIREMENTS)
       (!config.fusionRequirements[upgrade.id] ||
         (() => {
           const requirement = config.fusionRequirements[upgrade.id]!;
-          return scene.selectedModeIsRogue()
-            ? config.levelOf(owner, requirement[0]) >= 4 &&
-                config.levelOf(owner, requirement[1]) >= 2 &&
-                // 融合技出池:肉鸽至少打完第 1 个首领(分数制下由阶段推进保证时长)
-                scene.rogueBossCount >= 1
-            : upgrade.id === "agile_shadow_lunge";
+          return (
+            config.levelOf(owner, requirement[0]) >= 4 &&
+            config.levelOf(owner, requirement[1]) >= 2
+          );
         })()) &&
-      // 即时肉鸽:自动武器同时最多四种(已装备的不再限制)
-      (!scene.selectedModeIsRogue() ||
-        !(config.autoWeaponIds as readonly string[]).includes(upgrade.id) ||
-        scene.activeWeaponCount(owner) < 4 ||
-        config.levelOf(owner, upgrade.id) > 0) &&
       // 敏捷进阶规则:
       // - 未选任何基础技能:出突刺 + 影分身,万象影袭不出
       // - 选完突刺/影分身任意一个:基础技能全部不再出现,后续专属只出融合技(首抽即 Lv.2)
       // - P2 的影分身作为终端升级持续出到上限,同时万象影袭照常可出
-      // - 即时肉鸽:跳过该进阶互斥,突刺/影分身可同时堆叠到各自上限,融合技另由条件出池
       (!upgrade.id.startsWith("agile_") ||
         spec !== "agile" ||
-        scene.selectedModeIsRogue() ||
         (() => {
           const lunge = ul.agile_lunge ?? 0;
           const clone = ul.agile_shadow_clone ?? 0;
@@ -103,66 +71,6 @@ export function buildPoolFor(
           return true;
         })())
   );
-}
-
-// 保证 required 池至少 1 张,再从 full 补满 3 张(不重复,由单局种子洗牌)
-function rogueEnsure(
-  scene: BattleScene,
-  required: UpgradeDefinition[],
-  full: UpgradeDefinition[]
-): UpgradeDefinition[] {
-  const picks: UpgradeDefinition[] = [];
-  const used = new Set<string>();
-  const takeRandom = (candidates: UpgradeDefinition[]): boolean => {
-    const avail = candidates.filter((candidate) => !used.has(candidate.id));
-    if (avail.length === 0) return false;
-    const pick = scene.rogueRng.shuffle(avail)[0];
-    picks.push(pick);
-    used.add(pick.id);
-    return true;
-  };
-  if (required.length > 0) takeRandom(required);
-  while (picks.length < 3) {
-    if (!takeRandom(full)) break;
-  }
-  return picks;
-}
-
-// 即时肉鸽三选一：洗牌袋 + 保底规则(开局核心/攻击/生存、专属连缺必出、
-// 至少一张强化已有构筑、放逐过滤)
-export function roguePickFor(
-  scene: BattleScene,
-  owner: 1 | 2,
-  config: RoguePoolConfig
-): UpgradeDefinition[] {
-  const pool = buildPoolFor(scene, owner, config).filter(
-    (upgrade) => !scene.rogueBanished.includes(upgrade.id)
-  );
-  if (pool.length === 0) return [];
-  const forced = scene.rogueConstructRequest;
-  const specPool = pool.filter((upgrade) => rogueTag(upgrade.id) === "core");
-  // 专属连续两次缺席 → 本次必出流派专属
-  if (scene.rogueLastSpecializationMiss >= 2 && specPool.length > 0) {
-    scene.rogueLastSpecializationMiss = 0;
-    return rogueEnsure(scene, specPool, pool);
-  }
-  // 开局三次保底:core / attack / survival 强制带标签
-  if (forced && forced !== "utility") {
-    const tagged = pool.filter((upgrade) => rogueTag(upgrade.id) === forced);
-    if (tagged.length > 0) return rogueEnsure(scene, tagged, pool);
-  }
-  const options = chooseUniqueWeighted(pool, 3);
-  if (options.length === 0) return [];
-  // 至少一张强化当前已有构筑
-  const ownedPool = pool.filter((upgrade) => config.levelOf(owner, upgrade.id) > 0);
-  if (ownedPool.length > 0 && !options.some((upgrade) => config.levelOf(owner, upgrade.id) > 0)) {
-    const fresh = ownedPool.filter((upgrade) => !options.some((option) => option.id === upgrade.id));
-    if (fresh.length > 0) options[options.length - 1] = scene.rogueRng.shuffle(fresh)[0];
-  }
-  // 记录流派专属缺席次数
-  if (options.some((upgrade) => rogueTag(upgrade.id) === "core")) scene.rogueLastSpecializationMiss = 0;
-  else scene.rogueLastSpecializationMiss += 1;
-  return options;
 }
 
 export function UpgradeSystemMixin<TBase extends Constructor<Phaser.Scene>>(Base: TBase) {
