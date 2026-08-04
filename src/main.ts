@@ -8,7 +8,6 @@ import {
   DEVOUR_SWALLOW_LEVELS,
   type GameMode,
   localDayIndex,
-  type SaveData,
   SHADOW_ENDING_SKIN_REWARDS,
   type SkinId,
   type ShipId,
@@ -24,7 +23,6 @@ import {
   formatRoundedNumberForDisplay,
   formatTime,
   independentBossHealthAfterDamage,
-  loadSave,
   minionHealthDamageMultiplier,
   minionPercentDamageFloor,
   reactiveArmorRelease,
@@ -50,56 +48,40 @@ import {
   INCOMPLETE_TRINITY_STAT_SCALE,
   rollBossMutationKind,
   rollCampaignElite,
-  rollCampaignMutation,
-  rollMinionMutationKind
+  rollCampaignMutation
 } from "./boss-campaign";
 
-import {ACHIEVEMENT_SKIN_IDS, ACHIEVEMENTS, achievementSkinBulletDisplaySize, achievementSkinBulletTextureKey, achievementSkinTextureKey, AGILE_CLONE_COUNTS, AGILE_CLONE_DAMAGE_RATIOS, AGILE_CLONE_FUSION_HP_BONUS, AGILE_CLONE_HP_RATIOS, AGILE_CLONE_INTERVALS, AGILE_CLONE_MAX_COUNT, AGILE_LUNGE_DURATION, AGILE_LUNGE_HIT_WIDTH, AGILE_LUNGE_MAX_HEAL_HITS, AGILE_LUNGE_REACH, AGILE_LUNGE_REACHES, AgileTrajectory, AIR_SUPPORT_SKILLS, AIR_SUPPORT_VALUES, AirSupportSkillId, ATTACK_BONUS_SCALE, BOSS_KIND_TO_POWER, BOSS_NAMES, BOSS_PASSIVE_OPTIONS, BOSS_POWER_COOLDOWN_MS, BOSS_POWER_DAMAGE_SCALE, BOSS_POWER_FREEZE_MS, BOSS_POWER_FX_KEYS, BOSS_POWER_OPTIONS, BOSS_SKILL_FX, BossKind, BossPassiveDefinition, BossPassiveId, BossPowerId, CAMPAIGN_MYSTERY_MESSAGES, CAMPAIGN_MYSTERY_THRESHOLDS, DARK_CORRUPTION_HP_DRAIN, DARK_CORRUPTION_PER_TICK, DARK_CORRUPTION_TICK_MS, DARK_SWARM_DAMAGE_SCALE, DARK_SWARM_HP_SCALE, DEBUG, distancePointToSegment, DOCTRINE_EVOLUTIONS, EnemyDamageSource, EnemyMutation, EnemyType, LEVELS, MINION_MUTATION_COLORS, PERFORMANCE_MIGRATION_KEY, PlayVariant, POWER_FLAME_COOLDOWNS, POWER_FLAME_DAMAGE, POWER_FLAME_DURATIONS, POWER_FLAME_LENGTHS, POWER_FLAME_WIDTHS, RunResult, SAVE_KEY, SHADOW_ENDING_ACHIEVEMENTS, SHADOW_ENDINGS, ShadowEnding, shadowTextureForAbsorbedPowers, SHIPS, SKIN_RARITY_LABELS, SKINS, SPECIALIZATIONS, specializationStats, TemporarySkill, UpgradeDefinition, UPGRADES, WORLD_HEIGHT, WORLD_WIDTH} from "./data";
-
-// 永久加点统计(依赖运行时存档,留在入口模块)
-function totalPermanentLevels(): number {
-  return Object.values(save.permanentUpgrades).reduce((sum, level) => sum + Math.max(0, level), 0);
-}
-
-function enemyUpgradeScale(): number {
-  const playerUpgradeRatio =
-    (save.permanentUpgrades.hull ?? 0) * 0.04 +
-    (save.permanentUpgrades.firepower ?? 0) * 0.03 +
-    (save.permanentUpgrades.engine ?? 0) * 0.025 +
-    (save.permanentUpgrades.armor ?? 0) * 0.015;
-  return 1 + playerUpgradeRatio * 0.2;
-}
-
-function permanentArmorScale(): number {
-  return 1 - Math.min(0.3, (save.permanentUpgrades.armor ?? 0) * 0.015);
-}
-
-
-let save: SaveData = loadSave(localStorage.getItem(SAVE_KEY));
-// 本地测试页向制作人开放全部成就皮肤，方便逐款检查商店与实战效果；生产包仍按成就解锁。
-if (import.meta.env.DEV) {
-  const localPreviewSkins: SkinId[] = ["standard", ...ACHIEVEMENT_SKIN_IDS];
-  if (localPreviewSkins.some((id) => !save.unlockedSkins.includes(id))) {
-    save.unlockedSkins = localPreviewSkins;
-    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-  }
-}
-if (localStorage.getItem(PERFORMANCE_MIGRATION_KEY) !== "1") {
-  save.settings.quality = "low";
-  localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-  localStorage.setItem(PERFORMANCE_MIGRATION_KEY, "1");
-}
-let selectedMode: GameMode = save.lastMode;
-let selectedLevel = save.lastLevel;
-let playVariant: PlayVariant = save.lastVariant;
-let game: Phaser.Game | null = null;
-// 存档写入是否失败(用于设置页诊断与避免重复弹提示)
-let persistFailed = false;
-
-function isNineBattleMode(): boolean {
-  return selectedMode === "campaign" || selectedMode === "boss";
-}
-let activeScene: BattleScene | null = null;
+import {ACHIEVEMENT_SKIN_IDS, ACHIEVEMENTS, achievementSkinBulletDisplaySize, achievementSkinBulletTextureKey, achievementSkinTextureKey, AGILE_CLONE_COUNTS, AGILE_CLONE_DAMAGE_RATIOS, AGILE_CLONE_FUSION_HP_BONUS, AGILE_CLONE_HP_RATIOS, AGILE_CLONE_INTERVALS, AGILE_CLONE_MAX_COUNT, AGILE_LUNGE_DURATION, AGILE_LUNGE_HIT_WIDTH, AGILE_LUNGE_MAX_HEAL_HITS, AGILE_LUNGE_REACH, AGILE_LUNGE_REACHES, AgileTrajectory, AIR_SUPPORT_SKILLS, AIR_SUPPORT_VALUES, AirSupportSkillId, ATTACK_BONUS_SCALE, BOSS_KIND_TO_POWER, BOSS_NAMES, BOSS_PASSIVE_OPTIONS, BOSS_POWER_COOLDOWN_MS, BOSS_POWER_DAMAGE_SCALE, BOSS_POWER_FREEZE_MS, BOSS_POWER_FX_KEYS, BOSS_POWER_OPTIONS, BOSS_SKILL_FX, BossKind, BossPassiveDefinition, BossPassiveId, BossPowerId, CAMPAIGN_MYSTERY_MESSAGES, CAMPAIGN_MYSTERY_THRESHOLDS, DARK_CORRUPTION_HP_DRAIN, DARK_CORRUPTION_PER_TICK, DARK_CORRUPTION_TICK_MS, DARK_SWARM_DAMAGE_SCALE, DARK_SWARM_HP_SCALE, DEBUG, distancePointToSegment, DOCTRINE_EVOLUTIONS, EnemyDamageSource, EnemyMutation, EnemyType, LEVELS, MINION_MUTATION_COLORS, PlayVariant, POWER_FLAME_COOLDOWNS, POWER_FLAME_DAMAGE, POWER_FLAME_DURATIONS, POWER_FLAME_LENGTHS, POWER_FLAME_WIDTHS, SHADOW_ENDING_ACHIEVEMENTS, SHADOW_ENDINGS, ShadowEnding, shadowTextureForAbsorbedPowers, SHIPS, SKIN_RARITY_LABELS, SKINS, SPECIALIZATIONS, specializationStats, TemporarySkill, UpgradeDefinition, UPGRADES, WORLD_HEIGHT, WORLD_WIDTH} from "./data";
+import { RoguelikeDirectorMixin } from "./roguelike-director";
+import { SpawnDirectorMixin } from "./spawn-director";
+import { buildPoolFor, roguePickFor, setShowUpgrade, UpgradeSystemMixin } from "./upgrade-system";
+import { finishRun, setSettlementNavigation } from "./run-settlement";
+import {
+  activeScene,
+  cooldownToast,
+  enemyUpgradeScale,
+  ensureAudio,
+  game,
+  isNineBattleMode,
+  permanentArmorScale,
+  persist,
+  playVariant,
+  refreshRails,
+  save,
+  selectedLevel,
+  selectedMode,
+  setActiveScene,
+  setAdaptiveMusic,
+  setGame,
+  setPlayVariant,
+  setSave,
+  setSelectedLevel,
+  setSelectedMode,
+  sfx,
+  showToast,
+  stopAdaptiveMusic,
+  totalPermanentLevels
+} from "./runtime-state";
 
 // === 可自定义键位系统 ===
 // 动作 id → 默认 Phaser 键码名(addKeys 用的名字,如 "KeyW"/"SPACE"/"ONE"/"COMMA")
@@ -275,10 +257,6 @@ function actionHoldingKeyCode(code: string, except?: BindableAction): BindableAc
     (action) => action !== except && boundKeyCode(action) === code
   );
 }
-let audioContext: AudioContext | null = null;
-let toastTimer = 0;
-let musicTimer = 0;
-let musicStage = -1;
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -347,22 +325,8 @@ app.innerHTML = `
 `;
 
 const uiRoot = document.querySelector<HTMLDivElement>("#ui-root")!;
+// #overlay-root 在 app-shell 注入后查询(运行时弹窗根节点)
 const overlayRoot = document.querySelector<HTMLDivElement>("#overlay-root")!;
-
-function persist(): void {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-    persistFailed = false;
-  } catch (error) {
-    // 写入失败(隐私模式、配额耗尽、浏览器策略)时必须让玩家知道,否则进度静默丢失
-    if (!persistFailed) {
-      console.error("[存档] 写入 localStorage 失败", error);
-      showToast("⚠ 存档写入失败：进度无法保存，请检查浏览器隐私设置");
-    }
-    persistFailed = true;
-  }
-  refreshRails();
-}
 
 function claimDailyLogin(): void {
   const today = localDayIndex();
@@ -379,104 +343,6 @@ function claimDailyLogin(): void {
   sfx("upgrade");
   showMenu();
   showToast(`每日登录 · 第 ${offer.streak} 天 · ◆ +${offer.reward}`);
-}
-
-function refreshRails(): void {
-  document.querySelector("#core-count")!.textContent = save.starCores.toString().padStart(4, "0");
-  document.querySelector("#rail-ship")!.textContent = SHIPS[save.selectedShip].name;
-  document.querySelector("#rail-passive")!.textContent = `${SPECIALIZATIONS[save.selectedSpecialization].name} · ${
-    SHIPS[save.selectedShip].passive
-  }`;
-  document.querySelector("#rail-wins")!.textContent = `${save.records.campaignWins
-    .toString()
-    .padStart(2, "0")} WINS`;
-  document.querySelector("#rail-endless")!.textContent = formatTime(save.records.endlessBestSeconds);
-  document.querySelector("#rail-score")!.textContent = `最高分 ${save.records.endlessBestScore
-    .toString()
-    .padStart(6, "0")}`;
-  document.querySelector("#rail-rogue")!.textContent = `存活 ${formatTime(
-    save.records.roguelikeBestSeconds
-  )}`;
-  document.querySelector("#rail-rogue-boss")!.textContent = `击破首领 ${save.records.roguelikeBestWave} · 最佳`;
-}
-
-function showToast(message: string): void {
-  const element = document.querySelector<HTMLDivElement>("#toast")!;
-  element.textContent = message;
-  element.classList.add("show");
-  window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => element.classList.remove("show"), 1800);
-}
-
-// 统一的"技能冷却中"提示
-function cooldownToast(label: string, readyAt: number, now: number): void {
-  showToast(`${label} 冷却 ${formatRoundedNumberForDisplay(Math.max(0, readyAt - now) / 1000)}s`);
-}
-
-function ensureAudio(): void {
-  if (!audioContext) audioContext = new AudioContext();
-  if (audioContext.state === "suspended") void audioContext.resume();
-}
-
-function sfx(kind: "click" | "shoot" | "hit" | "upgrade" | "hurt" | "boss" | "victory"): void {
-  if (save.settings.sfxVolume <= 0) return;
-  ensureAudio();
-  if (!audioContext) return;
-  const now = audioContext.currentTime;
-  const oscillator = audioContext.createOscillator();
-  const gain = audioContext.createGain();
-  const frequencies = {
-    click: [560, 720],
-    shoot: [280, 180],
-    hit: [150, 90],
-    upgrade: [420, 980],
-    hurt: [130, 55],
-    boss: [80, 45],
-    victory: [440, 880]
-  } as const;
-  oscillator.type = kind === "hurt" || kind === "boss" ? "sawtooth" : "square";
-  oscillator.frequency.setValueAtTime(frequencies[kind][0], now);
-  oscillator.frequency.exponentialRampToValueAtTime(frequencies[kind][1], now + 0.09);
-  gain.gain.setValueAtTime(save.settings.sfxVolume * (kind === "shoot" ? 0.025 : 0.07), now);
-  gain.gain.exponentialRampToValueAtTime(0.001, now + (kind === "boss" ? 0.32 : 0.12));
-  oscillator.connect(gain).connect(audioContext.destination);
-  oscillator.start(now);
-  oscillator.stop(now + (kind === "boss" ? 0.34 : 0.13));
-}
-
-function stopAdaptiveMusic(): void {
-  window.clearInterval(musicTimer);
-  musicTimer = 0;
-  musicStage = -1;
-}
-
-function setAdaptiveMusic(stage: number): void {
-  if (stage === musicStage || save.settings.musicVolume <= 0) return;
-  stopAdaptiveMusic();
-  ensureAudio();
-  musicStage = stage;
-  const patterns = [
-    [110, 164.8, 220],
-    [123.5, 185, 246.9, 185],
-    [146.8, 220, 293.7, 329.6],
-    [82.4, 123.5, 164.8, 246.9, 329.6]
-  ];
-  let step = 0;
-  const playNote = (): void => {
-    if (!audioContext || audioContext.state !== "running") return;
-    const now = audioContext.currentTime;
-    const oscillator = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    oscillator.type = stage >= 2 ? "sawtooth" : "triangle";
-    oscillator.frequency.value = patterns[stage][step++ % patterns[stage].length];
-    gain.gain.setValueAtTime(save.settings.musicVolume * 0.028, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + (stage >= 2 ? 0.19 : 0.34));
-    oscillator.connect(gain).connect(audioContext.destination);
-    oscillator.start(now);
-    oscillator.stop(now + 0.38);
-  };
-  playNote();
-  musicTimer = window.setInterval(playNote, [720, 560, 410, 260][stage]);
 }
 
 function shipMarkup(): string {
@@ -705,7 +571,7 @@ function showPilotSelect(owner: 1 | 2 = 1, restoredScrollTop = 0): void {
 }
 
 function showLevelSelect(restoredScrollTop = 0): void {
-  if (![3, 4, 5].includes(selectedLevel)) selectedLevel = 3;
+  if (![3, 4, 5].includes(selectedLevel)) setSelectedLevel(3);
   uiRoot.innerHTML = `
     <section class="screen">
       ${screenHeader("STEP 01 / COMBAT PROTOCOL", "选择游戏模式")}
@@ -813,7 +679,7 @@ function showLevelSelect(restoredScrollTop = 0): void {
   document.querySelectorAll<HTMLButtonElement>("[data-variant]").forEach((button) => {
     button.addEventListener("click", () => {
       const scrollTop = document.querySelector<HTMLElement>(".screen")?.scrollTop ?? 0;
-      playVariant = button.dataset.variant as PlayVariant;
+      setPlayVariant(button.dataset.variant as PlayVariant);
       save.lastVariant = playVariant;
       persist();
       showLevelSelect(scrollTop);
@@ -822,7 +688,7 @@ function showLevelSelect(restoredScrollTop = 0): void {
   document.querySelectorAll<HTMLButtonElement>("[data-protocol]").forEach((button) => {
     button.addEventListener("click", () => {
       const scrollTop = document.querySelector<HTMLElement>(".screen")?.scrollTop ?? 0;
-      selectedMode = button.dataset.protocol as GameMode;
+      setSelectedMode(button.dataset.protocol as GameMode);
       save.lastMode = selectedMode;
       persist();
       showLevelSelect(scrollTop);
@@ -831,7 +697,7 @@ function showLevelSelect(restoredScrollTop = 0): void {
   document.querySelectorAll<HTMLButtonElement>("[data-level]").forEach((button) => {
     button.addEventListener("click", () => {
       const scrollTop = document.querySelector<HTMLElement>(".screen")?.scrollTop ?? 0;
-      selectedLevel = Number(button.dataset.level);
+      setSelectedLevel(Number(button.dataset.level));
       save.lastLevel = selectedLevel;
       persist();
       showLevelSelect(scrollTop);
@@ -1153,7 +1019,7 @@ function showSettings(): void {
   });
   document.querySelector("#reset-save")!.addEventListener("click", () => {
     if (confirm("确认重置全部解锁、纪录和设置？此操作无法撤销。")) {
-      save = structuredClone(DEFAULT_SAVE);
+      setSave(structuredClone(DEFAULT_SAVE));
       persist();
       showMenu();
       showToast("本地进度已重置");
@@ -1300,11 +1166,11 @@ function showKeybindings(): void {
 
 function destroyGame(): void {
   activeScene?.archivePendingRun();
-  activeScene = null;
+  setActiveScene(null);
   stopAdaptiveMusic();
   if (game) {
     game.destroy(true);
-    game = null;
+    setGame(null);
   }
   document.querySelector("#game-root")!.innerHTML = "";
 }
@@ -1342,7 +1208,7 @@ function startRun(): void {
       powerPreference: "high-performance"
     }
   };
-  game = new Phaser.Game(config);
+  setGame(new Phaser.Game(config));
 }
 
 function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
@@ -1381,139 +1247,21 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
   };
   // 自动武器清单(即时肉鸽同时最多四种)
   const AUTO_WEAPON_IDS = ["laser", "missile", "drone", "arc", "blade"] as const;
-  // 每个玩家按自己的专精/等级独立出池
-  const buildPool = (owner: 1 | 2): UpgradeDefinition[] => {
-    const spec = scene.specOf(owner);
-    const ul = scene.upgradesOf(owner);
-    return UPGRADES.filter(
-      (upgrade) =>
-        levelOf(owner, upgrade.id) <
-          // 数值档位上限:agile_lunge / agile_shadow_clone / power_flamethrower 为 4 档,
-          // 其余强化 5 档。此前 power_flamethrower 走默认 5,但 POWER_FLAME 各数组只有 4 项,
-          // Lv.5 会与 Lv.4 完全相同(死等级)。
-          (upgrade.id === "agile_lunge" ||
-          upgrade.id === "agile_shadow_clone" ||
-          upgrade.id === "power_flamethrower"
-            ? 4
-            : 5) &&
-        (spec === "wheelchair"
-          ? collisionUpgradeIds.has(upgrade.id) ||
-            airSupportIds.has(upgrade.id) ||
-            upgrade.id === "wheelchair_fusion"
-          : !upgrade.id.startsWith("ram_")) &&
-        (!upgrade.id.startsWith("power_") || spec === "power") &&
-        (!upgrade.id.startsWith("agile_") || spec === "agile") &&
-        (!upgrade.id.startsWith("defender_") || spec === "defender") &&
-        (!upgrade.id.startsWith("vampire_") || spec === "vampire") &&
-        (!upgrade.id.startsWith("devour_") || spec === "devour") &&
-        (!upgrade.id.startsWith("wheelchair_") || spec === "wheelchair") &&
-        // 融合技出池:肉鸽按主4配2超6分钟;非肉鸽仅万象影袭保持原规则,其余融合技不出
-        (!FUSION_REQUIREMENTS[upgrade.id] ||
-          (() => {
-            const requirement = FUSION_REQUIREMENTS[upgrade.id]!;
-            return scene.selectedModeIsRogue()
-              ? levelOf(owner, requirement[0]) >= 4 &&
-                  levelOf(owner, requirement[1]) >= 2 &&
-                  scene.rogueClock > 360000
-              : upgrade.id === "agile_shadow_lunge";
-          })()) &&
-        // 即时肉鸽:自动武器同时最多四种(已装备的不再限制)
-        (!scene.selectedModeIsRogue() ||
-          !(AUTO_WEAPON_IDS as readonly string[]).includes(upgrade.id) ||
-          scene.activeWeaponCount(owner) < 4 ||
-          levelOf(owner, upgrade.id) > 0) &&
-        // 敏捷进阶规则:
-        // - 未选任何基础技能:出突刺 + 影分身,万象影袭不出
-        // - 选完突刺/影分身任意一个:基础技能全部不再出现,后续专属只出融合技(首抽即 Lv.2)
-        // - P2 的影分身作为终端升级持续出到上限,同时万象影袭照常可出
-        // - 即时肉鸽:跳过该进阶互斥,突刺/影分身可同时堆叠到各自上限,融合技另由条件出池
-        (!upgrade.id.startsWith("agile_") ||
-          spec !== "agile" ||
-          scene.selectedModeIsRogue() ||
-          (() => {
-            const lunge = ul.agile_lunge ?? 0;
-            const clone = ul.agile_shadow_clone ?? 0;
-            if (owner === 2 && upgrade.id === "agile_shadow_clone") return true;
-            if (upgrade.id === "agile_shadow_lunge") return lunge > 0 || clone > 0;
-            if (upgrade.id === "agile_lunge") return lunge === 0 && clone === 0;
-            if (upgrade.id === "agile_shadow_clone") return lunge === 0 && clone === 0;
-            return true;
-          })())
-    );
+  // 每个玩家按自己的专精/等级独立出池(出池与保底规则已抽至 upgrade-system.ts)
+  const roguePoolConfig = {
+    collisionUpgradeIds,
+    airSupportIds,
+    levelOf,
+    fusionRequirements: FUSION_REQUIREMENTS,
+    autoWeaponIds: AUTO_WEAPON_IDS,
+    isRogue: selectedMode === "roguelike"
   };
+  const buildPool = (owner: 1 | 2): UpgradeDefinition[] => buildPoolFor(scene, owner, roguePoolConfig);
   // 单侧三选一:普通模式不再保证本家流派专属必出,专属只凭权重(比其他强化高 60%)提高出现概率;
   // 即时肉鸽走洗牌袋 + 保底规则(开局核心/攻击/生存、专属连缺必出、至少一张强化已有构筑、放逐过滤)
-  const isRogue = selectedMode === "roguelike";
-  const rogueTag = (id: string): "core" | "attack" | "survival" | "utility" => {
-    if (
-      id.startsWith("power_") ||
-      id.startsWith("agile_") ||
-      id.startsWith("defender_") ||
-      id.startsWith("vampire_") ||
-      id.startsWith("devour_") ||
-      id.startsWith("wheelchair_")
-    ) {
-      return "core";
-    }
-    if (["cannon", "laser", "missile", "drone", "arc", "blade"].includes(id)) return "attack";
-    if (
-      ["hull", "armor", "endurance", "recovery", "emergency", "ram_armor", "ram_regen", "ram_mass"].includes(id)
-    ) {
-      return "survival";
-    }
-    return "utility";
-  };
-  // 保证 required 池至少 1 张,再从 full 补满 3 张(不重复,由单局种子洗牌)
-  const rogueEnsure = (
-    required: UpgradeDefinition[],
-    full: UpgradeDefinition[]
-  ): UpgradeDefinition[] => {
-    const picks: UpgradeDefinition[] = [];
-    const used = new Set<string>();
-    const takeRandom = (candidates: UpgradeDefinition[]): boolean => {
-      const avail = candidates.filter((candidate) => !used.has(candidate.id));
-      if (avail.length === 0) return false;
-      const pick = scene.rogueRng.shuffle(avail)[0];
-      picks.push(pick);
-      used.add(pick.id);
-      return true;
-    };
-    if (required.length > 0) takeRandom(required);
-    while (picks.length < 3) {
-      if (!takeRandom(full)) break;
-    }
-    return picks;
-  };
-  const roguePick = (owner: 1 | 2): UpgradeDefinition[] => {
-    const pool = buildPool(owner).filter((upgrade) => !scene.rogueBanished.includes(upgrade.id));
-    if (pool.length === 0) return [];
-    const forced = scene.rogueConstructRequest;
-    const specPool = pool.filter((upgrade) => rogueTag(upgrade.id) === "core");
-    // 专属连续两次缺席 → 本次必出流派专属
-    if (scene.rogueLastSpecializationMiss >= 2 && specPool.length > 0) {
-      scene.rogueLastSpecializationMiss = 0;
-      return rogueEnsure(specPool, pool);
-    }
-    // 开局三次保底:core / attack / survival 强制带标签
-    if (forced && forced !== "utility") {
-      const tagged = pool.filter((upgrade) => rogueTag(upgrade.id) === forced);
-      if (tagged.length > 0) return rogueEnsure(tagged, pool);
-    }
-    const options = chooseUniqueWeighted(pool, 3);
-    if (options.length === 0) return [];
-    // 至少一张强化当前已有构筑
-    const ownedPool = pool.filter((upgrade) => levelOf(owner, upgrade.id) > 0);
-    if (ownedPool.length > 0 && !options.some((upgrade) => levelOf(owner, upgrade.id) > 0)) {
-      const fresh = ownedPool.filter((upgrade) => !options.some((option) => option.id === upgrade.id));
-      if (fresh.length > 0) options[options.length - 1] = scene.rogueRng.shuffle(fresh)[0];
-    }
-    // 记录流派专属缺席次数
-    if (options.some((upgrade) => rogueTag(upgrade.id) === "core")) scene.rogueLastSpecializationMiss = 0;
-    else scene.rogueLastSpecializationMiss += 1;
-    return options;
-  };
+  const isRogue = roguePoolConfig.isRogue;
   const pickForOwner = (owner: 1 | 2): UpgradeDefinition[] => {
-    if (isRogue) return roguePick(owner);
+    if (isRogue) return roguePickFor(scene, owner, roguePoolConfig);
     const pool = buildPool(owner);
     return chooseUniqueWeighted(pool, 3);
   };
@@ -2250,179 +1998,8 @@ function showPause(scene: BattleScene): void {
   document.querySelector("#quit-run")!.addEventListener("click", showMenu);
 }
 
-function finishRun(result: RunResult): void {
-  if (result.mode === "campaign" && result.victory) {
-    save.records.campaignWins += 1;
-    save.records.highestUnlockedLevel = Math.max(
-      save.records.highestUnlockedLevel,
-      Math.min(5, result.missionLevel + 1)
-    );
-  }
-  if (result.mode === "endless") {
-    save.records.endlessBestSeconds = Math.max(save.records.endlessBestSeconds, result.seconds);
-    save.records.endlessBestScore = Math.max(save.records.endlessBestScore, result.score);
-  }
-  if (result.mode === "roguelike") {
-    save.records.roguelikeBestSeconds = Math.max(
-      save.records.roguelikeBestSeconds,
-      result.seconds
-    );
-    save.records.roguelikeBestWave = Math.max(
-      save.records.roguelikeBestWave,
-      result.waves ?? 0
-    );
-  }
-  if (result.mode === "boss" && result.victory) {
-    const milliseconds = Math.round(result.seconds * 1000);
-    save.records.bossRushBestMs =
-      save.records.bossRushBestMs === null
-        ? milliseconds
-        : Math.min(save.records.bossRushBestMs, milliseconds);
-  }
-  save.starCores += result.reward;
-  if (playVariant === "coop" && result.victory) {
-    if (!save.achievements.coop_wing) save.achievements.coop_wing = new Date().toISOString();
-  }
-  persist();
-  sfx(result.victory ? "victory" : "hurt");
-  const shadow = result.shadowEnding ? SHADOW_ENDINGS[result.shadowEnding] : null;
-  overlayRoot.innerHTML = `
-    <div class="overlay${shadow ? " shadow-ending-overlay" : ""}">
-      <div class="overlay-panel${shadow ? " shadow-ending-panel" : ""}">
-        <div class="eyebrow">${
-          shadow
-            ? shadow.code
-            : result.victory
-            ? result.mode === "campaign"
-              ? "CAMPAIGN COMPLETE"
-              : result.mode === "boss"
-                ? "BOSS SEQUENCE ARCHIVED"
-                : result.mode === "roguelike"
-                  ? "DARK DEITY VANQUISHED"
-                  : "MISSION COMPLETE"
-            : result.mode === "roguelike"
-              ? "ROGUE RUN ARCHIVED"
-              : "INFINITE FLIGHT ARCHIVED"
-        }</div>
-        <h2>${
-          shadow
-            ? shadow.title
-            : playVariant === "score_duel"
-            ? result.score >= (result.score2 ?? 0)
-              ? "P1 赢得空域"
-              : "P2 赢得空域"
-            : result.victory
-              ? result.mode === "campaign"
-                ? "星渊征途完成"
-                : result.mode === "boss"
-                  ? "九渊试炼完成"
-                  : result.mode === "roguelike"
-                    ? "黑暗魔神已被击破"
-                    : `关卡 ${result.missionLevel} 完成`
-              : result.mode === "roguelike"
-                ? `构筑崩解于第 ${Math.floor(result.seconds / 60)} 分钟`
-                : "本次永夜航线已封存"
-        }</h2>
-        <p>${
-          shadow
-            ? shadow.detail
-            : result.victory
-            ? result.mode === "campaign"
-              ? "带有小怪增援的九场 Boss 战与最终真身均已击破，本局数据已经永久保存。"
-              : result.mode === "boss"
-                ? "九场战斗与最终真身均已击破，终局核心和全部战斗数据已永久回收到机库。"
-                : result.mode === "roguelike"
-                  ? "15 分钟内击破黑暗魔神。构筑与随机航线已记录，下次用同流派再冲一次纪录。"
-                  : "泰坦核心已被摧毁，航道暂时安全。"
-            : result.mode === "roguelike"
-              ? "本局构筑已清空。保留当前流派、刷新随机种子，4 秒内再次出击。"
-              : "星核数据已回收，调整构筑后再次出击。"
-        }</p>
-        <div class="result-stats">
-          <div class="result-stat"><span>SCORE</span><strong>${result.score}</strong></div>
-          <div class="result-stat"><span>TIME</span><strong>${formatTime(result.seconds)}</strong></div>
-          <div class="result-stat"><span>KILLS</span><strong>${result.kills}</strong></div>
-          <div class="result-stat"><span>LEVEL</span><strong>LV.${result.level}</strong></div>
-          ${
-            result.mode === "roguelike"
-              ? `<div class="result-stat"><span>击破首领</span><strong>${result.waves ?? 0}</strong></div>
-                 <div class="result-stat"><span>最佳存活</span><strong>${formatTime(
-                   save.records.roguelikeBestSeconds
-                 )}</strong></div>
-                 ${
-                   result.victory
-                     ? ""
-                     : `<div class="result-stat"><span>死因</span><strong>${
-                         activeScene?.lastDamageCause ?? "未知威胁"
-                       }</strong></div>`
-                 }`
-              : ""
-          }
-          <div class="result-stat"><span>游戏代币</span><strong>◆ +${result.reward}</strong></div>
-          <div class="result-stat"><span>战斗掉落</span><strong>${result.combatTokens}</strong></div>
-          <div class="result-stat"><span>${
-            result.mode === "boss" || result.mode === "campaign" ? "完成战斗" : "击破泰坦"
-          }</span><strong>${result.bosses}</strong></div>
-          <div class="result-stat"><span>MODE</span><strong>${result.mode.toUpperCase()}</strong></div>
-          ${
-            playVariant === "single"
-              ? ""
-              : `<div class="result-stat"><span>P1 SCORE</span><strong>${result.score}</strong></div>
-                 <div class="result-stat"><span>P2 SCORE</span><strong>${result.score2 ?? 0}</strong></div>`
-          }
-        </div>
-        <button class="primary-button" id="again-run">${
-          result.mode === "campaign" && result.victory && result.missionLevel < 5
-            ? "提高威胁等级"
-            : result.mode === "roguelike"
-              ? "保持当前流派 · 再来一局"
-              : "再次出击"
-        }</button>
-        <div class="overlay-actions">
-          <button class="secondary-button" id="result-hangar">机库</button>
-          <button class="secondary-button" id="result-menu">主菜单</button>
-        </div>
-      </div>
-    </div>
-  `;
-  document.querySelector("#again-run")!.addEventListener("click", () => {
-    if (result.mode === "campaign" && result.victory && result.missionLevel < 5) {
-      selectedLevel = result.missionLevel + 1;
-      save.lastLevel = selectedLevel;
-      persist();
-    }
-    destroyGame();
-    startRun();
-  });
-  // 即时肉鸽死亡:4 秒内自动重新出击(清空本局构筑、保留流派)
-  let rogueTimer: number | undefined;
-  if (result.mode === "roguelike" && !result.victory) {
-    const againBtn = document.querySelector<HTMLButtonElement>("#again-run");
-    let rogueCountdown = 4;
-    if (againBtn) againBtn.textContent = `保持当前流派 · 再来一局 (${rogueCountdown}s)`;
-    const tick = (): void => {
-      rogueCountdown -= 1;
-      if (rogueCountdown <= 0) {
-        if (rogueTimer !== undefined) clearInterval(rogueTimer);
-        againBtn?.click();
-        return;
-      }
-      if (againBtn) againBtn.textContent = `保持当前流派 · 再来一局 (${rogueCountdown}s)`;
-    };
-    rogueTimer = window.setInterval(tick, 1000);
-  }
-  document.querySelector("#result-hangar")!.addEventListener("click", () => {
-    // 手动离开结算界面时停止自动重开倒计时,避免 interval 悬空继续 tick
-    if (rogueTimer !== undefined) clearInterval(rogueTimer);
-    destroyGame();
-    overlayRoot.innerHTML = "";
-    showHangar();
-  });
-  document.querySelector("#result-menu")!.addEventListener("click", () => {
-    if (rogueTimer !== undefined) clearInterval(rogueTimer);
-    showMenu();
-  });
-}
+// 结算与快速重开已抽至 run-settlement.ts(finishRun)
+
 
 // === 模块级 window/document 单例监听器 ===
 // setupInput / showMenu 每局(每次打开)先 remove 再 add 同名函数,避免跨局累积:
@@ -2493,7 +2070,9 @@ function onWindowBlur(): void {
   if (activeScene && !activeScene.isModal && !activeScene.ended) showPause(activeScene);
 }
 
-export class BattleScene extends Phaser.Scene {
+export class BattleScene extends SpawnDirectorMixin(
+  UpgradeSystemMixin(RoguelikeDirectorMixin(Phaser.Scene))
+) {
   player!: Phaser.Physics.Arcade.Image;
   player2?: Phaser.Physics.Arcade.Image;
   enemies!: Phaser.Physics.Arcade.Group;
@@ -3073,7 +2652,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   create(): void {
-    activeScene = this;
+    setActiveScene(this);
     this.createTextures();
     this.createBackdrop();
     this.enemies = this.physics.add.group();
@@ -6155,69 +5734,6 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  spawnFlightToken(): void {
-    const value = 2 + selectedLevel + this.bossTier;
-    const token = this.pickups.get(
-      Phaser.Math.Between(80, WORLD_WIDTH - 80),
-      -50,
-      "starCoreTokenArt"
-    ) as Phaser.Physics.Arcade.Image;
-    token.enableBody(true, token.x, -50, true, true);
-    token
-      .setTexture("starCoreTokenArt")
-      .clearTint()
-      .setDisplaySize(46, 46)
-      .setDepth(7)
-      .setData({ kind: "token", value })
-      .setVelocity(Phaser.Math.Between(-42, 42), Phaser.Math.Between(115, 165))
-      .setAngularVelocity(120);
-  }
-
-  spawnExperiencePickup(x: number, y: number, value: number): void {
-    // 小兵/boss 掉落的升级代币减半(玩家升级速度不变,仅掉落实体减半)
-    const finalValue = Math.max(1, Math.round(value * 0.5 * (this.xpMultiplier ?? 1)));
-    const pickup = this.pickups.get(x, y, "starCoreTokenArt") as Phaser.Physics.Arcade.Image;
-    pickup.enableBody(true, x, y, true, true);
-    pickup
-      .setTexture("starCoreTokenArt")
-      .clearTint()
-      .setDisplaySize(34, 34)
-      .setDepth(6)
-      .setData({ kind: "xp", value: finalValue })
-      .setAngularVelocity(90)
-      .setVelocity(Phaser.Math.Between(-35, 35), 55);
-  }
-
-  spawnSkillPickup(x = Phaser.Math.Between(90, WORLD_WIDTH - 90), y = -60): void {
-    const skills: TemporarySkill[] = [
-      "overdrive",
-      "prism",
-      "singularity",
-      "rapidfire",
-      "ironclad"
-    ];
-    const skill = Phaser.Utils.Array.GetRandom(skills);
-    // 5 种技能在统一青色基础上做细微差别,不再花里胡哨
-    const tints: Record<TemporarySkill, number> = {
-      overdrive: 0x2df4ff,
-      prism: 0x6effe9,
-      singularity: 0x2df4ff,
-      rapidfire: 0x9ff7ff,
-      ironclad: 0x2df4ff
-    };
-    const pickup = this.pickups.get(x, y, "skillPickup") as Phaser.Physics.Arcade.Image;
-    pickup.enableBody(true, x, y, true, true);
-    pickup
-      .setTexture("skillPickup")
-      .clearTint()
-      .setTint(tints[skill])
-      .setDisplaySize(54, 54)
-      .setDepth(8)
-      .setData({ kind: "skill", value: skill })
-      .setVelocity(Phaser.Math.Between(-55, 55), Phaser.Math.Between(105, 145))
-      .setAngularVelocity(150);
-  }
-
   spawnBossUpgradePickup(
     x: number,
     y: number,
@@ -7353,336 +6869,6 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  spawnEnemy(time: number, forcedType?: string): Phaser.Physics.Arcade.Image {
-    const levelConfig = LEVELS[selectedLevel - 1];
-    const scorePressure = Math.min(3.2, (this.score + this.score2) / Math.max(3200, this.nextBossScore));
-    const intensity =
-      0.78 +
-      levelConfig.danger * 0.08 +
-      this.elapsedSeconds / 240 +
-      scorePressure * 0.32 +
-      this.bossTier * 0.09;
-    const roll = Math.random();
-    let rolledType: EnemyType =
-      roll > 0.94
-        ? "courier"
-        : roll > 0.88 && this.elapsedSeconds > 55
-          ? "bomber"
-          : roll > 0.8 && this.elapsedSeconds > 38
-            ? "gunship"
-            : roll > 0.68 && this.elapsedSeconds > 28
-              ? "mine_layer"
-              : roll > 0.52 && this.elapsedSeconds > 18
-                ? "suppressor"
-                : roll > 0.34 && this.elapsedSeconds > 10
-                  ? "striker"
-                  : roll > 0.17
-                    ? "interceptor"
-                    : "scout";
-    if (isNineBattleMode() && !forcedType) {
-      rolledType = Phaser.Utils.Array.GetRandom(
-        campaignEnemyRoster(this.campaignBossesDefeated)
-      ) as EnemyType;
-    }
-    const forcedElite = forcedType?.startsWith("elite_") ?? false;
-    const rawType = (forcedType?.replace(/^elite_/, "") ?? rolledType) as EnemyType;
-    const validTypes: EnemyType[] = [
-      "scout",
-      "interceptor",
-      "striker",
-      "suppressor",
-      "mine_layer",
-      "gunship",
-      "bomber",
-      "courier"
-    ];
-    const type: EnemyType = validTypes.includes(rawType) ? rawType : "scout";
-    const eliteChance = Phaser.Math.Clamp(
-      0.06 + levelConfig.danger * 0.014 + this.bossTier * 0.025 + this.elapsedSeconds / 1500,
-      0.07,
-      0.34
-    );
-    // 精英:调用方强制指定 elite_ 前缀时必为精英,否则按难度/压力概率决定。
-    // Boss 召唤等指定兵种的生成同样参与掷骰,因此也可以是精英。
-    const eliteVariant =
-      forcedElite ||
-      (isNineBattleMode() ? rollCampaignElite(selectedLevel) : Math.random() < eliteChance);
-    // 突变独立于精英:普通小兵也可以突变,精英同样可以叠加突变
-    const mutated = rollCampaignMutation(selectedLevel);
-    const mutation: EnemyMutation | null = mutated
-      ? rollMinionMutationKind()
-      : null;
-    const eliteClass = eliteVariant || type === "gunship" || type === "bomber";
-    const textures: Record<EnemyType, string> = {
-      scout: "enemyScoutArt",
-      interceptor: "enemyInterceptorArt",
-      striker: "enemyStrikerArt",
-      suppressor: "enemySuppressorArt",
-      mine_layer: "enemyMineLayerArt",
-      gunship: "enemyGunshipArt",
-      bomber: "enemyBomberArt",
-      courier: "enemyCourierArt"
-    };
-    const eliteTextures: Record<EnemyType, string> = {
-      scout: "enemyEliteScoutArt",
-      interceptor: "enemyEliteInterceptorArt",
-      striker: "enemyEliteStrikerArt",
-      suppressor: "enemyEliteSuppressorArt",
-      mine_layer: "enemyEliteMineLayerArt",
-      gunship: "enemyEliteArt",
-      bomber: "enemyEliteBomberArt",
-      courier: "enemyEliteCourierArt"
-    };
-    const texture = eliteVariant ? eliteTextures[type] : textures[type];
-    const enemy = this.enemies.get(Phaser.Math.Between(70, WORLD_WIDTH - 70), -80, texture) as Phaser.Physics.Arcade.Image;
-    enemy.enableBody(true, enemy.x, -80, true, true);
-    enemy
-      .setTexture(texture)
-      .setDepth(eliteVariant ? 9 : 7)
-      .setActive(true)
-      .setVisible(true)
-      .setAlpha(1)
-      .clearTint()
-      .setAngle(
-        (!eliteVariant && type === "interceptor") || (eliteVariant && type === "gunship")
-          ? 180
-          : 0
-      );
-    const displaySizes: Record<EnemyType, { width: number; height: number }> = {
-      scout: { width: 68, height: 76 },
-      interceptor: { width: 78, height: 88 },
-      striker: { width: 92, height: 104 },
-      suppressor: { width: 112, height: 116 },
-      mine_layer: { width: 126, height: 132 },
-      gunship: { width: 142, height: 154 },
-      bomber: { width: 166, height: 174 },
-      courier: { width: 86, height: 94 }
-    };
-    const displaySize = displaySizes[type];
-    enemy.setDisplaySize(
-      displaySize.width * (eliteVariant ? 1.12 : 1),
-      displaySize.height * (eliteVariant ? 1.12 : 1)
-    );
-    (enemy.body as Phaser.Physics.Arcade.Body).setSize(
-      enemy.width * (eliteClass ? 0.66 : 0.58),
-      enemy.height * 0.72,
-      true
-    );
-    const baseHp = (
-      {
-        scout: 36,
-        interceptor: 32,
-        striker: 60,
-        suppressor: 82,
-        mine_layer: 115,
-        gunship: 185,
-        bomber: 270,
-        courier: 52
-      } as Record<EnemyType, number>
-    )[type];
-    // 第一波(0-30s)用更陡的难度曲线,之后还原
-    const firstWave = this.elapsedSeconds < 30;
-    const hp =
-      baseHp *
-      (firstWave ? 1.25 : 1) *
-      (1 + this.elapsedSeconds * (firstWave ? 0.0062 : 0.0035) + scorePressure * (firstWave ? 0.32 : 0.24) + levelConfig.danger * (firstWave ? 0.085 : 0.06)) *
-      enemyUpgradeScale() *
-      (eliteVariant ? 2.15 : 1) *
-      (mutation === "armor" ? 1.55 : mutated ? 1.18 : 1) *
-      (this.elapsedSeconds >= 240 ? 2 : 1); // 4 分钟后小兵生命 ×2
-    const scoreValue = (
-      {
-        scout: 90,
-        interceptor: 110,
-        striker: 170,
-        suppressor: 220,
-        mine_layer: 300,
-        gunship: 420,
-        bomber: 600,
-        courier: 160
-      } as Record<EnemyType, number>
-    )[type] * (eliteVariant ? 1.65 : 1);
-    const xpValue = (
-      {
-        scout: 5,
-        interceptor: 6,
-        striker: 10,
-        suppressor: 13,
-        mine_layer: 18,
-        gunship: 24,
-        bomber: 32,
-        courier: 9
-      } as Record<EnemyType, number>
-    )[type] * (eliteVariant ? 1.65 : 1);
-    enemy.setData({
-      type,
-      hp,
-      maxHp: hp,
-      score: Math.round(scoreValue),
-      xp: Math.round(xpValue),
-      born: time,
-      originX: enemy.x,
-      elite: eliteVariant,
-      heavy: type === "gunship" || type === "bomber",
-      eliteVariant,
-      mutated,
-      mutation,
-      damageScale:
-        (eliteVariant ? 1.45 : 1) *
-        (mutated ? 1.28 : 1) *
-        (this.elapsedSeconds >= 240 ? 2 : 1), // 4 分钟后小兵伤害 ×2
-      aiPattern: Phaser.Math.Between(0, 2),
-      debugInjected: false,
-      ramInjected: false,
-      nextFire: time + Phaser.Math.Between(900, 1800)
-    });
-    const baseSpeed = (
-      {
-        scout: 150,
-        interceptor: 210,
-        striker: 155,
-        suppressor: 125,
-        mine_layer: 95,
-        gunship: 105,
-        bomber: 82,
-        courier: 185
-      } as Record<EnemyType, number>
-    )[type];
-    const cruiseVelocityX = type === "courier" ? Phaser.Math.Between(-55, 55) : 0;
-    const cruiseVelocityY =
-      baseSpeed *
-      Math.min(1.45, intensity) *
-      0.666 *   // 0.72 × 0.925(慢 7.5%)
-      (eliteVariant ? 0.92 : 1) *
-      (mutation === "dash" ? 1.38 : 1);
-    enemy
-      .setVelocity(cruiseVelocityX, cruiseVelocityY)
-      .setData("cruiseVelocityX", cruiseVelocityX)
-      .setData("cruiseVelocityY", cruiseVelocityY)
-      .setData("supportControlled", false);
-    if (eliteVariant) {
-      this.floatText(enemy.x, 48, "ELITE", true);
-    }
-    if (mutated) {
-      enemy.setScale(enemy.scaleX * 1.06, enemy.scaleY * 1.06);
-      enemy.setTint(MINION_MUTATION_COLORS[mutation!]);
-      this.floatText(enemy.x, 76, `MUTATION // ${mutation?.toUpperCase()}`, true);
-    }
-    return enemy;
-  }
-
-  // === 即时肉鸽:15 分钟流程状态机 ===
-  // 节奏:0-5s 直接开打 → 15s 首次构筑(流派核心保底)→ 每 30-45s 构筑 →
-  // 每 60-90s 红/蓝/绿三扇随机航线门 → 每 3 分钟首领 → 15 分钟黑暗魔神终局。
-  // 肉鸽专用时钟 rogueClock 只在非弹窗/非 Boss 战期间累加(Boss 战与升级界面期间冻结)。
-  updateRoguelike(time: number, dt: number): void {
-    if (selectedMode !== "roguelike" || this.ended) return;
-    if (
-      !this.isModal &&
-      !this.bossActive &&
-      !this.rogueFinalPending &&
-      !this.upgradePanelOpen
-    ) {
-      this.rogueClock += dt * 1000;
-    }
-    // 15s 首次构筑:流派核心保底,必须明显改变攻击方式
-    if (
-      !this.rogueFirstConstructDone &&
-      this.rogueClock >= 15000 &&
-      !this.isModal &&
-      !this.bossActive
-    ) {
-      this.rogueFirstConstructDone = true;
-      this.rogueStage = 1;
-      this.openRogueConstruct("core");
-      return;
-    }
-    // 每 30-45s 构筑三选一(升级/精英模块/临时能力)
-    if (
-      this.rogueFirstConstructDone &&
-      !this.isModal &&
-      !this.bossActive &&
-      !this.rogueBossPending &&
-      this.rogueClock >= this.nextRogueConstructAt
-    ) {
-      this.rogueStage += 1;
-      const kind =
-        this.rogueConstructKindQueue.length > 0
-          ? this.rogueConstructKindQueue.shift()!
-          : "utility";
-      this.nextRogueConstructAt = this.rogueClock + this.rogueRng.int(30000, 45000);
-      this.openRogueConstruct(kind);
-      return;
-    }
-    // 每 60-90s 三条随机航线门(红/蓝/绿),玩家亲自移动进门选择
-    if (
-      this.rogueGates.length === 0 &&
-      !this.isModal &&
-      !this.bossActive &&
-      !this.rogueBossPending &&
-      this.rogueClock >= this.nextRogueGateAt
-    ) {
-      this.nextRogueGateAt = this.rogueClock + this.rogueRng.int(60000, 90000);
-      this.spawnRogueGates(time);
-    }
-    if (this.rogueGates.length > 0) {
-      if (time >= this.rogueGateUntil) this.clearRogueGates();
-      else this.checkRogueGateCollision();
-    }
-    // 首领战:每 3 分钟一次;15 分钟终局黑暗魔神
-    if (!this.bossActive && !this.isModal && !this.rogueBossPending && !this.rogueFinalPending) {
-      if (this.rogueClock >= 900000 && !this.rogueExtended) {
-        // 15 分钟终局
-        this.rogueFinalPending = true;
-        this.rogueBossPending = true;
-        this.nextSpawn = this.time.now + 999999;
-        this.clearRogueGates();
-        this.showBanner("◆ 15 分钟 · 黑暗魔神终局", 1800);
-        sfx("boss");
-        this.time.delayedCall(1600, () => {
-          if (this.ended) return;
-          this.rogueBossPending = false;
-          this.playRogueDeityArrival();
-        });
-      } else if (this.rogueClock >= this.nextRogueBossAt) {
-        this.rogueBossPending = true;
-        this.nextSpawn = this.time.now + 999999;
-        this.clearRogueGates();
-        this.rogueBossCount += 1;
-        this.showBanner(`◆ 第 ${this.rogueBossCount} 次首领降临 · 主动权柄 + 专属被动`, 1800);
-        sfx("boss");
-        this.time.delayedCall(1600, () => {
-          if (this.ended) return;
-          this.rogueBossPending = false;
-          this.playBossArrivalCG();
-        });
-      }
-    }
-  }
-
-  // 首领击破奖励链结束后调用:黑影掠过演出 + 重抽次数 + 下次首领排期
-  resumeRogueAfterBoss(): void {
-    if (selectedMode !== "roguelike" || this.ended) return;
-    this.nextSpawn = this.time.now + 600;
-    this.rogueBossPending = false;
-    this.showBanner("黑影掠过 · 掠走首领核心 · 专属被动已刻入机体", 1600);
-    // 重抽次数:每个 Boss 恢复一次,最多四次
-    this.rerolls = Math.min(4, this.rerolls + 1);
-    if (this.rogueDeityDefeated) {
-      if (this.rogueExtended) {
-        // 已选择继续无尽:不再弹选择,正常排期下一场首领
-        this.nextRogueBossAt = this.rogueClock + 180000;
-        this.showBanner("无尽延展 · 首领每 3 分钟降临 · 构筑继续成长", 1500);
-        return;
-      }
-      // 黑暗魔神击破 → 结算或继续无尽
-      this.showRogueVictoryChoice();
-      return;
-    }
-    // 从击破奖励结束算起,下一场首领在 3 分钟后
-    this.nextRogueBossAt = this.rogueClock + 180000;
-  }
-
   // 黑暗魔神终局胜利:结算 / 继续无尽
   showRogueVictoryChoice(): void {
     if (this.ended) return;
@@ -7731,347 +6917,6 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
     showUpgrade(this);
-  }
-
-  // === 三条随机航线门(红/蓝/绿) ===
-  spawnRogueGates(time: number): void {
-    this.rogueGateUntil = time + 12000;
-    const kinds = this.rogueRng.shuffle<"red" | "blue" | "green">(["red", "blue", "green"]);
-    const xs = [WORLD_WIDTH * 0.22, WORLD_WIDTH * 0.5, WORLD_WIDTH * 0.78];
-    this.rogueGates = kinds.map((kind, index) =>
-      this.buildRogueGate(kind, xs[index], 300, index)
-    );
-  }
-
-  buildRogueGate(
-    kind: "red" | "blue" | "green",
-    x: number,
-    y: number,
-    index: number
-  ): Phaser.GameObjects.Container {
-    const colors = { red: 0xff3d5a, blue: 0x3d8bff, green: 0x43ff9a } as const;
-    const names = {
-      red: "赤红航线 · 强敌与攻击",
-      blue: "深蓝航线 · 异常事件",
-      green: "翠绿航线 · 修复护盾"
-    } as const;
-    const color = colors[kind];
-    const glow = this.add.circle(0, 0, 84, color, 0.14);
-    const ring = this.add
-      .circle(0, 0, 60, 0x000000, 0.4)
-      .setStrokeStyle(5, color, 0.95);
-    const core = this.add
-      .circle(0, 0, 28, color, 0.85)
-      .setStrokeStyle(3, 0xffffff, 0.7);
-    const label = this.add
-      .text(0, 96, names[kind], {
-        fontFamily: '"Microsoft YaHei", sans-serif',
-        fontSize: "15px",
-        color: "#eaffff",
-        backgroundColor: "#0a1622cc",
-        padding: { x: 8, y: 4 }
-      })
-      .setOrigin(0.5);
-    const container = this.add.container(x, y, [glow, ring, core, label]).setDepth(60);
-    container.setData("kind", kind);
-    container.setData("index", index);
-    this.tweens.add({
-      targets: [glow, ring, core],
-      alpha: 0.5,
-      duration: 520,
-      yoyo: true,
-      repeat: -1
-    });
-    return container;
-  }
-
-  clearRogueGates(): void {
-    this.rogueGates.forEach((gate) => {
-      // 门的脉冲 tween 是 repeat:-1,必须随门销毁一起清理,否则常驻运行
-      this.tweens.killTweensOf(gate.list);
-      gate.destroy();
-    });
-    this.rogueGates = [];
-    this.rogueGateUntil = 0;
-  }
-
-  checkRogueGateCollision(): void {
-    const targets: Array<{ x: number; y: number }> = [{ x: this.player.x, y: this.player.y }];
-    if (this.player2?.active) targets.push({ x: this.player2.x, y: this.player2.y });
-    for (let i = 0; i < this.rogueGates.length; i++) {
-      const gate = this.rogueGates[i];
-      for (const target of targets) {
-        if (Math.hypot(gate.x - target.x, gate.y - target.y) < 72) {
-          const kind = gate.getData("kind") as "red" | "blue" | "green";
-          this.tweens.killTweensOf(gate.list);
-          gate.destroy();
-          this.rogueGates.splice(i, 1);
-          this.rogueGateUntil = 0;
-          this.enterRogueGate(kind, gate.x, gate.y);
-          return;
-        }
-      }
-    }
-  }
-
-  enterRogueGate(kind: "red" | "blue" | "green", x: number, y: number): void {
-    this.burst(x, y, 0xffffff, 1.7);
-    this.cameras.main.flash(120, 200, 255, 255);
-    if (kind === "red") {
-      // 红门:敌人强化,必得攻击奖励
-      this.showBanner("赤红航线 · 强敌迫近 · 攻击奖励锁定", 1300);
-      this.spawnEnemy(this.time.now, "elite_gunship");
-      this.time.delayedCall(450, () => {
-        if (!this.ended) this.spawnEnemy(this.time.now, "elite_bomber");
-      });
-      this.time.delayedCall(900, () => this.openRogueConstruct("attack"));
-    } else if (kind === "blue") {
-      // 蓝门:异常事件,高随机高收益(小概率风险)
-      const roll = this.rogueRng.int(0, 5);
-      if (roll <= 1) {
-        // 经验爆发
-        this.spawnExperiencePickup(x, y - 70, 40);
-        this.spawnExperiencePickup(x + 56, y - 24, 40);
-        this.spawnExperiencePickup(x - 56, y - 24, 40);
-        this.showBanner("深蓝航线 · 经验爆发", 1300);
-      } else if (roll === 2) {
-        // 模块注入:随机构筑
-        this.showBanner("深蓝航线 · 模块注入", 1300);
-        this.time.delayedCall(700, () => this.openRogueConstruct("utility"));
-      } else if (roll === 3) {
-        // 星渊遗物:代币
-        const granted = this.grantRunTokens(60);
-        this.showBanner(`深蓝航线 · 星渊遗物 ◆ +${granted}`, 1300);
-      } else if (roll === 4) {
-        // 修复爆发
-        this.healPlayer(this.stats.maxHp * 0.25, "深蓝航线 · 治愈回响");
-        this.showBanner("深蓝航线 · 治愈回响 +25%", 1300);
-      } else {
-        // 危险回响:损失生命换后续构筑
-        this.stats.hp = roundHealth(this.stats.hp - this.stats.maxHp * 0.08, this.stats.maxHp);
-        this.floatText(x, y, "危险回响 · 损失 8% 生命", true);
-        this.cameras.main.flash(160, 255, 40, 60);
-        this.showBanner("深蓝航线 · 危险回响 · 受损后强制构筑", 1400);
-        this.time.delayedCall(800, () => this.openRogueConstruct("utility"));
-      }
-    } else {
-      // 绿门:修复、护盾、经验、稳定强化
-      this.healPlayer(this.stats.maxHp * 0.3, "翠绿航线 · 修复");
-      this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + 2500);
-      this.spawnExperiencePickup(x, y - 70, 25);
-      this.showBanner("翠绿航线 · 修复 30% + 护盾 2.5s + 经验", 1400);
-      this.time.delayedCall(800, () => this.openRogueConstruct("survival"));
-    }
-  }
-
-  // 15 分钟终局演出:黑暗魔神真身降临(不走三首领轮换)
-  playRogueDeityArrival(): void {
-    if (this.ended || this.bossActive) return;
-    this.clearWaveForBossArrival();
-    this.isModal = true;
-    this.physics.world.pause();
-    setAdaptiveMusic(3);
-    const topBar = this.add
-      .rectangle(WORLD_WIDTH / 2, 54, WORLD_WIDTH, 108, 0x000000, 0.94)
-      .setDepth(110);
-    const bottomBar = this.add
-      .rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT - 54, WORLD_WIDTH, 108, 0x000000, 0.94)
-      .setDepth(110);
-    const warning = this.add
-      .text(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, "⚠ 黑暗魔神终局", {
-        fontFamily: "Consolas, monospace",
-        fontSize: "30px",
-        fontStyle: "bold",
-        color: "#ff4d6d",
-        backgroundColor: "#18030dcc",
-        padding: { x: 24, y: 16 }
-      })
-      .setOrigin(0.5)
-      .setDepth(112);
-    const subtitle = this.add
-      .text(
-        WORLD_WIDTH / 2,
-        WORLD_HEIGHT / 2 + 62,
-        "15 分钟已至 · 三枚首领印记全部点亮 · 真身降临",
-        {
-          fontFamily: '"Microsoft YaHei", sans-serif',
-          fontSize: "18px",
-          color: "#f5d9e7"
-        }
-      )
-      .setOrigin(0.5)
-      .setDepth(112);
-    this.cameras.main.shake(800, 0.014);
-    this.cameras.main.flash(130, 255, 40, 110);
-    sfx("boss");
-    this.time.delayedCall(1900, () => {
-      [topBar, bottomBar, warning, subtitle].forEach((item) => item.destroy());
-      this.isModal = false;
-      this.physics.world.resume();
-      this.spawnBoss("dark_deity");
-    });
-  }
-
-  updateEnemies(time: number, _dt: number): void {
-    const ambientEnemiesEnabled =
-      // 普通战役:清兵期(阈值达标后)停止刷兵,等玩家清完剩余小兵再召唤 Boss
-      (selectedMode === "campaign" &&
-        this.campaignInterludeActive &&
-        !this.levelCompleteTriggered) ||
-      // 无尽模式:达到阈值后停止刷兵,等玩家清完剩余小兵再打 Boss
-      (selectedMode === "endless" && !this.bossActive && !this.levelCompleteTriggered) ||
-      // 即时肉鸽:常驻刷兵(首领降临近触发/终局排队期间暂停)
-      (selectedMode === "roguelike" &&
-        !this.bossActive &&
-        !this.rogueBossPending &&
-        !this.rogueFinalPending);
-    if (ambientEnemiesEnabled && time >= this.nextSpawn) {
-      this.spawnEnemy(time);
-      const scorePressure = (this.score + this.score2) / 5000;
-      const interval = Phaser.Math.Clamp(
-        760 - this.elapsedSeconds * 2.2 - scorePressure * 85 - selectedLevel * 28,
-        190,
-        760
-      );
-      const campaignSpawnScale = selectedMode === "campaign" ? 1.1 : 1;
-      // 即时肉鸽:时间越久刷兵越密(每 60 秒 -4%,最低 50%)
-      const rogueWaveScale =
-        selectedMode === "roguelike"
-          ? Math.max(0.5, 1 - this.rogueClock / 60000 * 0.04)
-          : 1;
-      // 开局前 30 秒小怪数量翻倍(仅困难/噩梦,普通难度保持原密度)
-      const isNormalDifficulty = campaignDifficultyForLevel(selectedLevel).id === "normal";
-      const earlyDensityBoost =
-        this.elapsedSeconds < 30 && !isNormalDifficulty ? 0.5 : 1;
-      this.nextSpawn =
-        time + interval * campaignSpawnScale * rogueWaveScale * earlyDensityBoost;
-    }
-    this.enemies.children.each((child) => {
-      const enemy = child as Phaser.Physics.Arcade.Image;
-      if (!enemy.active) return true;
-      const type = enemy.getData("type") as EnemyType;
-      const age = time - enemy.getData("born");
-      const frozenBySupport = time < this.enemyFreezeUntil;
-      // 脉冲星轨道炮命中会给单个小兵挂 0.6 秒减速(slowUntil),复用支援缓速的减速分支
-      const slowedBySupport =
-        !frozenBySupport &&
-        (time < this.enemySlowUntil || time < ((enemy.getData("slowUntil") as number) ?? 0));
-      if (frozenBySupport || slowedBySupport) {
-        if (!enemy.getData("supportControlled")) {
-          const body = enemy.body as Phaser.Physics.Arcade.Body;
-          enemy
-            .setData("supportStoredVelocityX", body.velocity.x)
-            .setData("supportStoredVelocityY", body.velocity.y)
-            .setData("supportControlled", true);
-        }
-        const slowLevel = this.airSupportLevels.stasis_wake ?? 1;
-        const slowFactor = frozenBySupport ? 0 : Math.max(0.2, 0.35 - slowLevel * 0.03);
-        enemy.setVelocity(
-          (enemy.getData("supportStoredVelocityX") ?? 0) * slowFactor,
-          (enemy.getData("supportStoredVelocityY") ?? enemy.getData("cruiseVelocityY") ?? 0) *
-            slowFactor
-        );
-      } else if (enemy.getData("supportControlled")) {
-        enemy
-          .setVelocity(
-            enemy.getData("supportStoredVelocityX") ?? enemy.getData("cruiseVelocityX") ?? 0,
-            enemy.getData("supportStoredVelocityY") ?? enemy.getData("cruiseVelocityY") ?? 0
-          )
-          .setData("supportControlled", false);
-      }
-      if (enemy.getData("eliteVariant")) {
-        enemy.setAlpha(0.88 + Math.sin(time * 0.008 + enemy.getData("aiPattern")) * 0.12);
-      }
-      if (!frozenBySupport) {
-        if (type === "scout") {
-          enemy.x = enemy.getData("originX") + Math.sin(age * 0.003) * 48;
-        } else if (type === "interceptor") {
-          enemy.x = enemy.getData("originX") + Math.sin(age * 0.006) * 105;
-        } else if (type === "striker") {
-          enemy.x =
-            enemy.getData("originX") +
-            Math.sin(age * 0.0048 + enemy.getData("aiPattern")) * 125;
-        } else if (type === "suppressor") {
-          enemy.x =
-            enemy.getData("originX") +
-            Math.sin(age * 0.0026 + enemy.getData("aiPattern")) * 165;
-        } else if (type === "mine_layer") {
-          enemy.x =
-            enemy.getData("originX") +
-            Math.sin(age * 0.0017 + enemy.getData("aiPattern")) * 120;
-        } else if (type === "gunship") {
-          enemy.x = Phaser.Math.Clamp(
-            enemy.getData("originX") +
-              Math.sin(age * 0.0018 + enemy.getData("aiPattern")) * 175,
-            90,
-            WORLD_WIDTH - 90
-          );
-        } else if (type === "bomber") {
-          enemy.x = Phaser.Math.Clamp(
-            enemy.getData("originX") +
-              Math.sin(age * 0.00125 + enemy.getData("aiPattern")) * 130,
-            100,
-            WORLD_WIDTH - 100
-          );
-        }
-      }
-      if (
-        type !== "courier" &&
-        !frozenBySupport &&
-        time > enemy.getData("nextFire") &&
-        enemy.y > 90 &&
-        enemy.y < WORLD_HEIGHT * 0.7
-      ) {
-        if (type === "bomber" || type === "gunship") {
-          this.fireElitePattern(enemy, type);
-        } else if (type === "striker" || type === "suppressor" || type === "mine_layer") {
-          this.fireMidTierPattern(enemy, type);
-        } else {
-          this.fireEnemyAtPlayer(
-            enemy.x,
-            enemy.y + 24,
-            (type === "interceptor" ? 11 : 10) * (enemy.getData("damageScale") ?? 1),
-            type === "interceptor" ? 350 : 260
-          );
-        }
-        if (enemy.getData("mutated")) {
-          this.fireMutationPattern(enemy, enemy.getData("mutation") as EnemyMutation);
-        }
-        enemy.setData(
-          "nextFire",
-          time +
-            (type === "bomber" || type === "gunship"
-              ? Phaser.Math.Between(1150, 1950)
-              : type === "mine_layer"
-                ? Phaser.Math.Between(1750, 2250)
-                : type === "suppressor"
-                  ? Phaser.Math.Between(1300, 1750)
-                  : type === "striker"
-                    ? Phaser.Math.Between(1150, 1500)
-              : type === "interceptor"
-                ? 1450
-                : 1800) * (enemy.getData("eliteVariant") ? 0.8 : 1)
-        );
-      }
-      if (enemy.y > WORLD_HEIGHT + 100) {
-        if (type === "courier") {
-          this.destroyEnemy(enemy, true);
-          this.showBanner("补给机自毁 · 代币已回收", 650);
-        } else {
-          enemy.disableBody(true, true);
-        }
-      }
-      return true;
-    });
-    if (time >= this.nextTaunt && !this.bossActive) {
-      const speaker = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).find(
-        (enemy) => enemy.active && enemy.y > 110 && enemy.y < WORLD_HEIGHT * 0.55
-      );
-      if (speaker) {
-        this.showTaunt(speaker);
-        this.nextTaunt = time + Phaser.Math.Between(3600, 6500);
-      }
-    }
   }
 
   fireMutationPattern(enemy: Phaser.Physics.Arcade.Image, mutation: EnemyMutation): void {
@@ -10469,59 +9314,6 @@ export class BattleScene extends Phaser.Scene {
     return (["laser", "missile", "drone", "arc", "blade"] as const).filter(
       (id) => (ul[id] ?? 0) > 0
     ).length;
-  }
-
-  collectXp(value: number): void {
-    if (this.level >= 100) {
-      this.score += value * 2;
-      return;
-    }
-    this.xp += value;
-    this.score += value * 2;
-    while (this.xp >= this.xpNeeded) {
-      this.xp -= this.xpNeeded;
-      this.level = Math.min(100, this.level + 1);
-      this.xpNeeded = xpToNextLevel(this.level);
-      if (this.level < 100) {
-        // 升级选择队列:弹窗忙时先排队,由 flushLevelUpQueue 逐个弹出
-        this.pendingLevelUps += 1;
-        this.flushLevelUpQueue();
-      } else {
-        this.showBanner("LV.100 · 流派完全体", 1500);
-      }
-      // 注意:此处不 break,一次性吸收大量经验可连续升级;三选一由
-      // pendingLevelUps 队列逐个弹出(isModal/upgradePanelOpen 时先排队)。
-    }
-  }
-
-  levelUp(): void {
-    this.flushLevelUpQueue();
-  }
-
-  // 弹窗非忙时才真正弹三选一;一次只弹一个,弹窗关闭后下一帧再弹下一个。
-  // 修复:同时吸收大量经验时等级增加但三选一被 isModal 弹窗状态吞掉的问题。
-  flushLevelUpQueue(): void {
-    if (
-      this.pendingLevelUps <= 0 ||
-      this.ended ||
-      this.isModal ||
-      this.upgradePanelOpen ||
-      this.levelUpScheduled
-    ) {
-      return;
-    }
-    this.pendingLevelUps -= 1;
-    this.levelUpScheduled = true;
-    this.time.delayedCall(20, () => {
-      this.levelUpScheduled = false;
-      if (this.ended) return;
-      if (this.isModal || this.upgradePanelOpen) {
-        // 仍被其他弹窗占用:放回队列稍后再弹
-        this.pendingLevelUps += 1;
-        return;
-      }
-      showUpgrade(this);
-    });
   }
 
   // 按倍率提升最大生命并立即补足差值,可选标记为本局敏捷最大生命收益
@@ -13292,29 +12084,6 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
     this.playBossArrivalCG();
-  }
-
-  clearWaveForBossArrival(): void {
-    this.clearBossAttackEffects();
-    this.enemies.children.each((child) => {
-      const enemy = child as Phaser.Physics.Arcade.Image;
-      this.tweens.killTweensOf(enemy);
-      enemy.setData("freezePausedTweens", undefined);
-      if (enemy.active) enemy.disableBody(true, true);
-      return true;
-    });
-    this.enemyBullets.children.each((child) => {
-      const bullet = child as Phaser.Physics.Arcade.Image;
-      this.tweens.killTweensOf(bullet);
-      bullet.setData("freezePausedTweens", undefined);
-      if (bullet.active) bullet.disableBody(true, true);
-      return true;
-    });
-    this.clearPlayerBullets();
-    this.siphonedEnemies = [];
-    this.clearSiphonChains();
-    this.enemyFreezeStartedAt = 0;
-    this.enemyFreezeUntil = 0;
   }
 
   playBossArrivalCG(): void {
@@ -17603,21 +16372,25 @@ export class BattleScene extends Phaser.Scene {
 }
 
 refreshRails();
+// 将 main.ts 的升级弹窗注入 upgrade-system(避免循环依赖)
+setShowUpgrade((scene) => showUpgrade(scene));
+// 将 main.ts 的页面导航注入 run-settlement(避免循环依赖)
+setSettlementNavigation({ destroyGame, startRun, showMenu, showHangar });
 window.addEventListener("beforeunload", () => {
   activeScene?.archivePendingRun();
 });
 const bootParams = new URLSearchParams(location.search);
 const autoStartMode = bootParams.get("autostart");
 const requestedLevel = Number(bootParams.get("level"));
-if (requestedLevel >= 1 && requestedLevel <= 5) selectedLevel = requestedLevel;
+if (requestedLevel >= 1 && requestedLevel <= 5) setSelectedLevel(requestedLevel);
 const requestedVariant = bootParams.get("variant");
-if (requestedVariant === "coop" || requestedVariant === "score_duel") playVariant = requestedVariant;
+if (requestedVariant === "coop" || requestedVariant === "score_duel") setPlayVariant(requestedVariant);
 const requestedSpecialization = bootParams.get("specialization") as SpecializationId | null;
 if (requestedSpecialization && requestedSpecialization in SPECIALIZATIONS) {
   save.selectedSpecialization = requestedSpecialization;
 }
 if (autoStartMode === "campaign" || autoStartMode === "boss" || autoStartMode === "endless") {
-  selectedMode = autoStartMode;
+  setSelectedMode(autoStartMode);
   startRun();
 } else if (bootParams.get("screen") === "pilot") {
   showPilotSelect();
