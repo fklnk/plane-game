@@ -877,16 +877,16 @@ body {
 .protocol-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .protocol-card {
   position: relative;
   --pc: #2df4ff;
   --pc-soft: rgba(45, 244, 255, 0.14);
-  min-height: 236px;
-  padding: 18px 14px 14px;
+  min-height: 250px;
+  padding: 20px 16px 16px;
   overflow: hidden;
   border: 1px solid rgba(45, 244, 255, 0.18);
   background: linear-gradient(160deg, rgba(7, 28, 48, 0.94), rgba(3, 10, 22, 0.96));
@@ -929,44 +929,44 @@ body {
 .protocol-no {
   display: block;
   color: #5c87a0;
-  font: 8px/1 "Roboto Mono", Consolas, monospace;
+  font: 9px/1 "Roboto Mono", Consolas, monospace;
   letter-spacing: 0.14em;
 }
 
 .protocol-sigil {
   display: block;
-  margin: 14px 0 10px;
+  margin: 16px 0 12px;
   color: var(--pc);
-  font: normal 42px/1 "Roboto Mono", Consolas, monospace;
+  font: normal 46px/1 "Roboto Mono", Consolas, monospace;
   text-shadow: 0 0 18px var(--pc);
   opacity: 0.95;
 }
 
 .protocol-card h3 {
-  margin: 0 0 8px;
-  font-size: 18px;
+  margin: 0 0 10px;
+  font-size: 20px;
 }
 
 .protocol-card p {
-  min-height: 66px;
+  min-height: 72px;
   margin: 0;
   color: #7198aa;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.6;
 }
 
 .protocol-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 12px;
+  gap: 5px;
+  margin-top: 14px;
 }
 
 .protocol-tags b {
-  padding: 5px 7px;
+  padding: 6px 8px;
   background: var(--pc-soft);
   color: #cfeeff;
-  font: 7px/1 "Roboto Mono", Consolas, monospace;
+  font: 8px/1 "Roboto Mono", Consolas, monospace;
 }
 
 .danger-select {
@@ -2688,6 +2688,11 @@ kbd {
 
   .side-rail {
     display: none;
+  }
+
+  /* 主区变窄:三个模式卡片改为单列竖排,避免三列被过度压缩 */
+  .protocol-grid {
+    grid-template-columns: 1fr;
   }
 }
 
