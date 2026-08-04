@@ -2184,6 +2184,7 @@ export class BattleScene extends SpawnDirectorMixin(
   campaignGates: Phaser.GameObjects.Container[] = [];
   campaignGateUntil = 0;        // 门消失时间(基于 time)
   campaignGatesOpen = false;    // 门流程进行中(防止重复生成/重复触发)
+  campaignHalfGateDone = false; // 本航段半程航线门已给过(阈值 50%),防止重复出现
   // === 升级选择队列:弹窗忙时先排队,逐个弹出(修复同时吸收大量经验丢三选一) ===
   pendingLevelUps = 0;
   levelUpScheduled = false;
@@ -3188,6 +3189,20 @@ export class BattleScene extends SpawnDirectorMixin(
     g.lineStyle(2, 0x2df4ff, 0.8);
     g.strokeEllipse(24, 20, 46, 34);
     g.generateTexture("drone", 48, 38);
+    g.clear();
+
+    // 金龙炼狱专属:金色小喷火无人机(比普通护航无人机更醒目)
+    g.fillStyle(0xffd66b, 0.16);
+    g.fillCircle(32, 25, 30);
+    g.fillStyle(0x2a1a06, 1);
+    g.fillEllipse(32, 26, 52, 38);
+    g.lineStyle(3, 0xffd66b, 1);
+    g.strokeEllipse(32, 26, 52, 38);
+    g.fillStyle(0xffe9a8, 1);
+    g.fillCircle(32, 26, 10);
+    g.lineStyle(2, 0xfff2c8, 0.9);
+    g.strokeCircle(32, 26, 15);
+    g.generateTexture("fusionDrone", 64, 52);
     g.clear();
 
     g.fillStyle(0x2df4ff, 0.18);
@@ -5464,34 +5479,65 @@ export class BattleScene extends SpawnDirectorMixin(
     this.updateEnemies(time, dt);
     this.updatePickups();
     this.updateCampaignMysteryFeedback();
+    // === 普通战役清兵航段:
+    // 半程(阈值 50%):停止刷兵,清场后先出三扇航线门,选门奖励后继续推进;
+    // 整程(阈值 100%):停止刷兵,清场后直接进入首领降临(不再出第二道门) ===
     if (
       this.campaignInterludeActive &&
+      !this.campaignHalfGateDone &&
+      !this.levelCompleteTriggered &&
+      this.score + this.score2 - this.campaignInterludeStartScore >=
+        this.campaignInterludeTarget * 0.5
+    ) {
+      // 半程:立即停止刷兵,清完剩余小兵后开航线门
+      this.campaignHalfGateDone = true;
+      this.nextSpawn = this.time.now + 999999;
+      this.showBanner("◆ 航线门信号锁定 · 清空剩余威胁", 1200);
+    }
+    if (
+      this.campaignInterludeActive &&
+      this.campaignHalfGateDone &&
+      !this.campaignGatesOpen &&
+      !this.levelCompleteTriggered &&
+      !(this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).some((enemy) => enemy.active)
+    ) {
+      // 半程门:清场后出现红/蓝/绿三扇随机航线门
+      this.spawnCampaignGates(time);
+    }
+    if (
+      this.campaignInterludeActive &&
+      this.campaignGatesOpen &&
+      this.campaignGates.length > 0 &&
+      !this.levelCompleteTriggered
+    ) {
+      if (time >= this.campaignGateUntil) {
+        // 门超时未选:关闭航线门,继续推进
+        this.clearCampaignGates();
+        this.completeCampaignGate();
+      } else {
+        this.checkCampaignGateCollision();
+      }
+    }
+    if (
+      this.campaignInterludeActive &&
+      this.campaignHalfGateDone &&
       !this.levelCompleteTriggered &&
       this.score + this.score2 - this.campaignInterludeStartScore >=
         this.campaignInterludeTarget
     ) {
-      // 普通战役达到清兵阈值:立即停止刷兵,玩家需先清完场上剩余小兵,最后才召唤 Boss
+      // 整程:达到完整阈值,停止刷兵,清场后进入首领
       this.levelCompleteTriggered = true;
       this.nextSpawn = this.time.now + 999999;
       this.showBanner("◆ 信号锁定 · 清空剩余威胁后首领降临", 1200);
     }
-    // === 普通战役:阈值达标且场上小兵已全部清空 → 红/蓝/绿航线门出现,选门后再召唤 Boss ===
     if (
       this.campaignInterludeActive &&
       this.levelCompleteTriggered &&
+      !this.bossActive &&
       !(this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).some((enemy) => enemy.active)
     ) {
-      if (!this.campaignGatesOpen) {
-        this.spawnCampaignGates(time);
-      } else if (this.campaignGates.length > 0) {
-        if (time >= this.campaignGateUntil) {
-          // 门超时未选:直接进入首领降临
-          this.clearCampaignGates();
-          this.completeCampaignGate();
-        } else {
-          this.checkCampaignGateCollision();
-        }
-      }
+      // 整程清场:不再出第二道门,直接进入首领降临
+      this.completeCampaignGate();
     }
     this.updateBoss(time, dt);
     this.lockFrozenHostiles(time);
@@ -9663,11 +9709,14 @@ export class BattleScene extends SpawnDirectorMixin(
   activateFlamethrower(owner: 1 | 2 = 1): void {
     const isP2 = owner === 2;
     const level = this.upgradesOf(owner).power_flamethrower ?? 0;
+    const fusionLevel = this.upgradesOf(owner).power_fusion ?? 0;
     if (level <= 0) return;
     if (owner === 1 && this.skillsConfiscated) {
       showToast("技能被篡夺：只能使用基础机炮与走位");
       return;
     }
+    // 金龙炼狱:无论龙息是否在冷却,按技能键都会尝试起飞小喷火无人机(独立 15s 冷却)
+    if (fusionLevel > 0) this.trySummonFusionDrones(owner);
     const nextReadyAt = isP2 ? this.flamethrowerNextReadyAt2 : this.flamethrowerNextReadyAt;
     if (this.time.now < nextReadyAt) {
       showToast(`喷火冷却 ${((nextReadyAt - this.time.now) / 1000).toFixed(1)}s`);
@@ -9679,7 +9728,6 @@ export class BattleScene extends SpawnDirectorMixin(
     const width = POWER_FLAME_WIDTHS[tier];
     const dmgPerFrame = POWER_FLAME_DAMAGE[tier];
     // 金龙炼狱(力量融合技):每级喷火冷却 -1s,保底 10s,与升级描述「冷却 -Xs」一致
-    const fusionLevel = this.upgradesOf(owner).power_fusion ?? 0;
     const cooldown = Math.max(10, POWER_FLAME_COOLDOWNS[tier] - fusionLevel);
     if (isP2) {
       this.flamethrowerActiveUntil2 = this.time.now + duration;
@@ -9705,21 +9753,6 @@ export class BattleScene extends SpawnDirectorMixin(
       shake: 200,
       count: 40,
     });
-    // 金龙炼狱:释放龙息时同步召唤最多 4 个小无人机(独立 15s 冷却)
-    if (fusionLevel > 0) {
-      const droneReadyAt = isP2
-        ? this.fusionDroneNextReadyAt[2]
-        : this.fusionDroneNextReadyAt[1];
-      if (this.time.now >= droneReadyAt) {
-        this.spawnFusionDrones(owner);
-        if (isP2) this.fusionDroneNextReadyAt[2] = this.time.now + 15000;
-        else this.fusionDroneNextReadyAt[1] = this.time.now + 15000;
-      } else {
-        showToast(
-          `无人机集群充能 ${((droneReadyAt - this.time.now) / 1000).toFixed(1)}s`
-        );
-      }
-    }
   }
 
   updateFlamethrower(time: number, owner: 1 | 2 = 1): void {
@@ -9862,7 +9895,23 @@ export class BattleScene extends SpawnDirectorMixin(
     }
   }
 
-  // === 金龙炼狱:小喷火无人机编队(G 键召唤,最多 4 个,独立 15s 冷却) ===
+  // === 金龙炼狱:小喷火无人机编队(G/M 键召唤,最多 4 个,独立 15s 冷却) ===
+  trySummonFusionDrones(owner: 1 | 2 = 1): void {
+    const isP2 = owner === 2;
+    const droneReadyAt = isP2
+      ? this.fusionDroneNextReadyAt[2]
+      : this.fusionDroneNextReadyAt[1];
+    if (this.time.now >= droneReadyAt) {
+      this.spawnFusionDrones(owner);
+      if (isP2) this.fusionDroneNextReadyAt[2] = this.time.now + 15000;
+      else this.fusionDroneNextReadyAt[1] = this.time.now + 15000;
+    } else {
+      showToast(
+        `无人机集群充能 ${((droneReadyAt - this.time.now) / 1000).toFixed(1)}s`
+      );
+    }
+  }
+
   spawnFusionDrones(owner: 1 | 2 = 1): void {
     const isP2 = owner === 2;
     const shipSprite = isP2 ? this.player2 : this.player;
@@ -9872,16 +9921,23 @@ export class BattleScene extends SpawnDirectorMixin(
     this.clearFusionDrones(owner);
     this.fusionDroneUntil[owner] = this.time.now + 8000;
     for (let i = 0; i < count; i += 1) {
+      // 金色无人机实体 + 背后光晕,确保醒目可见
+      const glow = this.add
+        .circle(shipSprite.x, shipSprite.y - 60, 34, 0xffd66b, 0.18)
+        .setDepth(8)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      glow.setData("fusionGlow", true);
       const drone = this.add
-        .image(shipSprite.x, shipSprite.y - 60, "drone")
+        .image(shipSprite.x, shipSprite.y - 60, "fusionDrone")
         .setDepth(9)
-        .setTint(0xffd66b);
+        .setScale(1.15);
+      drone.setData("fusionGlow", glow);
       this.fusionDrones[owner].push(drone);
       const flame = this.add
         .image(drone.x, drone.y, "flamethrowerFx", 0)
         .setDepth(8)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setAlpha(0.6)
+        .setAlpha(0.7)
         .setVisible(false);
       flame.setTint(0xffd66b);
       this.fusionDroneFlames[owner].push(flame);
@@ -9891,7 +9947,10 @@ export class BattleScene extends SpawnDirectorMixin(
   }
 
   clearFusionDrones(owner: 1 | 2 = 1): void {
-    for (const drone of this.fusionDrones[owner]) drone?.destroy();
+    for (const drone of this.fusionDrones[owner]) {
+      (drone.getData("fusionGlow") as Phaser.GameObjects.Arc | undefined)?.destroy();
+      drone?.destroy();
+    }
     for (const flame of this.fusionDroneFlames[owner]) flame?.destroy();
     this.fusionDrones[owner] = [];
     this.fusionDroneFlames[owner] = [];
@@ -9937,6 +9996,11 @@ export class BattleScene extends SpawnDirectorMixin(
       drone.x = Phaser.Math.Linear(drone.x, anchorX + Math.cos(orbit) * 46, 0.12);
       drone.y = Phaser.Math.Linear(drone.y, anchorY + Math.sin(orbit) * 26, 0.12);
       drone.rotation = orbit;
+      const glow = drone.getData("fusionGlow") as Phaser.GameObjects.Arc | undefined;
+      if (glow?.active) {
+        glow.setPosition(drone.x, drone.y);
+        glow.setAlpha(0.16 + Math.sin(time * 0.02 + index) * 0.06);
+      }
       const aimX = target ? target.x : shipSprite.x;
       const aimY = target ? target.y : shipSprite.y - 320;
       const dx = aimX - drone.x;
@@ -9944,7 +10008,7 @@ export class BattleScene extends SpawnDirectorMixin(
       const dist = Math.hypot(dx, dy) || 1;
       const ux = dx / dist;
       const uy = dy / dist;
-      const FLAME_LEN = 130;
+      const FLAME_LEN = 150;
       const flame = flames[index];
       if (flame) {
         flame
@@ -9952,8 +10016,8 @@ export class BattleScene extends SpawnDirectorMixin(
           .setFrame(Math.floor(time / 72) % 4)
           .setPosition(drone.x + ux * FLAME_LEN * 0.5, drone.y + uy * FLAME_LEN * 0.5)
           .setRotation(Math.atan2(ux, -uy))
-          .setDisplaySize(64 + Math.sin(time * 0.03 + index) * 6, FLAME_LEN)
-          .setAlpha(0.55 + Math.sin(time * 0.026 + index) * 0.1);
+          .setDisplaySize(92 + Math.sin(time * 0.03 + index) * 8, FLAME_LEN)
+          .setAlpha(0.7 + Math.sin(time * 0.026 + index) * 0.12);
       }
       // 小型喷火判定:朝向目标的短锥体
       const insideCone = (x: number, y: number): boolean => {
@@ -9962,21 +10026,17 @@ export class BattleScene extends SpawnDirectorMixin(
         const proj = rx * ux + ry * uy;
         if (proj < 10 || proj > FLAME_LEN) return false;
         const perp = Math.abs(rx * uy - ry * ux);
-        return perp <= 40;
+        return perp <= 46;
       };
+      let hitTarget: Phaser.Physics.Arcade.Image | null = null;
       for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
         if (!enemy.active || !insideCone(enemy.x, enemy.y)) continue;
         enemy.setData("lastOwner", owner);
         const maxHp = Number(enemy.getData("maxHp")) || 1;
         // 无人机喷火不可暴击
-        this.dealDirectDamage(
-          enemy,
-          Math.max(1, baseDmg + Math.round(maxHp * 0.0004)),
-          enemy.x,
-          enemy.y,
-          false,
-          owner
-        );
+        const dmg = Math.max(1, baseDmg + Math.round(maxHp * 0.0004));
+        this.dealDirectDamage(enemy, dmg, enemy.x, enemy.y, false, owner);
+        if (!hitTarget) hitTarget = enemy;
       }
       for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
         if (
@@ -9984,12 +10044,43 @@ export class BattleScene extends SpawnDirectorMixin(
           ["core", "raid-core"].includes(part.getData("part")) &&
           insideCone(part.x, part.y)
         ) {
-          this.damageBossPart(
-            part,
-            Math.max(
-              1,
-              baseDmg + Math.round((Number(part.getData("maxHp")) || 1) * 0.0004)
+          const maxHp = Number(part.getData("maxHp")) || 1;
+          this.damageBossPart(part, Math.max(1, baseDmg + Math.round(maxHp * 0.0004)));
+          if (!hitTarget) hitTarget = part;
+        }
+      }
+      // 命中反馈:金色火花 + 伤害飘字,让技能效果清晰可见
+      if (hitTarget) {
+        const lastSpark = (drone.getData("fusionSparkAt") as number) ?? 0;
+        if (time - lastSpark >= 140) {
+          drone.setData("fusionSparkAt", time);
+          const spark = this.add
+            .circle(
+              hitTarget.x + Phaser.Math.FloatBetween(-14, 14),
+              hitTarget.y + Phaser.Math.FloatBetween(-14, 14),
+              Phaser.Math.FloatBetween(2.5, 5),
+              0xffd66b,
+              0.9
             )
+            .setDepth(17)
+            .setBlendMode(Phaser.BlendModes.ADD);
+          this.tweens.add({
+            targets: spark,
+            scale: 0.15,
+            alpha: 0,
+            duration: 180,
+            onComplete: () => spark.destroy()
+          });
+        }
+        const lastFloat = (drone.getData("fusionFloatAt") as number) ?? 0;
+        if (save.settings.damageNumbers && time - lastFloat >= 420) {
+          drone.setData("fusionFloatAt", time);
+          const maxHp = Number(hitTarget.getData("maxHp")) || 1;
+          this.floatText(
+            hitTarget.x,
+            hitTarget.y - 8,
+            `${Math.max(1, baseDmg + Math.round(maxHp * 0.0004))}`,
+            false
           );
         }
       }
@@ -11679,6 +11770,7 @@ export class BattleScene extends SpawnDirectorMixin(
     );
     this.campaignInterludeActive = true;
     this.levelCompleteTriggered = false;
+    this.campaignHalfGateDone = false;
     this.nextSpawn = 0;
     const entryMessages = [
       "未知航道开放 · 保持火力",
@@ -11701,7 +11793,7 @@ export class BattleScene extends SpawnDirectorMixin(
     this.campaignGates = kinds.map((kind, index) =>
       this.buildCampaignGate(kind, xs[index], 300, index)
     );
-    this.showBanner("◆ 三扇随机航线门开启 · 选择航线获取奖励后首领降临", 1500);
+    this.showBanner("◆ 三扇随机航线门开启 · 选择航线获取奖励后继续推进", 1500);
   }
 
   buildCampaignGate(
@@ -11829,12 +11921,19 @@ export class BattleScene extends SpawnDirectorMixin(
     }
   }
 
-  // 门流程结束(选门奖励/门超时) → 完成清兵整备并召唤 Boss
+  // 门流程结束(选门奖励/门超时):
+  // 半程航线门 → 关闭后继续刷兵推进;整程已达标 → 完成清兵整备并召唤 Boss
   completeCampaignGate(): void {
     if (this.ended || this.bossActive || !this.campaignInterludeActive) return;
     this.clearCampaignGates();
     this.campaignGatesOpen = false;
-    this.completeCampaignInterlude();
+    if (this.levelCompleteTriggered) {
+      this.completeCampaignInterlude();
+    } else {
+      // 半程门奖励已领取:恢复刷兵,继续推进到完整阈值
+      this.nextSpawn = 0;
+      this.showBanner("◆ 航线已定 · 继续推进直至首领降临", 900);
+    }
   }
 
   completeCampaignInterlude(): void {
