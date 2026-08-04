@@ -234,7 +234,8 @@ function boundedVolume(value: unknown, fallback: number): number {
 }
 
 export function xpToNextLevel(level: number): number {
-  const originalRequirement = 30 + level * 18 + Math.pow(level, 1.35) * 4;
+  // 后期升级放缓:高等级需求显著抬升(指数 1.35→1.5),缓解中后期升级过快
+  const originalRequirement = 30 + level * 18 + Math.pow(level, 1.5) * 4;
   return Math.round(originalRequirement * UPGRADE_EXPERIENCE_SCALE);
 }
 

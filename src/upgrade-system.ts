@@ -76,7 +76,8 @@ export function buildPoolFor(
           return scene.selectedModeIsRogue()
             ? config.levelOf(owner, requirement[0]) >= 4 &&
                 config.levelOf(owner, requirement[1]) >= 2 &&
-                scene.rogueClock > 360000
+                // 融合技出池:肉鸽至少打完第 1 个首领(分数制下由阶段推进保证时长)
+                scene.rogueBossCount >= 1
             : upgrade.id === "agile_shadow_lunge";
         })()) &&
       // 即时肉鸽:自动武器同时最多四种(已装备的不再限制)

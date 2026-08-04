@@ -657,7 +657,7 @@ function showLevelSelect(restoredScrollTop = 0): void {
             : selectedMode === "endless"
               ? "永夜航线 · 分段存币"
               : selectedMode === "roguelike"
-                ? "刹那轮回 · 15 分钟倒计时"
+                ? "刹那轮回 · 分数推进 · 航线抉择"
               : "九渊试炼 · 固定九战终局"
         }</strong>
         <small>${
@@ -2224,20 +2224,18 @@ export class BattleScene extends SpawnDirectorMixin(
   nextBossAttack = 0;
   nextBossScore = 5000;
   nextSpawn = 0;
-  // === 即时肉鸽:15 分钟流程状态 ===
+  // === 即时肉鸽:分数阈值流程状态 ===
   rogueRng: SeededRng = new SeededRng(Date.now() % 2147483647);
-  rogueClock = 0;               // 肉鸽专用计时(ms),Boss 战/弹窗期间冻结
-  rogueStage = 0;               // 构筑阶段计数
-  rogueFirstConstructDone = false;  // 15s 首次三选一(流派核心保底)已触发
+  rogueStage = 0;               // 阶段计数(每清一个阶段 +1)
+  rogueNextScore = 0;           // 当前阶段分数阈值(与普通模式同一张表)
+  rogueStageCleared = false;    // 当前阶段分数已达标,等待清场/出航线门
+  rogueFirstConstructDone = false;  // 首次三选一(流派核心保底)已触发
   rogueConstructKindQueue: Array<"core" | "attack" | "survival"> = ["core", "attack", "survival"];
-  nextRogueConstructAt = 15000; // 下次构筑三选一(基于 rogueClock)
-  nextRogueGateAt = 0;          // 下次航线门(基于 rogueClock)
-  nextRogueBossAt = 0;          // 下次 Boss(基于 rogueClock)
-  rogueBossCount = 0;           // 已击破首领数
+  rogueBossCount = 0;           // 已击破首领数(含终局黑暗魔神)
   rogueGates: Phaser.GameObjects.Container[] = [];
   rogueGateUntil = 0;           // 当前门消失时间(基于 time)
   rogueBossPending = false;     // 首领降临近触发(防止与门/构筑冲突)
-  rogueFinalPending = false;    // 15 分钟黑暗魔神终局已排队
+  rogueFinalPending = false;    // 黑暗魔神终局已排队
   rogueDeityDefeated = false;   // 黑暗魔神已击破(奖励链结束后胜利结算)
   rogueBanishUsed = false;      // 放逐已用(每局一次)
   rogueBanished: string[] = []; // 放逐的强化 id(本局不再进入候选池)
@@ -2266,8 +2264,7 @@ export class BattleScene extends SpawnDirectorMixin(
   celestialReadyAt: Record<1 | 2, number> = { 1: 0, 2: 0 };
   // === 肉鸽升级选择面板打开中:游戏完全暂停(isModal + 物理暂停) ===
   upgradePanelOpen = false;
-  rogueExtended = false;       // 黑暗魔神击破后选择"继续无尽"
-  rogueFusionCoreArmed = false; // 10 分钟后融合核心精英保底(每局一次)
+  rogueFusionCoreArmed = false; // 融合核心精英保底(每局一次)
   // === Boss 权柄等级与被动升级 ===
   bossPowerLevel = 1;
   bossPassiveLevels: Record<string, number> = {};
@@ -3116,7 +3113,7 @@ export class BattleScene extends SpawnDirectorMixin(
         : selectedMode === "endless"
           ? `永夜航线 · ${levelConfig.name} · 首轮阈值 ${this.nextBossScore}`
           : selectedMode === "roguelike"
-            ? `刹那轮回 · 15 分钟倒计时 · 首次构筑即将出现`
+            ? `刹那轮回 · ${levelConfig.name} · 首轮阈值 ${this.rogueNextScore}`
             : `九渊试炼 · ${campaignDifficultyForLevel(selectedLevel).name} · 战斗 1/9`
     );
     if (selectedLevel === 5) this.unlockAchievement("level_five");
@@ -3407,19 +3404,18 @@ export class BattleScene extends SpawnDirectorMixin(
     this.bossPowerLevel = 1;
     this.bossPassiveLevels = {};
     this.lastDamageCause = "未知威胁";
-    // === 即时肉鸽:单局种子与 15 分钟流程初始化 ===
+    // === 即时肉鸽:单局种子与分数阈值流程初始化 ===
     if (selectedMode === "roguelike") {
       // 每日种子 + 秒级随机混合:同一天同秒重复局可复现,正常游玩几乎不重复
       this.rogueRng = new SeededRng(
         SeededRng.daily() ^ (Math.floor(Date.now() / 1000) & 0xffff)
       );
-      this.rogueClock = 0;
       this.rogueStage = 0;
+      // 分数阈值与普通模式同一张表(按区域难度查表)
+      this.rogueNextScore = campaignClearScoreRequirement(0, selectedLevel);
+      this.rogueStageCleared = false;
       this.rogueFirstConstructDone = false;
       this.rogueConstructKindQueue = ["core", "attack", "survival"];
-      this.nextRogueConstructAt = 15000;
-      this.nextRogueGateAt = 60000;
-      this.nextRogueBossAt = 180000;
       this.rogueBossCount = 0;
       this.rogueGates = [];
       this.rogueBossPending = false;
@@ -3429,7 +3425,6 @@ export class BattleScene extends SpawnDirectorMixin(
       this.rogueBanished = [];
       this.rogueConstructRequest = null;
       this.rogueLastSpecializationMiss = 0;
-      this.rogueExtended = false;
       this.rogueFusionCoreArmed = false;
       this.rerolls = 2; // 开局两次重抽,每个 Boss 恢复一次,上限 4
     }
@@ -5572,7 +5567,7 @@ export class BattleScene extends SpawnDirectorMixin(
       ? (this.score + this.score2 - this.campaignInterludeStartScore) /
         Math.max(1, this.campaignInterludeTarget)
       : selectedMode === "roguelike"
-        ? Math.min(1, this.rogueClock / 300000) // 肉鸽按 5 分钟推满强度
+        ? Math.min(1, (this.score + this.score2) / Math.max(1, this.rogueNextScore)) // 肉鸽按分数进度推满强度
         : (this.score + this.score2) / Math.max(1, this.nextBossScore);
     const intensityStage = this.bossActive
       ? 3
@@ -6869,43 +6864,6 @@ export class BattleScene extends SpawnDirectorMixin(
     });
   }
 
-  // 黑暗魔神终局胜利:结算 / 继续无尽
-  showRogueVictoryChoice(): void {
-    if (this.ended) return;
-    this.isModal = true;
-    this.physics.world.pause();
-    overlayRoot.innerHTML = `
-      <div class="overlay">
-        <div class="overlay-panel">
-          <div class="eyebrow">DARK DEITY VANQUISHED</div>
-          <h2>黑暗魔神已被击破</h2>
-          <p>15 分钟终局完成。可以就此结算战绩，也可以选择继续无尽延展：构筑保留，首领每 3 分钟继续降临。</p>
-          <div class="overlay-actions">
-            <button class="primary-button" id="rogue-end-run">结算本局</button>
-            <button class="secondary-button" id="rogue-extend">继续无尽</button>
-          </div>
-        </div>
-      </div>
-    `;
-    document.querySelector("#rogue-end-run")!.addEventListener("click", () => {
-      overlayRoot.innerHTML = "";
-      this.isModal = false;
-      this.physics.world.resume();
-      this.endRun(true);
-    });
-    document.querySelector("#rogue-extend")!.addEventListener("click", () => {
-      overlayRoot.innerHTML = "";
-      this.isModal = false;
-      this.physics.world.resume();
-      this.rogueExtended = true;
-      this.rogueFinalPending = false;
-      this.rogueBossPending = false;
-      this.nextSpawn = this.time.now + 600;
-      this.nextRogueBossAt = this.rogueClock + 180000;
-      this.showBanner("无尽延展 · 构筑保留 · 首领每 3 分钟降临", 1600);
-    });
-  }
-
   // 肉鸽保底构筑三选一:弹窗忙时保留请求并稍后重试,不再静默丢弃(注释与实现一致)
   openRogueConstruct(kind: "core" | "attack" | "survival" | "utility"): void {
     if (this.ended) return;
@@ -7407,7 +7365,7 @@ export class BattleScene extends SpawnDirectorMixin(
         selectedMode === "roguelike" &&
         eliteKill &&
         !this.rogueFusionCoreArmed &&
-        this.rogueClock > 600000
+        this.rogueBossCount >= 2
       ) {
         const fusionId: Record<SpecializationId, string> = {
           power: "power_fusion",
@@ -12095,9 +12053,14 @@ export class BattleScene extends SpawnDirectorMixin(
         : null;
     const incomingKind = campaignEncounter
       ? campaignEncounter.bossKind
-      : selectedMode === "campaign" && this.bossTier >= 2
-        ? "dark_deity"
-        : (["titan", "mirror", "usurper"] as BossKind[])[this.bossTier % 3];
+      : selectedMode === "roguelike"
+        ? // 即时肉鸽首领序列:泰坦→镜像→篡夺者→黑影(前 4 场),终局黑暗魔神另走 playRogueDeityArrival
+          (["titan", "mirror", "usurper", "shadow"] as BossKind[])[
+            Math.max(0, Math.min(3, this.rogueBossCount - 1))
+          ]
+        : selectedMode === "campaign" && this.bossTier >= 2
+          ? "dark_deity"
+          : (["titan", "mirror", "usurper"] as BossKind[])[this.bossTier % 3];
     const incomingElite =
       campaignEncounter?.kind === "trinity"
         ? false
@@ -12570,7 +12533,8 @@ export class BattleScene extends SpawnDirectorMixin(
     }
     const weapon = String(bullet.getData("weapon") ?? "");
     if (weapon.includes("missile")) {
-      this.renderMissileExplosion(bullet.x, bullet.y);
+      // Boss 命中同样不渲染地面焦痕椭圆,与 hitEnemy 口径一致(避免误报的椭圆残留)
+      this.renderMissileExplosion(bullet.x, bullet.y, false);
     }
     if (weapon === "titan-authority") {
       this.renderBossPowerPulse("titan_meteor", bullet.x, bullet.y, 160, 460);
@@ -13878,7 +13842,8 @@ export class BattleScene extends SpawnDirectorMixin(
     // 冲刺期间:核心位置由冲刺 tween 接管,不再漂移
     if (time >= this.shadowChargingUntil) {
       const targetX = WORLD_WIDTH / 2 + Math.sin(this.hostileMotionTime(time) * 0.00072) * 135;
-      core.y = Phaser.Math.Linear(core.y, this.darkAircraftRetreating ? -260 : 370, this.darkAircraftRetreating ? 0.055 : 0.02);
+      // 隐退时核心缓慢上移退场(0.02 每帧),配合 alpha 渐变实现"渐渐隐退"而非瞬间切换
+      core.y = Phaser.Math.Linear(core.y, this.darkAircraftRetreating ? -260 : 370, this.darkAircraftRetreating ? 0.02 : 0.02);
       // x 用插值避免突刺返回后瞬移(与 updateShadowBoss 同理)
       core.x = Phaser.Math.Linear(core.x, targetX, 0.1);
     }
@@ -13896,10 +13861,10 @@ export class BattleScene extends SpawnDirectorMixin(
       this.darkAircraftHp = this.darkAircraftMaxHp;
       const ax = WORLD_WIDTH / 2;
       const ay = 260;
-      this.darkAircraft = this.bossParts.create(ax, ay, "bossShadow")
+      // 黑暗飞机使用完全体黑影素材(与黑影同源,不再染色成紫色),保持黑影本相
+      this.darkAircraft = this.bossParts.create(ax, ay, "bossShadowComplete")
         .setDepth(31)
         .setDisplaySize(430, 645)
-        .setTint(0x4a0070)
         .setAlpha(1)
         .setData("part", "dark-aircraft")
         .setData("maxHp", this.darkAircraftMaxHp)
@@ -13912,7 +13877,15 @@ export class BattleScene extends SpawnDirectorMixin(
       if (acBody && "setSize" in acBody) {
         (acBody as Phaser.Physics.Arcade.Body).setSize(270, 400, true);
       }
-      core.setData("hittable", false).setAlpha(0.22);
+      // 渐渐隐退:alpha 渐变 + 上移退场,不再瞬间切换
+      core.setData("hittable", false);
+      this.tweens.killTweensOf(core);
+      this.tweens.add({
+        targets: core,
+        alpha: 0.22,
+        duration: 1600,
+        ease: "Sine.easeInOut"
+      });
       this.bossEliteAura?.setAlpha(0.15);
       this.clearBossAttackEffects();
       this.enemyBullets.children.each((child) => {
@@ -13973,15 +13946,21 @@ export class BattleScene extends SpawnDirectorMixin(
       this.updateDarkAircraft(time);
       return;
     } else if (this.darkAircraftRetreating && (!this.darkAircraft || !this.darkAircraft.active)) {
-      // 黑暗飞机被消灭：解除隐退
+      // 黑暗飞机(黑影形态)被消灭:黑暗能量爆炸 + 支离破碎 debuff(血量封锁/攻击-60%/回血-50%)
       this.darkAircraftRetreating = false;
-      this.showBanner("◆ 黑暗僚机被击毁 · 魔神解除隐退", 1400);
-      this.burst(core.x, core.y, 0xff2d8f, 1.6);
-      core.setData("hittable", true).setAlpha(1);
-      this.bossEliteAura?.setAlpha(1);
       this.darkAircraft = undefined;
       this.darkAircraftClones.forEach((c) => c.disableBody(true, true));
       this.darkAircraftClones = [];
+      if (!this.bossShattered) {
+        this.triggerBossShattered(core);
+      }
+      // 黑暗能量爆炸演出
+      this.burst(core.x, core.y, 0xff2d8f, 3.2);
+      this.burst(this.player.x, this.player.y, 0x8c25ff, 2.4);
+      this.cameras.main.flash(300, 40, 0, 90);
+      if (save.settings.screenShake) this.cameras.main.shake(640, 0.018);
+      core.setData("hittable", true).setAlpha(1);
+      this.bossEliteAura?.setAlpha(1);
       // 给一个缓冲
       this.nextBossAttack = time + 800;
     }
@@ -14167,17 +14146,19 @@ export class BattleScene extends SpawnDirectorMixin(
           170,
           660
         );
+        // 影分身与黑暗飞机同素材、按比例缩放(430×645 的约 0.55 倍),明确可见可命中
         const c = this.bossParts
-          .create(cx + (i - 1) * 90, cy, "bossShadow")
+          .create(cx + (i - 1) * 90, cy, "bossShadowComplete")
           .setDepth(30)
-          .setDisplaySize(110, 110)
-          .setTint(0x7a18cf)
-          .setAlpha(0.85)
+          .setDisplaySize(240, 360)
+          .setActive(true)
+          .setVisible(true)
+          .setAlpha(1)
           .setData("part", "dark-aircraft-clone")
           .setData("linkedTo", ac)
           .setData("hittable", true);
         this.physics.world.enable(c);
-        (c as Phaser.Physics.Arcade.Image).body!.setSize(85, 85);
+        (c as Phaser.Physics.Arcade.Image).body!.setSize(160, 240, true);
         this.darkAircraftClones.push(c as Phaser.Physics.Arcade.Image);
         this.burst(cx + (i - 1) * 90, cy, 0x7a18cf, 0.6);
       });
@@ -15704,7 +15685,8 @@ export class BattleScene extends SpawnDirectorMixin(
       });
       return;
     }
-    if (campaignEncounter?.kind === "dark_deity") {
+    // 终局黑暗魔神:普通战役与即时肉鸽共用黑暗核心抉择 → 残党阶段 → 结局
+    if (campaignEncounter?.kind === "dark_deity" || (selectedMode === "roguelike" && defeatedKind === "dark_deity")) {
       this.nextSpawn = this.time.now + 999999;
       // 解除支离破碎：把玩家攻击 / 血量 / 回血效率还原(如果中途触发了)
       if (this.bossShattered) {
@@ -16035,12 +16017,8 @@ export class BattleScene extends SpawnDirectorMixin(
       this.hud.score.setText(this.score.toString().padStart(7, "0"));
     }
     this.hud.time.setText(formatTime(this.elapsedSeconds));
-    const rogueClockText = (): string => {
-      const total = Math.floor(this.rogueClock / 1000);
-      const minutes = Math.floor(total / 60);
-      const seconds = total % 60;
-      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    };
+    const rogueProgressText = (): string =>
+      `${this.score + this.score2} / ${this.rogueNextScore}`;
     const campaignStatus =
       selectedMode === "campaign"
         ? this.campaignInterludeActive
@@ -16052,10 +16030,8 @@ export class BattleScene extends SpawnDirectorMixin(
             ? this.rogueFinalPending || this.rogueDeityDefeated
               ? "ROGUE // FINAL DEITY"
               : this.bossActive
-                ? `ROGUE ${rogueClockText()} // BOSS`
-                : `ROGUE ${rogueClockText()} // BOSS ${Math.ceil(
-                    Math.max(0, this.nextRogueBossAt - this.rogueClock) / 1000
-                  )}s`
+                ? `ROGUE ${rogueProgressText()} // BOSS`
+                : `ROGUE ${rogueProgressText()} // 阶段 ${this.rogueStage + 1}`
             : `NEXT BOSS ${Math.max(0, this.nextBossScore - this.score - this.score2)}`;
     const wheelchairActiveStatus: string[] = [];
     if (save.selectedSpecialization === "wheelchair") {

@@ -322,11 +322,12 @@ export function SpawnDirectorMixin<TBase extends Constructor<Phaser.Scene>>(Base
           !this.levelCompleteTriggered) ||
         // 无尽模式:达到阈值后停止刷兵,等玩家清完剩余小兵再打 Boss
         (selectedMode === "endless" && !this.bossActive && !this.levelCompleteTriggered) ||
-        // 即时肉鸽:常驻刷兵(首领降临近触发/终局排队期间暂停)
+        // 即时肉鸽:常驻刷兵(阶段达标待清场/首领降临近触发/终局排队期间暂停)
         (selectedMode === "roguelike" &&
           !this.bossActive &&
           !this.rogueBossPending &&
-          !this.rogueFinalPending);
+          !this.rogueFinalPending &&
+          !this.rogueStageCleared);
       if (ambientEnemiesEnabled && time >= this.nextSpawn) {
         this.spawnEnemy(time);
         const scorePressure = (this.score + this.score2) / 5000;
@@ -336,10 +337,10 @@ export function SpawnDirectorMixin<TBase extends Constructor<Phaser.Scene>>(Base
           760
         );
         const campaignSpawnScale = selectedMode === "campaign" ? 1.1 : 1;
-        // 即时肉鸽:时间越久刷兵越密(每 60 秒 -4%,最低 50%)
+        // 即时肉鸽:阶段越靠后刷兵越密(每阶段 -12%,最低 50%)
         const rogueWaveScale =
           selectedMode === "roguelike"
-            ? Math.max(0.5, 1 - this.rogueClock / 60000 * 0.04)
+            ? Math.max(0.5, 1 - this.rogueStage * 0.12)
             : 1;
         // 开局前 30 秒小怪数量翻倍(仅困难/噩梦,普通难度保持原密度)
         const isNormalDifficulty = campaignDifficultyForLevel(selectedLevel).id === "normal";
