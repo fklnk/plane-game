@@ -1933,6 +1933,17 @@ kbd {
   font-size: 11px;
 }
 
+/* 游戏内确认弹窗:消息更醒目 */
+.confirm-dialog {
+  text-align: center;
+}
+.confirm-dialog > p {
+  color: #dffcff;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 14px 0 22px;
+}
+
 .upgrade-grid {
   display: grid;
   gap: 10px;

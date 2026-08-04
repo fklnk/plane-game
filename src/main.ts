@@ -256,6 +256,16 @@ function actionHoldingKeyCode(code: string, except?: BindableAction): BindableAc
   );
 }
 
+// 融合技对应的两个基础技能(升级池出池与融合首抽等级共用)
+const FUSION_REQUIREMENTS: Record<string, readonly string[]> = {
+  power_fusion: ["power_flamethrower", "drone"],
+  agile_shadow_lunge: ["agile_lunge", "agile_shadow_clone"],
+  defender_fusion: ["defender_thorns", "blade"],
+  vampire_fusion: ["vampire_siphon", "arc"],
+  devour_fusion: ["devour_swallow", "stasis_wake"],
+  wheelchair_fusion: ["ram_shockwave", "ram_armor"]
+};
+
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <main class="app-shell">
@@ -296,7 +306,7 @@ app.innerHTML = `
         <div class="tech-card feature-list">
           <div class="feature-row">
             <span class="feature-index">01</span>
-            <div><div class="feature-name">流派融合强化</div><div class="feature-copy">先选基础技能 · 融合技自然衔接</div></div>
+            <div><div class="feature-name">流派融合强化</div><div class="feature-copy">集齐基础强化 · 融合技首抽 2 级</div></div>
           </div>
           <div class="feature-row">
             <span class="feature-index">02</span>
@@ -918,6 +928,37 @@ function showHangar(restoredScrollTop = 0): void {
   }
 }
 
+// 游戏内确认弹窗:替代原生 confirm()——在 IDE 预览/iframe 等嵌入环境里原生
+// confirm 会被静默放行(不弹窗直接返回 true),导致"反悔机制形同虚设",一点就重置
+function showConfirmDialog(
+  message: string,
+  onConfirm: () => void,
+  confirmLabel = "确认"
+): void {
+  overlayRoot.innerHTML = `
+    <div class="overlay">
+      <div class="overlay-panel confirm-dialog">
+        <div class="eyebrow">CONFIRM</div>
+        <h2>确认操作</h2>
+        <p>${message}</p>
+        <div class="overlay-actions">
+          <button class="secondary-button" id="confirm-cancel">取消</button>
+          <button class="primary-button" id="confirm-ok">${confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.querySelector("#confirm-cancel")!.addEventListener("click", () => {
+    sfx("click");
+    overlayRoot.innerHTML = "";
+  });
+  document.querySelector("#confirm-ok")!.addEventListener("click", () => {
+    sfx("click");
+    overlayRoot.innerHTML = "";
+    onConfirm();
+  });
+}
+
 function showSettings(): void {
   uiRoot.innerHTML = `
     <section class="screen">
@@ -998,12 +1039,17 @@ function showSettings(): void {
     persist();
   });
   document.querySelector("#reset-save")!.addEventListener("click", () => {
-    if (confirm("确认重置全部解锁、纪录和设置？此操作无法撤销。")) {
-      setSave(structuredClone(DEFAULT_SAVE));
-      persist();
-      showMenu();
-      showToast("本地进度已重置");
-    }
+    sfx("click");
+    showConfirmDialog(
+      "确认重置全部解锁、纪录和设置？此操作无法撤销。",
+      () => {
+        setSave(structuredClone(DEFAULT_SAVE));
+        persist();
+        showMenu();
+        showToast("本地进度已重置");
+      },
+      "确认重置"
+    );
   });
 }
 
@@ -1076,12 +1122,17 @@ function showKeybindings(): void {
   document.querySelector(".back-button")!.addEventListener("click", showSettings);
   document.querySelector("#keybind-back")!.addEventListener("click", showSettings);
   document.querySelector("#keybind-reset")!.addEventListener("click", () => {
-    if (confirm("恢复全部默认键位？")) {
-      save.settings.keybindings = {};
-      persist();
-      renderRows();
-      showToast("键位已恢复默认");
-    }
+    sfx("click");
+    showConfirmDialog(
+      "恢复全部默认键位？",
+      () => {
+        save.settings.keybindings = {};
+        persist();
+        renderRows();
+        showToast("键位已恢复默认");
+      },
+      "确认恢复"
+    );
   });
   document.querySelectorAll<HTMLButtonElement>(".keybind-key").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1217,14 +1268,7 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
       ? scene.airSupportLevels[id as AirSupportSkillId] ?? 0
       : (scene.upgradesOf(owner)[id] ?? 0);
   // 融合技出池条件:已拥有任一本流派基础技能(≥1 级)即出现,与万象影袭一致
-  const FUSION_REQUIREMENTS: Record<string, readonly string[]> = {
-    power_fusion: ["power_flamethrower", "drone"],
-    agile_shadow_lunge: ["agile_lunge", "agile_shadow_clone"],
-    defender_fusion: ["defender_thorns", "blade"],
-    vampire_fusion: ["vampire_siphon", "arc"],
-    devour_fusion: ["devour_swallow", "stasis_wake"],
-    wheelchair_fusion: ["ram_shockwave", "ram_armor"]
-  };
+  // (FUSION_REQUIREMENTS 为模块级常量,升级池与 applyUpgrade 共用)
   // 每个玩家按自己的专精/等级独立出池(出池规则抽至 upgrade-system.ts)
   const upgradePoolConfig = {
     collisionUpgradeIds,
@@ -1233,6 +1277,16 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
     fusionRequirements: FUSION_REQUIREMENTS
   };
   const buildPool = (owner: 1 | 2): UpgradeDefinition[] => buildPoolFor(scene, owner, upgradePoolConfig);
+  // 升级卡等级标签:融合技未拥有时标注"首抽 Lv.X"(X = 第一次选择的基础技能等级)
+  const levelLabelFor = (owner: 1 | 2, id: string): string => {
+    const level = levelOf(owner, id);
+    if (level > 0) return `LV.${level} → ${level + 1}`;
+    if (id.endsWith("_fusion") || id === "agile_shadow_lunge") {
+      const firstBaseId = scene.fusionFirstBase[owner][id];
+      if (firstBaseId) return `首抽 Lv.${levelOf(owner, firstBaseId)}`;
+    }
+    return "NEW";
+  };
   // 单侧三选一:流派专属不保证必出,专属只凭权重(比其他强化高 60%)提高出现概率
   const pickForOwner = (owner: 1 | 2): UpgradeDefinition[] => {
     const pool = buildPool(owner);
@@ -1283,7 +1337,7 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
                   return `
                     <button class="upgrade-card" data-upgrade="${upgrade.id}" data-slot="${index}">
                       <span class="upgrade-icon"><span>${upgrade.icon}</span></span>
-                      <span class="upgrade-level">${level === 0 ? "NEW" : `LV.${level} → ${level + 1}`} · ${index + 1}</span>
+                      <span class="upgrade-level">${levelLabelFor(1, upgrade.id)} · ${index + 1}</span>
                       <h3>${upgrade.name}</h3>
                       <p>${(upgrade.short ?? upgrade.description)(level)}</p>
                     </button>
@@ -1355,7 +1409,7 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
             owner === 1 ? `data-slot="${index}"` : ""
           }>
             <span class="upgrade-icon"><span>${upgrade.icon}</span></span>
-            <span class="upgrade-level">${level === 0 ? "NEW" : `LV.${level} → ${level + 1}`} · ${index + 1}</span>
+            <span class="upgrade-level">${levelLabelFor(owner, upgrade.id)} · ${index + 1}</span>
             <h3>${upgrade.name}</h3>
             <p>${(upgrade.short ?? upgrade.description)(level)}</p>
           </button>
@@ -2048,6 +2102,8 @@ export class BattleScene extends SpawnDirectorMixin(
   upgradeLevels: Record<string, number> = { cannon: 1 };
   // P2 独立强化等级(双人:共享经验,各自选择各自强化)
   upgradeLevels2: Record<string, number> = { cannon: 1 };
+  // 融合技首抽等级 = 第一次选择的基础技能等级:记录每名玩家每个融合技对应的"先选基础技能"
+  fusionFirstBase: Record<1 | 2, Record<string, string>> = { 1: {}, 2: {} };
   stats = {
     maxHp: 100,
     hp: 100,
@@ -2185,16 +2241,18 @@ export class BattleScene extends SpawnDirectorMixin(
   campaignGateUntil = 0;        // 门消失时间(基于 time)
   campaignGatesOpen = false;    // 门流程进行中(防止重复生成/重复触发)
   campaignHalfGateDone = false; // 本航段半程航线门已给过(阈值 50%),防止重复出现
+  campaignHalfGateSpawned = false; // 本航段半程门已实际生成一次,结算后不再重复生成
   // === 升级选择队列:弹窗忙时先排队,逐个弹出(修复同时吸收大量经验丢三选一) ===
   pendingLevelUps = 0;
   levelUpScheduled = false;
   // === 融合技状态(六流派融合强化) ===
   nextGoldenEmberAt: Record<1 | 2, number> = { 1: 0, 2: 0 };
-  // 金龙炼狱:G 键召唤的小喷火无人机编队(最多 4 个,15s 冷却)
+  // 龙焰蜂群:G 键召唤的小喷火无人机编队(最多 4 个,15s 冷却)
   fusionDrones: Record<1 | 2, Phaser.GameObjects.Image[]> = { 1: [], 2: [] };
   fusionDroneFlames: Record<1 | 2, Phaser.GameObjects.Image[]> = { 1: [], 2: [] };
   fusionDroneUntil: Record<1 | 2, number> = { 1: 0, 2: 0 };
   fusionDroneNextReadyAt: Record<1 | 2, number> = { 1: 0, 2: 0 };
+  fusionDroneTickAt: Record<1 | 2, number> = { 1: 0, 2: 0 }; // 无人机喷火按 30 帧/秒结算
   thornStarUntil: Record<1 | 2, number> = { 1: 0, 2: 0 };
   thornStarGauge: Record<1 | 2, number> = { 1: 0, 2: 0 };
   thornStarVisual: Record<1 | 2, Phaser.GameObjects.Container | undefined> = {
@@ -2376,7 +2434,11 @@ export class BattleScene extends SpawnDirectorMixin(
   shadowRuptureTriggered = false;
   // 黑影/黑暗魔神冲刺期间:暂停核心漂移,让冲刺 tween 完全接管位置(时间戳兜底,避免 tween 被中断后卡死)
   shadowChargingUntil = 0;
+  // G 键(流派技能)被 boss/黑影暂时掌控:期间按 G 提示"技能被剥夺",到期自动归还
+  gKeyConfiscatedUntil = 0;
+  // 撞击流派撞毁 Boss 的 MAX HP +300 奖励按 P1/P2 各自独立
   bossKilledByCollision = false;
+  bossKilledByCollision2 = false;
   wideArenaBackdrop?: Phaser.GameObjects.Rectangle;
   lastBossHazardDamageAt = -10000;
   temporarySkill: TemporarySkill | null = null;
@@ -2424,7 +2486,6 @@ export class BattleScene extends SpawnDirectorMixin(
   bloodHitCounter = 0;
   collisionReadyAt = 0;
   player2CollisionReadyAt = 0;
-  targetReticle?: Phaser.GameObjects.Container;
   horizonGlow?: Phaser.GameObjects.Graphics;
   bossTransientEffects = new Set<Phaser.GameObjects.GameObject>();
   // 裸建的 Boss 本体图(afterimage / 黑影窃取演出),不属于任何对象池,
@@ -3184,25 +3245,32 @@ export class BattleScene extends SpawnDirectorMixin(
     g.generateTexture("enemyCourier", 94, 70);
     g.clear();
 
-    g.fillStyle(0x19344d, 1);
-    g.fillEllipse(24, 20, 46, 34);
-    g.lineStyle(2, 0x2df4ff, 0.8);
-    g.strokeEllipse(24, 20, 46, 34);
-    g.generateTexture("drone", 48, 38);
+    // 护航无人机:明亮的四旋翼造型(避免在暗背景下被误认为椭圆残留)
+    g.fillStyle(0x0d1f2e, 1);
+    g.fillRoundedRect(18, 8, 12, 22, 4);
+    g.fillStyle(0x2df4ff, 1);
+    g.fillRoundedRect(8, 4, 6, 12, 3);
+    g.fillRoundedRect(34, 4, 6, 12, 3);
+    g.fillCircle(11, 4, 5);
+    g.fillCircle(37, 4, 5);
+    g.fillStyle(0x9ff7ff, 1);
+    g.fillCircle(24, 19, 4);
+    g.generateTexture("drone", 48, 32);
     g.clear();
 
-    // 金龙炼狱专属:金色小喷火无人机(比普通护航无人机更醒目)
+    // 龙焰蜂群专属:金色四旋翼无人机(比普通护航无人机更醒目)
     g.fillStyle(0xffd66b, 0.16);
-    g.fillCircle(32, 25, 30);
+    g.fillCircle(32, 22, 30);
     g.fillStyle(0x2a1a06, 1);
-    g.fillEllipse(32, 26, 52, 38);
-    g.lineStyle(3, 0xffd66b, 1);
-    g.strokeEllipse(32, 26, 52, 38);
-    g.fillStyle(0xffe9a8, 1);
-    g.fillCircle(32, 26, 10);
-    g.lineStyle(2, 0xfff2c8, 0.9);
-    g.strokeCircle(32, 26, 15);
-    g.generateTexture("fusionDrone", 64, 52);
+    g.fillRoundedRect(22, 6, 20, 32, 6);
+    g.fillStyle(0xffd66b, 1);
+    g.fillRoundedRect(6, 2, 8, 16, 4);
+    g.fillRoundedRect(50, 2, 8, 16, 4);
+    g.fillCircle(10, 2, 6);
+    g.fillCircle(54, 2, 6);
+    g.fillStyle(0xfff2c8, 1);
+    g.fillCircle(32, 22, 5);
+    g.generateTexture("fusionDrone", 64, 44);
     g.clear();
 
     g.fillStyle(0x2df4ff, 0.18);
@@ -3499,14 +3567,6 @@ export class BattleScene extends SpawnDirectorMixin(
     cockpit.beginPath();
     cockpit.arc(WORLD_WIDTH / 2, WORLD_HEIGHT + 120, 410, Math.PI * 1.15, Math.PI * 1.85);
     cockpit.strokePath();
-    const reticleGraphics = this.add.graphics();
-    reticleGraphics.lineStyle(2, 0x7ffcff, 0.88);
-    reticleGraphics.strokeCircle(0, 0, 28);
-    reticleGraphics.lineBetween(-42, 0, -18, 0);
-    reticleGraphics.lineBetween(18, 0, 42, 0);
-    reticleGraphics.lineBetween(0, -42, 0, -18);
-    reticleGraphics.lineBetween(0, 18, 0, 42);
-    this.targetReticle = this.add.container(WORLD_WIDTH / 2, 220, [reticleGraphics]).setDepth(47).setAlpha(0);
     const graphics = this.add.graphics().setDepth(50);
     const font = { fontFamily: "Consolas, monospace", color: "#eaffff" };
     this.hud = {
@@ -3625,6 +3685,11 @@ export class BattleScene extends SpawnDirectorMixin(
   }
 
   hitPlayerWithEnemyProjectile(projectile: Phaser.Physics.Arcade.Image): void {
+    // 追踪导弹命中玩家:在玩家处渲染可见的导弹爆炸(此前玩家只能看到 boss 发射点的爆炸,
+    // 误以为导弹"在 boss 处爆炸")
+    if (projectile.getData("homingUntil") !== undefined) {
+      this.renderMissileExplosion(projectile.x, projectile.y, false);
+    }
     const darkFlat = projectile.getData("darkFlat");
     const darkDotRatio = projectile.getData("darkDotRatio");
     if (darkFlat !== undefined || darkDotRatio !== undefined) {
@@ -3850,9 +3915,11 @@ export class BattleScene extends SpawnDirectorMixin(
         : 0) + reactiveBonus;
       displayedDamage = raidDamage;
       part.setData("collisionFinisher", wheelchairRam);
+      part.setData("collisionFinisherOwner", owner);
       this.damageBossPart(part, raidDamage);
     } else {
       part.setData("collisionFinisher", wheelchairRam);
+      part.setData("collisionFinisherOwner", owner);
       const phaseMultiplier = this.bossPhase === 1 ? 0.65 : 1.25;
       this.damageBossPart(part, bossRamDamage / phaseMultiplier);
     }
@@ -4579,6 +4646,87 @@ export class BattleScene extends SpawnDirectorMixin(
     }
   }
 
+  // === 防御流派 G 键主动技能:荆棘波 — 以玩家为中心的圆内清除弹幕 + 一次性范围伤害 ===
+  activateDefenderThornWave(owner: 1 | 2 = 1): void {
+    if (this.ended || this.isModal) return;
+    const isP2 = owner === 2;
+    if (owner === 1 && this.skillsConfiscated) {
+      showToast("技能被篡夺：只能使用基础机炮与走位");
+      return;
+    }
+    const ul = this.upgradesOf(owner);
+    const thorns = ul.defender_thorns ?? 0;
+    if (thorns <= 0) {
+      showToast("流派技能键需要先取得「荆棘护甲」强化");
+      return;
+    }
+    const key = isP2 ? "defender-wave-2" : "defender-wave-1";
+    const cooldown = 15000 * this.statsOf(owner).cooldownMultiplier;
+    if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
+      cooldownToast("荆棘波", this.skillReadyAt[key] ?? 0, this.time.now);
+      return;
+    }
+    this.skillReadyAt[key] = this.time.now + cooldown;
+    const sprite = isP2 ? this.player2 : this.player;
+    if (!sprite?.active) return;
+    // 强度 = 荆棘护甲/星垒等级;范围随强度提升但不宜过高(Lv.1 170px ~ Lv.5 250px)
+    const fusion = ul.defender_fusion ?? 0;
+    const intensity = Math.max(thorns, fusion);
+    const radius = 150 + intensity * 20;
+    // 视觉:扩散冲击环
+    const wave = this.add
+      .circle(sprite.x, sprite.y, 30, 0x43ff9a, 0.16)
+      .setStrokeStyle(8, 0x9bffc8, 0.95)
+      .setDepth(16);
+    this.tweens.add({
+      targets: wave,
+      radius,
+      alpha: 0,
+      duration: 420,
+      ease: "Cubic.Out",
+      onComplete: () => wave.destroy()
+    });
+    // 清除圆内敌方弹幕
+    (this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]).forEach((bullet) => {
+      if (!bullet.active) return;
+      if (Phaser.Math.Distance.Between(sprite.x, sprite.y, bullet.x, bullet.y) <= radius) {
+        const spark = this.add
+          .circle(bullet.x, bullet.y, 4, 0x9bffc8, 0.85)
+          .setDepth(17)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: spark,
+          scale: 0.1,
+          alpha: 0,
+          duration: 150,
+          onComplete: () => spark.destroy()
+        });
+        bullet.disableBody(true, true);
+      }
+    });
+    // 一次性伤害:每个敌人各自最大生命 5% + 玩家最大生命 10%
+    const playerMaxHp = this.maxHpOf(owner);
+    const dmg = (maxHp: number): number =>
+      Math.max(1, Math.round(maxHp * 0.05 + playerMaxHp * 0.1));
+    for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (!enemy.active) continue;
+      if (Phaser.Math.Distance.Between(sprite.x, sprite.y, enemy.x, enemy.y) > radius) continue;
+      const maxHp = Number(enemy.getData("maxHp")) || 1;
+      enemy.setData("lastOwner", owner);
+      this.dealDirectDamage(enemy, dmg(maxHp), enemy.x, enemy.y, false, owner);
+      this.burst(enemy.x, enemy.y, 0x43ff9a, 0.5);
+    }
+    for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (!part.active || !["core", "raid-core"].includes(part.getData("part"))) continue;
+      if (Phaser.Math.Distance.Between(sprite.x, sprite.y, part.x, part.y) > radius) continue;
+      const maxHp = Number(part.getData("maxHp")) || 1;
+      this.damageBossPart(part, dmg(maxHp));
+    }
+    this.burst(sprite.x, sprite.y, 0x43ff9a, 1.6);
+    if (save.settings.screenShake) this.cameras.main.shake(180, 0.008);
+    this.showBanner(isP2 ? "P2 ◆ 荆棘波 · 清除弹幕 + 范围重创" : "◆ 荆棘波 · 清除弹幕 + 范围重创", 900);
+  }
+
   // === 防御流派:荆棘护甲 — 受击时反伤给攻击者 ===
   applyThorns(
     damageAmount: number,
@@ -4616,8 +4764,10 @@ export class BattleScene extends SpawnDirectorMixin(
         if (save.settings.screenShake) this.cameras.main.shake(260, 0.014);
       }
     }
-    if (owner === 1) this.healPlayer(reflect * 0.5, "荆棘回流");
-    else this.healPlayer2(reflect * 0.5, "荆棘回流");
+    // 荆棘回流:回复本次反伤的 10%,且不超过本次实收伤害(保证受击必有净损失,不会免疫)
+    const healAmount = Math.min(reflect * 0.1, receivedDamage);
+    if (owner === 1) this.healPlayer(healAmount, "荆棘回流");
+    else this.healPlayer2(healAmount, "荆棘回流");
     if (source && source.active) {
       source.setData("lastOwner", owner);
       const before = source.getData("hp") ?? 1;
@@ -4635,12 +4785,6 @@ export class BattleScene extends SpawnDirectorMixin(
           this.stats.hp = roundHealth(Math.min(this.stats.maxHp, this.stats.hp + hpHeal), this.stats.maxHp);
           this.recordAgileMaxHpGain(maxHpGain);
         }
-        this.floatText(
-          ownerSprite.x,
-          ownerSprite.y - 50,
-          `反死 +${maxHpGain} MAX · +${Math.round(hpHeal)} HP`,
-          true
-        );
         this.burst(source.x, source.y, 0x9b5cff, 0.8);
         // 华丽特效:深紫反死爆发
         this.triggerSpecialtyFX(0x6a0a3a, {
@@ -4655,10 +4799,9 @@ export class BattleScene extends SpawnDirectorMixin(
         source.setData("hp", before - reflect);
         this.burst(source.x, source.y, 0xc16cff, 0.5);
       }
-      this.floatText(source.x, source.y, `反伤 ${reflect} · 回流 ${Math.round(reflect * 0.5)}`, true);
     }
-    // 累计 1000 触发回血(5% maxHp + 5% 已损);荆棘星垒(defender_fusion)使共鸣阈值减半为 500
-    const resonanceThreshold = fusionLevel > 0 ? 500 : 1000;
+    // 累计 500 触发回血(5% maxHp + 5% 已损);荆棘星垒(defender_fusion)使共鸣阈值减半为 250
+    const resonanceThreshold = fusionLevel > 0 ? 250 : 500;
     if ((isP2 ? this.thornsAccumulator2 : this.thornsAccumulator) >= resonanceThreshold) {
       const maxHp = this.maxHpOf(owner);
       const hp = this.hpOf(owner);
@@ -4992,7 +5135,7 @@ export class BattleScene extends SpawnDirectorMixin(
       .setAlpha(Phaser.Math.Clamp(alpha * (0.68 + pulse * 0.12), 0, 0.86));
   }
 
-  // === 融合技形态(六流派融合:金龙炼狱/荆棘星垒/血星网络/星渊巨口/天体碰撞/万象影袭) ===
+  // === 融合技形态(六流派融合:龙焰蜂群/荆棘星垒/血星网络/星渊巨口/天体碰撞/万象影袭) ===
   updateFusions(time: number, owner: 1 | 2): void {
     this.updateThornStar(time, owner);
     this.updateDevourMaw(time, owner);
@@ -5183,17 +5326,27 @@ export class BattleScene extends SpawnDirectorMixin(
     this.showBanner(isP2 ? "P2 ☄ 天体碰撞 · 全屏震击" : "☄ 天体碰撞 · 全屏震击", 1200);
   }
 
-  grantCollisionBossKillGrowth(allowAdditionalBoss = false): void {
+  grantCollisionBossKillGrowth(allowAdditionalBoss = false, owner: 1 | 2 = 1): void {
+    const isP2 = owner === 2;
     if (
-      save.selectedSpecialization !== "wheelchair" ||
-      (!allowAdditionalBoss && this.bossKilledByCollision)
+      this.specOf(owner) !== "wheelchair" ||
+      (!allowAdditionalBoss && (isP2 ? this.bossKilledByCollision2 : this.bossKilledByCollision))
     ) {
       return;
     }
-    this.bossKilledByCollision = true;
-    this.stats.maxHp += 300;
-    this.floatText(this.player.x, this.player.y - 66, "撞毁首领 · MAX HP +300", true);
-    this.showBanner(`撞击核心吞噬 · 最大生命 ${Math.round(this.stats.maxHp)}`, 1000);
+    if (isP2) {
+      this.bossKilledByCollision2 = true;
+      this.player2MaxHp += 300;
+      if (this.player2) {
+        this.floatText(this.player2.x, this.player2.y - 66, "撞毁首领 · MAX HP +300", true);
+      }
+      this.showBanner(`撞击核心吞噬 · 最大生命 ${Math.round(this.player2MaxHp)}`, 1000);
+    } else {
+      this.bossKilledByCollision = true;
+      this.stats.maxHp += 300;
+      this.floatText(this.player.x, this.player.y - 66, "撞毁首领 · MAX HP +300", true);
+      this.showBanner(`撞击核心吞噬 · 最大生命 ${Math.round(this.stats.maxHp)}`, 1000);
+    }
   }
 
   setupInput(): void {
@@ -5321,6 +5474,10 @@ export class BattleScene extends SpawnDirectorMixin(
           return;
         case "p1_phase_dash": this.activatePhaseDash(); return;
         case "p1_doctrine": {
+          if (this.time.now < this.gKeyConfiscatedUntil) {
+            showToast("技能被剥夺");
+            return;
+          }
           if (this.skillsConfiscated) {
             showToast("技能被篡夺：只能使用基础机炮与走位");
             return;
@@ -5337,6 +5494,10 @@ export class BattleScene extends SpawnDirectorMixin(
           }
           if (specialization === "wheelchair") {
             this.activateWheelchairOverdrive();
+            return;
+          }
+          if (specialization === "defender") {
+            this.activateDefenderThornWave();
             return;
           }
           if (specialization === "power") {
@@ -5375,6 +5536,10 @@ export class BattleScene extends SpawnDirectorMixin(
           }
           if (spec === "wheelchair") {
             this.activateWheelchairOverdrive(2);
+            return;
+          }
+          if (spec === "defender") {
+            this.activateDefenderThornWave(2);
             return;
           }
           if (spec === "power") {
@@ -5497,11 +5662,13 @@ export class BattleScene extends SpawnDirectorMixin(
     if (
       this.campaignInterludeActive &&
       this.campaignHalfGateDone &&
+      !this.campaignHalfGateSpawned &&
       !this.campaignGatesOpen &&
       !this.levelCompleteTriggered &&
       !(this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).some((enemy) => enemy.active)
     ) {
-      // 半程门:清场后出现红/蓝/绿三扇随机航线门
+      // 半程门:清场后出现红/蓝/绿三扇随机航线门(每航段只出一次,结算后不再重复)
+      this.campaignHalfGateSpawned = true;
       this.spawnCampaignGates(time);
     }
     if (
@@ -5651,17 +5818,6 @@ export class BattleScene extends SpawnDirectorMixin(
     this.player.angle = Phaser.Math.Linear(this.player.angle, Phaser.Math.Clamp(velocityX * 0.035, -13, 13), 0.12);
     if (this.horizonGlow) {
       this.horizonGlow.alpha = 0.45 + Math.sin(time * 0.002) * 0.12;
-    }
-    const target = this.nearestTarget(this.player.x, this.player.y);
-    if (this.targetReticle) {
-      if (target?.active) {
-        this.targetReticle.setAlpha(Phaser.Math.Linear(this.targetReticle.alpha, 0.82, 0.12));
-        this.targetReticle.x = Phaser.Math.Linear(this.targetReticle.x, target.x, 0.18);
-        this.targetReticle.y = Phaser.Math.Linear(this.targetReticle.y, target.y, 0.18);
-        this.targetReticle.rotation += 0.018;
-      } else {
-        this.targetReticle.setAlpha(Phaser.Math.Linear(this.targetReticle.alpha, 0, 0.1));
-      }
     }
     // 开局和暂停恢复后的几帧只更新位置，不集中创建拖尾与环境粒子。
     if (time < this.visualEffectsReadyAt) return;
@@ -5990,7 +6146,11 @@ export class BattleScene extends SpawnDirectorMixin(
       this.spawnAchievementSkinFx(time, this.player2);
     }
     if (this.skillsConfiscated) {
-      // P1 技能被篡夺:只停 P1 自动武器,P2 不受影响
+      // P1 技能被篡夺:只停 P1 自动武器开火,P2 不受影响;
+      // 无人机/旋刃视觉仍跟随机体,避免"被动卡在地图上"的假象(看得见但不动也不攻击)
+      const p1Ul = this.upgradeLevels;
+      if ((p1Ul.drone ?? 0) > 0) this.updateDrones(this.time.now, 1);
+      if ((p1Ul.blade ?? 0) > 0) this.updateBlades(this.time.now, 1, false);
       if (playVariant !== "single" && this.player2?.active) this.updateAutoWeapons(time, 2);
       return;
     }
@@ -6024,10 +6184,15 @@ export class BattleScene extends SpawnDirectorMixin(
       if (time >= nextDroneShot) {
         const drones = isP2 ? this.drones2 : this.drones;
         for (const drone of drones) {
-          this.spawnPlayerBullet(drone.x, drone.y - 10, "playerBullet", 7, -920, "drone", owner);
+          // 单次攻击发射 1~2 发(两发时左右微偏散)
+          const shotCount = Phaser.Math.Between(1, 2);
+          for (let k = 0; k < shotCount; k += 1) {
+            const sx = shotCount > 1 ? drone.x + (k === 0 ? -8 : 8) : drone.x;
+            this.spawnPlayerBullet(sx, drone.y - 10, "playerBullet", 7, -920, "drone", owner);
+          }
         }
-        if (isP2) this.nextDroneShot2 = time + 620 / weaponHaste / ultimateHaste;
-        else this.nextDroneShot = time + 620 / weaponHaste / ultimateHaste;
+        if (isP2) this.nextDroneShot2 = time + 200 / weaponHaste / ultimateHaste;
+        else this.nextDroneShot = time + 200 / weaponHaste / ultimateHaste;
       }
     }
     if ((ul.arc ?? 0) > 0 && time >= (isP2 ? this.nextArc2 : this.nextArc)) {
@@ -6039,7 +6204,11 @@ export class BattleScene extends SpawnDirectorMixin(
   }
 
   updateCollisionAcquiredWeapons(time: number): void {
-    if (this.skillsConfiscated) return;
+    if (this.skillsConfiscated) {
+      // 旋刃视觉仍跟随机体,避免"被动卡在地图上"的假象(不造成伤害)
+      if ((this.upgradeLevels.blade ?? 0) > 0) this.updateBlades(time, 1, false);
+      return;
+    }
     const haste = Math.max(0.65, this.stats.fireRateMultiplier);
     const laserLevel = this.upgradeLevels.laser ?? 0;
     const missileLevel =
@@ -6297,14 +6466,17 @@ export class BattleScene extends SpawnDirectorMixin(
     const drones = isP2 ? this.drones2 : this.drones;
     const desired = Math.min(3, Math.ceil((ul.drone ?? 0) / 2));
     while (drones.length < desired) {
-      drones.push(this.add.image(shipSprite.x, shipSprite.y, "drone").setDepth(9));
+      // depth 11 高于机体(10),避免被船身遮挡;放大提升可见度
+      drones.push(this.add.image(shipSprite.x, shipSprite.y, "drone").setDepth(11).setScale(1.25));
     }
     // 等级回落时销毁多余对象,避免残影一直跟随
     while (drones.length > desired) drones.pop()?.destroy();
     drones.forEach((drone, index) => {
-      const offset = (index - (drones.length - 1) / 2) * 88;
+      // 单架无人机停在机侧而非机腹正下方,否则会被机体遮挡看不见
+      const total = drones.length;
+      const offset = total === 1 ? 66 : (index - (total - 1) / 2) * 88;
       drone.x = Phaser.Math.Linear(drone.x, shipSprite.x + offset, 0.18);
-      drone.y = Phaser.Math.Linear(drone.y, shipSprite.y + 28 + Math.abs(offset) * 0.08, 0.18);
+      drone.y = Phaser.Math.Linear(drone.y, shipSprite.y + 24 + Math.abs(offset) * 0.05, 0.18);
     });
   }
 
@@ -6335,7 +6507,7 @@ export class BattleScene extends SpawnDirectorMixin(
     this.tweens.add({ targets: graphics, alpha: 0, duration: 150, onComplete: () => graphics.destroy() });
   }
 
-  updateBlades(time: number, owner: 1 | 2 = 1): void {
+  updateBlades(time: number, owner: 1 | 2 = 1, combat = true): void {
     const isP2 = owner === 2;
     const ul = this.upgradesOf(owner);
     const shipSprite = isP2 ? this.player2 : this.player;
@@ -6357,14 +6529,16 @@ export class BattleScene extends SpawnDirectorMixin(
       );
       blade.rotation = angle * 2;
     });
-    if (time >= nextDamage) {
+    if (time >= nextDamage && combat) {
       const targets = [...this.enemies.getChildren(), ...this.bossParts.getChildren()] as Phaser.Physics.Arcade.Image[];
       for (const target of targets) {
         if (!target.active) continue;
         if (blades.some((blade) => Phaser.Math.Distance.Between(blade.x, blade.y, target.x, target.y) < 54)) {
+          // 旋刃伤害 = 敌人最大生命 0.5%(可暴击)
+          const maxHp = Number(target.getData("maxHp")) || 1;
           this.dealDirectDamage(
             target,
-            18 + (ul.blade ?? 0) * 11 * ATTACK_BONUS_SCALE,
+            Math.max(1, Math.round(maxHp * 0.005)),
             target.x,
             target.y,
             true,
@@ -6372,8 +6546,8 @@ export class BattleScene extends SpawnDirectorMixin(
           );
         }
       }
-      if (isP2) this.nextBladeDamage2 = time + 270;
-      else this.nextBladeDamage = time + 270;
+      if (isP2) this.nextBladeDamage2 = time + 240;
+      else this.nextBladeDamage = time + 240;
     }
   }
 
@@ -6539,6 +6713,10 @@ export class BattleScene extends SpawnDirectorMixin(
       duration,
       ease: "Sine.easeOut",
       onComplete: () => mark.destroy()
+    });
+    // 兜底销毁:即使 tween 被中断(暂停/切场景等)也不会在战场上残留椭圆标记
+    this.time.delayedCall(duration + 150, () => {
+      if (mark.active) mark.destroy();
     });
   }
 
@@ -7090,7 +7268,7 @@ export class BattleScene extends SpawnDirectorMixin(
     if (weapon === "drone-overdrive") {
       this.spawnDroneExplosionFx(enemy.x, enemy.y);
     }
-    // 金龙炼狱(力量融合技):金龙火弹命中爆炸,附加目标最大生命 1% 伤害
+    // 龙焰蜂群(力量融合技):金龙火弹命中爆炸,附加目标最大生命 1% 伤害
     const fusionEmberBonus =
       weapon === "power_fusion"
         ? Math.max(1, Math.ceil(((enemy.getData("maxHp") as number) ?? 0) * 0.01))
@@ -7338,9 +7516,10 @@ export class BattleScene extends SpawnDirectorMixin(
       const earned = Math.round((enemy.getData("score") ?? 50) * (1 + Math.min(2, this.combo / 100)));
       if (playVariant === "score_duel" && enemy.getData("lastOwner") === 2) this.score2 += earned;
       else this.score += earned;
+      // E 键充能:击败敌人获得量削弱 75%(精英 5→1.25,普通 1→0.25)
       this.ultimate = Math.min(
         100,
-        this.ultimate + (eliteKill ? 5 : 1)
+        this.ultimate + (eliteKill ? 5 : 1) * 0.25
       );
       this.spawnExperiencePickup(x, y, enemy.getData("xp") ?? 5);
       this.enemyPop(x, y, 0xff4d6d);
@@ -7362,7 +7541,8 @@ export class BattleScene extends SpawnDirectorMixin(
     if (!milestone) return;
     const reward = milestone.tokens + selectedLevel;
     this.grantRunTokens(reward);
-    this.ultimate = Math.min(100, this.ultimate + milestone.ultimate);
+    // E 键充能:连锁里程碑奖励同步削弱 75%
+    this.ultimate = Math.min(100, this.ultimate + milestone.ultimate * 0.25);
     this.showBanner(`${milestone.title} · ${this.combo} COMBO`, 760);
     this.burst(this.player.x, this.player.y, 0xffbd3e, 1.6);
     sfx("upgrade");
@@ -7671,6 +7851,10 @@ export class BattleScene extends SpawnDirectorMixin(
       this.skillsConfiscatedUntil = 0;
       this.showBanner("技能权限已恢复", 760);
     }
+    if (this.gKeyConfiscatedUntil > 0 && time >= this.gKeyConfiscatedUntil) {
+      this.gKeyConfiscatedUntil = 0;
+      this.showBanner("流派技能已归还", 900);
+    }
   }
 
   wheelchairActiveDefenseMultiplier(now = this.time.now, owner: 1 | 2 = 1): number {
@@ -7869,6 +8053,7 @@ export class BattleScene extends SpawnDirectorMixin(
             bossMax * 0.03 * this.wheelchairHullAttackMultiplier(owner)
           ) + this.consumeWheelchairReactiveCharge(bossCore.x, bossCore.y, owner);
         bossCore.setData("collisionFinisher", true);
+        bossCore.setData("collisionFinisherOwner", owner);
         const phaseMultiplier = this.bossPhase === 1 ? 0.65 : 1.25;
         this.damageBossPart(
           bossCore,
@@ -9228,12 +9413,41 @@ export class BattleScene extends SpawnDirectorMixin(
     const ul = this.upgradesOf(owner);
     const isP2 = owner === 2;
     const previous = ul[id] ?? 0;
-    // 万象影袭首抽即 Lv.2,后续每抽 +1(上限 5)
+    // 记录融合技的"先选基础技能"(该基础技能首次从 0 升到 1 级时记录一次)
+    if (previous === 0 && !id.endsWith("_fusion") && id !== "agile_shadow_lunge") {
+      for (const [fusionId, requirements] of Object.entries(FUSION_REQUIREMENTS)) {
+        if (fusionId === "agile_shadow_lunge") continue;
+        if (requirements.includes(id) && !this.fusionFirstBase[owner][fusionId]) {
+          this.fusionFirstBase[owner][fusionId] = id;
+        }
+      }
+    }
+    // 融合技首抽:
+    // - 敏捷(万象影袭):仍首抽即 Lv.2
+    // - 其余流派:首抽等级 = 第一次选择的基础技能等级(如先选龙息到 3 级再选无人机,融合即 3 级)
+    // 后续每抽 +1(上限 5)
     ul[id] =
-      id === "agile_shadow_lunge"
-        ? Math.min(5, previous === 0 ? 2 : previous + 1)
-        : Math.min(5, previous + 1);
+      id.endsWith("_fusion") && previous === 0
+        ? Math.min(5, Math.max(1, (this.upgradesOf(owner)[this.fusionFirstBase[owner][id]] ?? 0) || 2))
+        : id === "agile_shadow_lunge" && previous === 0
+          ? Math.min(5, 2)
+          : Math.min(5, previous + 1);
     if (ul[id] === previous) return;
+    // 融合技升级:附属基础技能同步到相同等级(修复技能等级不同步 bug)
+    if (id.endsWith("_fusion") || id === "agile_shadow_lunge") {
+      const newLevel = ul[id];
+      for (const baseId of FUSION_REQUIREMENTS[id] ?? []) {
+        // 基础技能等级上限:突刺/影分身/龙息为 4 档,其余 5 档
+        const baseCap =
+          baseId === "agile_lunge" ||
+          baseId === "agile_shadow_clone" ||
+          baseId === "power_flamethrower"
+            ? 4
+            : 5;
+        const target = Math.min(baseCap, newLevel);
+        if ((ul[baseId] ?? 0) !== target) ul[baseId] = target;
+      }
+    }
     const stats = this.statsOf(owner);
     // 双人:按 owner 提升各自的最大生命并立即补足差值
     const boostMaxHp = (multiplier: number, recordGain = false): void => {
@@ -9283,7 +9497,7 @@ export class BattleScene extends SpawnDirectorMixin(
       if (id === "blade") this.updateBlades(this.time.now);
     }
     if (id === "power_fusion") {
-      // 金龙炼狱 = 龙息喷火 + 护航无人机:缺哪一半自动补 Lv.1,保证护航无人机立即显示
+      // 龙焰蜂群 = 龙息喷火 + 护航无人机:缺哪一半自动补 Lv.1,保证护航无人机立即显示
       if ((ul.power_flamethrower ?? 0) <= 0) ul.power_flamethrower = 1;
       if ((ul.drone ?? 0) <= 0) {
         ul.drone = 1;
@@ -9715,8 +9929,6 @@ export class BattleScene extends SpawnDirectorMixin(
       showToast("技能被篡夺：只能使用基础机炮与走位");
       return;
     }
-    // 金龙炼狱:无论龙息是否在冷却,按技能键都会尝试起飞小喷火无人机(独立 15s 冷却)
-    if (fusionLevel > 0) this.trySummonFusionDrones(owner);
     const nextReadyAt = isP2 ? this.flamethrowerNextReadyAt2 : this.flamethrowerNextReadyAt;
     if (this.time.now < nextReadyAt) {
       showToast(`喷火冷却 ${((nextReadyAt - this.time.now) / 1000).toFixed(1)}s`);
@@ -9727,7 +9939,7 @@ export class BattleScene extends SpawnDirectorMixin(
     const length = POWER_FLAME_LENGTHS[tier];
     const width = POWER_FLAME_WIDTHS[tier];
     const dmgPerFrame = POWER_FLAME_DAMAGE[tier];
-    // 金龙炼狱(力量融合技):每级喷火冷却 -1s,保底 10s,与升级描述「冷却 -Xs」一致
+    // 龙焰蜂群(力量融合技):每级喷火冷却 -1s,保底 10s,与升级描述「冷却 -Xs」一致
     const cooldown = Math.max(10, POWER_FLAME_COOLDOWNS[tier] - fusionLevel);
     if (isP2) {
       this.flamethrowerActiveUntil2 = this.time.now + duration;
@@ -9744,6 +9956,8 @@ export class BattleScene extends SpawnDirectorMixin(
       this.flamethrowerDmgPerFrame = dmgPerFrame;
       this.nextFlamethrowerFxAt = 0;
     }
+    // 龙焰蜂群:龙息与无人机一起起飞(独立 15s 冷却)
+    if (fusionLevel > 0) this.trySummonFusionDrones(owner);
     // 火焰本体已经清楚表达攻击范围，不再叠加尺寸横幅和调试式几何提示。
     // 华丽特效:橙红火环爆发
     this.triggerSpecialtyFX(0xff7a2d, {
@@ -9769,7 +9983,7 @@ export class BattleScene extends SpawnDirectorMixin(
       }
       return;
     }
-    // 金龙炼狱(力量融合技):龙息可暴击 + 伤害加成 + 金色火弹
+    // 龙焰蜂群(力量融合技):伤害加成 + 金色火弹(喷火始终不可暴击)
     const fusionLevel = this.upgradesOf(owner).power_fusion ?? 0;
     const fusionDmgMul = fusionLevel > 0 ? 1.35 + fusionLevel * 0.15 : 1;
     const length = isP2
@@ -9806,7 +10020,7 @@ export class BattleScene extends SpawnDirectorMixin(
       if (fusionLevel > 0) activeVisual.setTint(0xffd66b);
       else activeVisual.clearTint();
     }
-    // 金龙炼狱:喷口每 0.22s 射出一发金龙火弹(金色大弹,命中爆炸)
+    // 龙焰蜂群:喷口每 0.22s 射出一发金龙火弹(金色大弹,命中爆炸)
     if (fusionLevel > 0 && time >= this.nextGoldenEmberAt[owner]) {
       this.nextGoldenEmberAt[owner] = time + 220;
       const ember = this.spawnPlayerBullet(
@@ -9857,13 +10071,13 @@ export class BattleScene extends SpawnDirectorMixin(
     );
     for (const enemy of targets) {
       enemy.setData("lastOwner", owner);
-      // 龙息喷火默认不吃暴击;金龙炼狱融合后化作可暴击的金色炼狱
+      // 龙息喷火不可暴击(含龙焰蜂群融合后的金色炼狱)
       this.dealDirectDamage(
         enemy,
         Math.round(dmg * fusionDmgMul),
         enemy.x,
         enemy.y,
-        fusionLevel > 0,
+        false,
         owner
       );
     }
@@ -9895,7 +10109,7 @@ export class BattleScene extends SpawnDirectorMixin(
     }
   }
 
-  // === 金龙炼狱:小喷火无人机编队(G/M 键召唤,最多 4 个,独立 15s 冷却) ===
+  // === 龙焰蜂群:小喷火无人机编队(G/M 键召唤,最多 4 个,独立 15s 冷却) ===
   trySummonFusionDrones(owner: 1 | 2 = 1): void {
     const isP2 = owner === 2;
     const droneReadyAt = isP2
@@ -9943,7 +10157,7 @@ export class BattleScene extends SpawnDirectorMixin(
       this.fusionDroneFlames[owner].push(flame);
     }
     this.burst(shipSprite.x, shipSprite.y, 0xffd66b, 1.5);
-    this.showBanner(isP2 ? "P2 ◆ 金龙无人机集群" : "◆ 金龙无人机集群", 800);
+    this.showBanner(isP2 ? "P2 ◆ 龙焰蜂群" : "◆ 龙焰蜂群", 800);
   }
 
   clearFusionDrones(owner: 1 | 2 = 1): void {
@@ -9972,11 +10186,16 @@ export class BattleScene extends SpawnDirectorMixin(
     const fusionLevel = Math.min(5, this.upgradesOf(owner).power_fusion ?? 0);
     // 小型喷火基础伤害:1/2/3/4/5(按融合技等级),另加敌人最大生命 0.04% 额外伤害
     const baseDmg = Math.max(1, fusionLevel);
-    // 无人机编队整体优先攻击绝对血量最少的敌人(Boss 核心也纳入候选)
+    // 检索半径:无人机只攻击该半径内的敌人,优先绝对血量最少的(Boss 核心也纳入候选)
+    const SCAN_RADIUS = 360;
     const candidates = [
       ...(this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]),
       ...(this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[])
-    ].filter((e) => e.active);
+    ].filter(
+      (e) =>
+        e.active &&
+        Phaser.Math.Distance.Between(shipSprite.x, shipSprite.y, e.x, e.y) <= SCAN_RADIUS
+    );
     const target = candidates.reduce<Phaser.Physics.Arcade.Image | null>(
       (best, e) => {
         const hp = (e.getData("hp") as number) ?? Number.MAX_SAFE_INTEGER;
@@ -9987,54 +10206,94 @@ export class BattleScene extends SpawnDirectorMixin(
       },
       null
     );
+    // 无人机喷火(伤害与焚弹幕)按 30 帧/秒结算,每帧视觉照常刷新
+    const tick = time >= this.fusionDroneTickAt[owner];
+    if (tick) this.fusionDroneTickAt[owner] = time + 33;
     const flames = this.fusionDroneFlames[owner];
     list.forEach((drone, index) => {
-      // 无人机围绕目标小幅悬浮
       const orbit = time * 0.0022 + (Math.PI * 2 * index) / list.length;
-      const anchorX = target ? target.x : shipSprite.x;
-      const anchorY = target ? target.y - 30 : shipSprite.y - 260;
-      drone.x = Phaser.Math.Linear(drone.x, anchorX + Math.cos(orbit) * 46, 0.12);
-      drone.y = Phaser.Math.Linear(drone.y, anchorY + Math.sin(orbit) * 26, 0.12);
+      // 有目标:无人机逼近目标至喷火射程内环绕;无敌:在玩家上方编队待命
+      if (target) {
+        const dToTarget = Math.hypot(target.x - drone.x, target.y - drone.y);
+        if (dToTarget > 260) {
+          drone.x = Phaser.Math.Linear(drone.x, target.x, 0.08);
+          drone.y = Phaser.Math.Linear(drone.y, target.y, 0.08);
+        } else {
+          // 环绕半径加大(90px),避免无人机贴脸目标(原 34px 距离太近)
+          drone.x = Phaser.Math.Linear(
+            drone.x,
+            target.x + Math.cos(orbit) * 90,
+            0.12
+          );
+          drone.y = Phaser.Math.Linear(
+            drone.y,
+            target.y + Math.sin(orbit) * 55,
+            0.12
+          );
+        }
+      } else {
+        drone.x = Phaser.Math.Linear(
+          drone.x,
+          shipSprite.x + Math.cos(orbit) * 52,
+          0.12
+        );
+        drone.y = Phaser.Math.Linear(
+          drone.y,
+          shipSprite.y - 240 + Math.sin(orbit) * 30,
+          0.12
+        );
+      }
       drone.rotation = orbit;
       const glow = drone.getData("fusionGlow") as Phaser.GameObjects.Arc | undefined;
       if (glow?.active) {
         glow.setPosition(drone.x, drone.y);
         glow.setAlpha(0.16 + Math.sin(time * 0.02 + index) * 0.06);
       }
-      const aimX = target ? target.x : shipSprite.x;
-      const aimY = target ? target.y : shipSprite.y - 320;
-      const dx = aimX - drone.x;
-      const dy = aimY - drone.y;
+      // 半径内没有敌人:收起喷火待命,重置喷火计时(下次有目标时重新攒 30 帧)
+      if (!target) {
+        if (flames[index]?.active) flames[index]!.setVisible(false);
+        drone.setData("fusionFlameStartAt", 0);
+        return;
+      }
+      const dx = target.x - drone.x;
+      const dy = target.y - drone.y;
       const dist = Math.hypot(dx, dy) || 1;
       const ux = dx / dist;
       const uy = dy / dist;
-      const FLAME_LEN = 150;
+      // 喷火计时起点(30 帧 = 1 秒喷火结束后爆炸)
+      const flameStartAt = (drone.getData("fusionFlameStartAt") as number) ?? 0;
+      if (flameStartAt <= 0) drone.setData("fusionFlameStartAt", time);
+      // 火柱加长到 330px(原 230 范围太小);锚定在无人机机头向外延伸,
+      // 避免火柱中心悬空、转向时视觉上"瞬移"
+      const FLAME_LEN = 330;
       const flame = flames[index];
       if (flame) {
         flame
           .setVisible(true)
           .setFrame(Math.floor(time / 72) % 4)
-          .setPosition(drone.x + ux * FLAME_LEN * 0.5, drone.y + uy * FLAME_LEN * 0.5)
+          .setOrigin(0.5, 1)
+          .setPosition(drone.x, drone.y)
           .setRotation(Math.atan2(ux, -uy))
-          .setDisplaySize(92 + Math.sin(time * 0.03 + index) * 8, FLAME_LEN)
+          .setDisplaySize(56 + Math.sin(time * 0.03 + index) * 6, FLAME_LEN)
           .setAlpha(0.7 + Math.sin(time * 0.026 + index) * 0.12);
       }
-      // 小型喷火判定:朝向目标的短锥体
+      if (!tick) return; // 30fps 结算:非结算帧只展示火柱,不造成伤害/不焚弹幕
+      // 小型喷火判定:朝向目标的锥形火流(宽度放宽到 60px,配合加长火柱)
       const insideCone = (x: number, y: number): boolean => {
         const rx = x - drone.x;
         const ry = y - drone.y;
         const proj = rx * ux + ry * uy;
         if (proj < 10 || proj > FLAME_LEN) return false;
         const perp = Math.abs(rx * uy - ry * ux);
-        return perp <= 46;
+        return perp <= 60;
       };
       let hitTarget: Phaser.Physics.Arcade.Image | null = null;
       for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
         if (!enemy.active || !insideCone(enemy.x, enemy.y)) continue;
         enemy.setData("lastOwner", owner);
         const maxHp = Number(enemy.getData("maxHp")) || 1;
-        // 无人机喷火不可暴击
-        const dmg = Math.max(1, baseDmg + Math.round(maxHp * 0.0004));
+        // 无人机喷火不可暴击;伤害比例提高 1.5 倍
+        const dmg = Math.max(1, Math.round((baseDmg + maxHp * 0.0004) * 1.5));
         this.dealDirectDamage(enemy, dmg, enemy.x, enemy.y, false, owner);
         if (!hitTarget) hitTarget = enemy;
       }
@@ -10045,9 +10304,14 @@ export class BattleScene extends SpawnDirectorMixin(
           insideCone(part.x, part.y)
         ) {
           const maxHp = Number(part.getData("maxHp")) || 1;
-          this.damageBossPart(part, Math.max(1, baseDmg + Math.round(maxHp * 0.0004)));
+          this.damageBossPart(part, Math.max(1, Math.round((baseDmg + maxHp * 0.0004) * 1.5)));
           if (!hitTarget) hitTarget = part;
         }
+      }
+      // 30 帧喷火(1 秒)结束 → 无人机爆炸:造成敌人最大生命 2% 伤害(多机/多轮爆炸可叠加)
+      if (flameStartAt > 0 && time - flameStartAt >= 1000) {
+        drone.setData("fusionFlameStartAt", time);
+        this.fusionDroneExplode(drone.x, drone.y, owner);
       }
       // 命中反馈:金色火花 + 伤害飘字,让技能效果清晰可见
       if (hitTarget) {
@@ -10079,7 +10343,7 @@ export class BattleScene extends SpawnDirectorMixin(
           this.floatText(
             hitTarget.x,
             hitTarget.y - 8,
-            `${Math.max(1, baseDmg + Math.round(maxHp * 0.0004))}`,
+            `${Math.max(1, Math.round((baseDmg + maxHp * 0.0004) * 1.5))}`,
             false
           );
         }
@@ -10102,6 +10366,46 @@ export class BattleScene extends SpawnDirectorMixin(
         }
       }
     });
+  }
+
+  // 无人机 30 帧喷火结束后爆炸:对半径内敌人造成最大生命 2% 伤害(多机/多轮爆炸可叠加)
+  fusionDroneExplode(x: number, y: number, owner: 1 | 2 = 1): void {
+    const RADIUS = 150;
+    const ring = this.add
+      .circle(x, y, 24, 0xffd66b, 0.95)
+      .setStrokeStyle(6, 0xffffff, 0.9)
+      .setDepth(16)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: ring,
+      radius: RADIUS,
+      alpha: 0,
+      duration: 300,
+      ease: "Cubic.Out",
+      onComplete: () => ring.destroy()
+    });
+    this.burst(x, y, 0xffd66b, 1.2);
+    if (save.settings.screenShake) this.cameras.main.shake(90, 0.004);
+    for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (!enemy.active) continue;
+      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > RADIUS) continue;
+      const maxHp = Number(enemy.getData("maxHp")) || 1;
+      enemy.setData("lastOwner", owner);
+      this.dealDirectDamage(
+        enemy,
+        Math.max(1, Math.round(maxHp * 0.02)),
+        enemy.x,
+        enemy.y,
+        false,
+        owner
+      );
+    }
+    for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (!part.active || !["core", "raid-core"].includes(part.getData("part"))) continue;
+      if (Phaser.Math.Distance.Between(x, y, part.x, part.y) > RADIUS) continue;
+      const maxHp = Number(part.getData("maxHp")) || 1;
+      this.damageBossPart(part, Math.max(1, Math.round(maxHp * 0.02)));
+    }
   }
 
   // === 敏捷流派:影步突刺(M 键/P2, G 键/P1) ===
@@ -11250,7 +11554,7 @@ export class BattleScene extends SpawnDirectorMixin(
       return;
     }
     const key = isP2 ? "nano-repair-2" : "nano-repair";
-    const cooldown = 19000 * this.statsOf(owner).cooldownMultiplier;
+    const cooldown = 17000 * this.statsOf(owner).cooldownMultiplier;
     if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
       cooldownToast("纳米修复", this.skillReadyAt[key] ?? 0, this.time.now);
       return;
@@ -11771,6 +12075,7 @@ export class BattleScene extends SpawnDirectorMixin(
     this.campaignInterludeActive = true;
     this.levelCompleteTriggered = false;
     this.campaignHalfGateDone = false;
+    this.campaignHalfGateSpawned = false;
     this.nextSpawn = 0;
     const entryMessages = [
       "未知航道开放 · 保持火力",
@@ -11868,19 +12173,38 @@ export class BattleScene extends SpawnDirectorMixin(
   }
 
   enterCampaignGate(kind: "red" | "blue" | "green", x: number, y: number): void {
+    // 选中即关闭门流程:清掉剩余门并复位标志,避免下一帧 update 循环的超时分支
+    // 再次调用 completeCampaignGate(此前会立刻恢复刷兵,事件被稀释,表现为"事件不出现")
+    this.clearCampaignGates();
+    this.campaignGatesOpen = false;
+    this.campaignGateUntil = 0;
     this.burst(x, y, 0xffffff, 1.7);
     this.cameras.main.flash(120, 200, 255, 255);
     const finishGate = (): void => this.completeCampaignGate();
     if (kind === "red") {
-      // 红门:敌人强化,必得攻击奖励
-      this.showBanner("赤红航线 · 强敌迫近 · 战术升级锁定", 1300);
-      this.spawnEnemy(this.time.now, "elite_gunship");
+      // 红门:强敌来袭事件,歼灭强敌(或超时)后才给攻击升级,不立即升级
+      this.showBanner("赤红航线 · 强敌来袭 · 歼灭后攻击升级", 1600);
+      const elites: Phaser.Physics.Arcade.Image[] = [];
+      const e1 = this.spawnEnemy(this.time.now, "elite_gunship");
+      if (e1) elites.push(e1);
       this.time.delayedCall(450, () => {
-        if (!this.ended) this.spawnEnemy(this.time.now, "elite_bomber");
+        if (this.ended) return;
+        const e2 = this.spawnEnemy(this.time.now, "elite_bomber");
+        if (e2) elites.push(e2);
       });
-      this.time.delayedCall(900, () => this.openUpgradePanel(finishGate));
+      const gateTimeout = this.time.now + 14000;
+      const checkElites = (): void => {
+        if (this.ended) return;
+        if (elites.some((e) => e.active) && this.time.now < gateTimeout) {
+          this.time.delayedCall(400, checkElites);
+          return;
+        }
+        this.showBanner("◆ 赤红航线 · 攻击升级解锁", 1000);
+        this.openUpgradePanel(finishGate);
+      };
+      this.time.delayedCall(1200, checkElites);
     } else if (kind === "blue") {
-      // 蓝门:异常事件,高随机高收益(小概率风险)
+      // 蓝门:异常事件(随机结果,均为自洽事件)
       const roll = Phaser.Math.Between(0, 5);
       if (roll <= 1) {
         // 经验爆发
@@ -11912,12 +12236,12 @@ export class BattleScene extends SpawnDirectorMixin(
         this.time.delayedCall(800, () => this.openUpgradePanel(finishGate));
       }
     } else {
-      // 绿门:修复、护盾、经验、稳定强化
+      // 绿门:修复护盾事件,1.5s 后再给升级,不立即升级
       this.healPlayer(this.stats.maxHp * 0.3, "翠绿航线 · 修复");
       this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + 2500);
       this.spawnExperiencePickup(x, y - 70, 25);
       this.showBanner("翠绿航线 · 修复 30% + 护盾 2.5s + 经验", 1400);
-      this.time.delayedCall(800, () => this.openUpgradePanel(finishGate));
+      this.time.delayedCall(1500, () => this.openUpgradePanel(finishGate));
     }
   }
 
@@ -12456,6 +12780,7 @@ export class BattleScene extends SpawnDirectorMixin(
     }
     this.bossAttackIndex = -1;
     this.bossKilledByCollision = false;
+    this.bossKilledByCollision2 = false;
     this.skillsConfiscated = false;
     this.skillsConfiscatedUntil = 0;
     this.bossActive = true;
@@ -12676,6 +13001,7 @@ export class BattleScene extends SpawnDirectorMixin(
     this.clearBossEntities();
     this.bossActive = true;
     this.bossKilledByCollision = false;
+    this.bossKilledByCollision2 = false;
     this.bossKind = "titan";
     this.bossPhase = 1;
     this.trinityAlive = 3;
@@ -12884,7 +13210,12 @@ export class BattleScene extends SpawnDirectorMixin(
       part.setTintFill(0xffc9ec);
       this.time.delayedCall(45, () => part.active && part.clearTint());
       if (previousHp > 0 && currentHp <= 0) {
-        if (collisionFinisher) this.grantCollisionBossKillGrowth(true);
+        if (collisionFinisher) {
+          this.grantCollisionBossKillGrowth(
+            true,
+            (part.getData("collisionFinisherOwner") as 1 | 2 | undefined) ?? 1
+          );
+        }
         const defeatedKind = part.getData("raidKind") as BossKind;
         if (!this.trinityDefeatedKinds.includes(defeatedKind)) {
           this.trinityDefeatedKinds.push(defeatedKind);
@@ -12936,7 +13267,12 @@ export class BattleScene extends SpawnDirectorMixin(
         return;
       }
       if (this.bossHp <= 0) {
-        if (collisionFinisher) this.grantCollisionBossKillGrowth();
+        if (collisionFinisher) {
+          this.grantCollisionBossKillGrowth(
+            false,
+            (part.getData("collisionFinisherOwner") as 1 | 2 | undefined) ?? 1
+          );
+        }
         this.defeatBoss();
       }
     } else if (partName === "dark-aircraft" || partName === "dark-aircraft-clone") {
@@ -13088,7 +13424,11 @@ export class BattleScene extends SpawnDirectorMixin(
     const nextPhase = ratio <= 0.35 ? 3 : ratio <= 0.7 ? 2 : 1;
     if (nextPhase <= this.bossPhase) return;
     this.bossPhase = nextPhase;
-    this.clearBossAttackEffects();
+    // 只清敌方弹幕与并发记录,不销毁进行中的预警 tween:
+    // 此前调用 clearBossAttackEffects 会 kill 掉预警 tween,导致其 onComplete
+    // (释放攻击与伤害)永不触发——所有 Boss 与黑影在 70%/35% 血线切换阶段时,
+    // 场上预警攻击全部失效、预警结束后伤害丢失。
+    this.activeBossAttackTypes.clear();
     this.enemyBullets.children.each((child) => {
       const bullet = child as Phaser.Physics.Arcade.Image;
       if (bullet.active) bullet.disableBody(true, true);
@@ -13312,7 +13652,7 @@ export class BattleScene extends SpawnDirectorMixin(
     let choices: Array<{ type: string; run: () => void }>;
     if (kind === "titan") {
       choices = [
-        { type: "meteor", run: () => this.titanMeteorField(core) },
+        { type: "meteor", run: () => this.titanMeteorField() },
         { type: "lane", run: () => this.titanLaneSweep(core) },
         { type: "fan", run: () => this.bossFanAttack(core) },
         { type: "gravity", run: () => this.titanGravityWell(core) }
@@ -13401,7 +13741,8 @@ export class BattleScene extends SpawnDirectorMixin(
 
   castBorrowedBossMutation(core: Phaser.Physics.Arcade.Image): void {
     const borrowedKind = this.bossMutationKind;
-    if (!this.bossMutated || !borrowedKind) return;
+    // 最终 boss(黑暗魔神)的独有技能禁止被突变继承,兜底防线(rollBossMutationKind 已排除)
+    if (!this.bossMutated || !borrowedKind || borrowedKind === "dark_deity") return;
     this.time.delayedCall(360, () => {
       if (!this.bossActive || !core.active) return;
       this.showBanner(
@@ -13549,10 +13890,12 @@ export class BattleScene extends SpawnDirectorMixin(
       const targetX =
         WORLD_WIDTH / 2 +
         Math.sin(motionTime * (pursuit ? 0.00155 : 0.00092)) * (pursuit ? 270 : 185);
-      core.y = Phaser.Math.Linear(core.y, targetY, pursuit ? 0.05 : 0.018);
-      // x 同样用插值而非直接赋值:突刺期间漂移被冻结,恢复时若直接赋值,
-      // 正弦相位已前进 ~1.6rad,core.x 会从返回位置瞬间跳到新漂移位置(最大 ~270px,表现为瞬移)
-      core.x = Phaser.Math.Linear(core.x, targetX, 0.1);
+      // 有界步进代替大系数插值:冲刺结束后核心离漂移线可能很远,
+      // 原 0.1/帧 的插值会以 3000px/s 的速度"飞"回漂移线,表现为冲刺后移速异常
+      const maxStepX = 6;
+      const maxStepY = 3;
+      core.x += Phaser.Math.Clamp(targetX - core.x, -maxStepX, maxStepX);
+      core.y += Phaser.Math.Clamp(targetY - core.y, -maxStepY, maxStepY);
     }
     if (left) left.setPosition(core.x - 205, core.y + 30);
     if (right) right.setPosition(core.x + 205, core.y + 30);
@@ -13895,8 +14238,11 @@ export class BattleScene extends SpawnDirectorMixin(
             warning2.destroy();
             ghosts.forEach((g) => g.destroy());
             if (!core.active || !this.bossActive) return;
-            // 冲刺起点强制回到预警起点,保证位移方向与斜向预警完全一致
-            core.setPosition(startX, startY);
+            // 冲刺起点以释放瞬间为准:即使预警期间核心被其他系统移动过,
+            // 也不再硬拉回触发时坐标(硬拉会表现为瞬移);漂移冻结由 shadowChargingUntil 兜底
+            const dashStartX = core.x;
+            const dashStartY = core.y;
+            core.setPosition(dashStartX, dashStartY);
             // 冲刺期间暂停核心漂移:让冲刺 tween 完全接管,沿斜向预警线冲撞
             this.shadowChargingUntil = this.time.now + 800;
             this.tweens.add({
@@ -13909,23 +14255,23 @@ export class BattleScene extends SpawnDirectorMixin(
               hold: 80,
               onYoyo: () => {
                 // 斜向冲击:沿预警线段的走廊形范围,与实际命中判定一致
-                const lineDX = targetX - startX;
-                const lineDY = targetY - startY;
+                const lineDX = targetX - dashStartX;
+                const lineDY = targetY - dashStartY;
                 const lineLen = Math.hypot(lineDX, lineDY) || 1;
                 const lineAngle = Math.atan2(lineDY, lineDX);
                 this.renderBossSkillArea(
                   this.bossKind === "dark_deity" ? "dark_deity" : "shadow",
                   "charge",
-                  startX + lineDX / 2,
-                  startY + lineDY / 2,
+                  dashStartX + lineDX / 2,
+                  dashStartY + lineDY / 2,
                   lineLen,
                   290,
                   620,
                   lineAngle
                 );
                 // 命中判定:玩家在斜向走廊内(沿线段投影在 [-0.12, 1.12],垂直距离 < 半宽 145)
-                const px = this.player.x - startX;
-                const py = this.player.y - startY;
+                const px = this.player.x - dashStartX;
+                const py = this.player.y - dashStartY;
                 const along = (px * lineDX + py * lineDY) / (lineLen * lineLen);
                 const perp = Math.abs(px * lineDY - py * lineDX) / lineLen;
                 if (along >= -0.12 && along <= 1.12 && perp < 145) {
@@ -13934,7 +14280,7 @@ export class BattleScene extends SpawnDirectorMixin(
                 }
               },
               onComplete: () => {
-                core.setPosition(startX, startY);
+                core.setPosition(dashStartX, dashStartY);
                 this.shadowChargingUntil = 0;
               }
             });
@@ -14149,8 +14495,8 @@ export class BattleScene extends SpawnDirectorMixin(
       const targetX = WORLD_WIDTH / 2 + Math.sin(this.hostileMotionTime(time) * 0.00072) * 135;
       // 隐退时核心缓慢上移退场(0.02 每帧),配合 alpha 渐变实现"渐渐隐退"而非瞬间切换
       core.y = Phaser.Math.Linear(core.y, this.darkAircraftRetreating ? -260 : 370, this.darkAircraftRetreating ? 0.02 : 0.02);
-      // x 用插值避免突刺返回后瞬移(与 updateShadowBoss 同理)
-      core.x = Phaser.Math.Linear(core.x, targetX, 0.1);
+      // 有界步进避免突刺返回后瞬移/高速回飘(与 updateShadowBoss 同理)
+      core.x += Phaser.Math.Clamp(targetX - core.x, -6, 6);
     }
     this.bossEliteAura?.setPosition(core.x, core.y);
 
@@ -14476,19 +14822,17 @@ export class BattleScene extends SpawnDirectorMixin(
     });
   }
 
-  // 技能 2:烟花黑暗导弹 - 10 颗依次发射,弱跟踪,右移可躲
+  // 技能 2:烟花黑暗导弹 - 10 颗依次发射,追踪玩家,命中后在其位置爆炸
   darkAircraftMissile(ac: Phaser.Physics.Arcade.Image): void {
-    this.showBanner("◆ 烟花黑暗导弹 · 散射追踪", 800);
+    this.showBanner("◆ 烟花黑暗导弹 · 追踪", 800);
     const count = 10;
     const armDelay = 180;
     for (let i = 0; i < count; i += 1) {
       this.time.delayedCall(i * armDelay, () => {
         if (!ac.active) return;
-        if (i % 3 === 0) {
-          this.renderBossSkillImpact("dark_aircraft", "missile", ac.x, ac.y + 30, 210, 620);
-        }
-        // 弱跟踪:朝向玩家方向加 5% 偏转
-        const angle = Math.atan2(this.player.y - ac.y, this.player.x - ac.x) + Phaser.Math.FloatBetween(-0.25, 0.25);
+        // 发射不再在 boss 处渲染爆炸特效(此前每颗导弹都在 boss 位置放爆闪,
+        // 造成"导弹在 boss 处爆炸"的假象)
+        const angle = Math.atan2(this.player.y - ac.y, this.player.x - ac.x) + Phaser.Math.FloatBetween(-0.18, 0.18);
         const missile = this.fireEnemyAngle(
           ac.x + Phaser.Math.Between(-25, 25),
           ac.y + 30,
@@ -14503,8 +14847,9 @@ export class BattleScene extends SpawnDirectorMixin(
           .setScale(1.15)
           .setData("darkFlat", 160)
           .setData("darkDotRatio", 0.06)
-          .setData("weakHoming", true);
-        this.burst(ac.x, ac.y + 30, 0xffa022, 0.5);
+          // 追踪玩家,保证导弹真正飞到玩家身边(此前未设追踪,直线发射后极难命中)
+          .setData("homingUntil", this.time.now + 2200)
+          .setData("homingSpeed", 300);
       });
     }
   }
@@ -14646,6 +14991,27 @@ export class BattleScene extends SpawnDirectorMixin(
     const available = candidates.filter((candidate) => !this.strippedAbilities.includes(candidate.key));
     if (!available.length) return;
     const stolen = Phaser.Utils.Array.GetRandom(available);
+    // === G 键(流派技能)削弱:不再永久剥夺,改为暂时掌控 ===
+    // boss/黑影夺取玩家的 G 键技能后,当场演示一次(掌握),随后自动归还;
+    // 期间玩家按 G 键提示"技能被剥夺"
+    if (stolen.key === "upgrade:power_flamethrower" || stolen.key === "upgrade:agile_lunge") {
+      this.gKeyConfiscatedUntil = this.time.now + 19000;
+      this.finalBossBorrowedPower = stolen.label;
+      this.showBanner("流派技能被剥夺", 1500);
+      const core = (this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]).find(
+        (part) => part.active && part.getData("part") === "core"
+      );
+      this.time.delayedCall(700, () => {
+        if (!this.bossActive || !core?.active) {
+          this.gKeyConfiscatedUntil = 0;
+          return;
+        }
+        // 演示掌控:释放被夺走的 G 键技能;19 秒后自动归还
+        if (stolen.key === "upgrade:agile_lunge") this.castBossAgileFusion(core);
+        else this.castBossFlame(core);
+      });
+      return;
+    }
     stolen.strip();
     this.strippedAbilities.push(stolen.key);
     this.finalBossBorrowedPower = stolen.label;
@@ -14795,17 +15161,18 @@ export class BattleScene extends SpawnDirectorMixin(
     });
   }
 
-  titanMeteorField(core?: Phaser.Physics.Arcade.Image): void {
+  titanMeteorField(): void {
     const count = 6 + this.bossPhase * 2;
-    // 共同战时陨石以 core 位置为锚点向外扩散；单 boss 模式保持原全屏随机
-    const centerX = core ? core.x : WORLD_WIDTH / 2;
-    const centerY = core ? core.y : WORLD_HEIGHT * 0.45;
+    // 陨石落点以玩家当前位置为锚点随机扩散(此前以 Boss 核心为锚点,
+    // 陨石只落在 Boss 身边,玩家完全不受威胁,表现为"导弹只瞄准 boss 自己")
+    const centerX = this.player.x;
+    const centerY = Phaser.Math.Clamp(this.player.y, 300, WORLD_HEIGHT - 140);
     const impactPoints = Array.from({ length: count }, () => {
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-      const distance = Phaser.Math.Between(120, 320);
+      const distance = Phaser.Math.Between(90, 260);
       return {
         x: Phaser.Math.Clamp(centerX + Math.cos(angle) * distance, 110, WORLD_WIDTH - 110),
-        y: Phaser.Math.Clamp(centerY + Math.sin(angle) * distance, 340, WORLD_HEIGHT - 130)
+        y: Phaser.Math.Clamp(centerY + Math.sin(angle) * distance, 300, WORLD_HEIGHT - 120)
       };
     });
     impactPoints.forEach((point, index) => {
@@ -15247,7 +15614,9 @@ export class BattleScene extends SpawnDirectorMixin(
         bullet
           .setTint(tint)
           .setScale(1.2)
-          .setData("homingUntil", this.time.now + 1100)
+          // 追踪时间从 1.1s 延长到 2.6s:原时长在 boss 到玩家的距离下(约 1.6s)
+          // 会提前失效,导弹只能按最后一帧方向直飞,打不到玩家(表现为在 boss 处"爆炸")
+          .setData("homingUntil", this.time.now + 2600)
           .setData("homingSpeed", homingSpeed);
       });
     }
@@ -15396,6 +15765,29 @@ export class BattleScene extends SpawnDirectorMixin(
       // 篡夺的虹吸链:持续抽取玩家生命并回复 Boss
       this.castBossVampireSiphon(core);
     }
+  }
+
+  // Boss 版龙息喷火:力量流派 G 键技能被暂时掌控后,boss 向玩家喷出紫金龙焰
+  castBossFlame(core: Phaser.Physics.Arcade.Image): void {
+    const aimX = this.player.x;
+    const aimY = this.player.y;
+    const angle = Math.atan2(aimY - core.y, aimX - core.x);
+    for (let i = -4; i <= 4; i += 1) {
+      const beam = this.fireEnemyAngle(
+        core.x + i * 20,
+        core.y + 18,
+        angle + i * 0.12,
+        340,
+        14 + this.bossTier * 0.5,
+        "projectile",
+        "boss"
+      );
+      beam.setTint(i % 2 ? 0xff9a2d : 0xffd66b).setScale(1.2);
+    }
+    this.showBanner("◆ 被夺走的龙息 · 此刻由黑暗掌控", 900);
+    this.renderBossSkillArea("dark_deity", "charge", core.x, core.y, 320, 220, 850, angle);
+    this.burst(core.x, core.y, 0xff7a22, 1.8);
+    this.cameras.main.flash(90, 120, 0, 40);
   }
 
   // Boss 版万象影袭:玩家融合技被篡夺/夺取后,Boss 以放大范围、削弱伤害、花哨光影的形式释放
@@ -15831,11 +16223,18 @@ export class BattleScene extends SpawnDirectorMixin(
     return this.bankPendingTokens(false);
   }
 
+  // 黑影拦截(简化):Boss 击破后黑影短暂现身,直接抓走对应命名的核心(如裂渊泰坦 → 烈焰核心)
   playShadowPowerTheft(
     defeatedKind: BossKind,
     x: number,
     y: number
   ): void {
+    const coreNames: Partial<Record<BossKind, string>> = {
+      titan: "烈焰核心",
+      mirror: "镜像核心",
+      usurper: "篡夺核心"
+    };
+    const coreName = coreNames[defeatedKind] ?? `${BOSS_NAMES[defeatedKind]}核心`;
     const shadow = this.trackBossVisual(
       this.add
         .image(
@@ -15852,37 +16251,38 @@ export class BattleScene extends SpawnDirectorMixin(
       .circle(x, y, 28, 0xffbd3e, 0.9)
       .setStrokeStyle(9, 0xff3dbb, 0.86)
       .setDepth(73);
-    this.tweens.add({
-      targets: stolenCore,
-      scale: { from: 0.7, to: 1.35 },
-      alpha: { from: 0.9, to: 0.45 },
-      yoyo: true,
-      repeat: 3,
-      duration: 130
-    });
+    const coreLabel = this.add
+      .text(x, y - 52, coreName, {
+        fontFamily: '"Microsoft YaHei", sans-serif',
+        fontSize: "16px",
+        fontStyle: "bold",
+        color: "#ffd66b",
+        backgroundColor: "#1a0b22cc",
+        padding: { x: 8, y: 3 }
+      })
+      .setOrigin(0.5)
+      .setDepth(74);
     this.tweens.add({
       targets: shadow,
       x,
       y: Math.max(80, y - 55),
-      duration: 620,
+      duration: 420,
       ease: "Cubic.Out",
       onComplete: () => {
-        this.burst(x, y, 0x9b5cff, 2.5);
-        this.cameras.main.flash(110, 95, 0, 130);
+        this.burst(x, y, 0x9b5cff, 2.2);
+        this.cameras.main.flash(90, 95, 0, 130);
         stolenCore.destroy();
+        coreLabel.destroy();
+        this.showBanner(`黑影抢夺${coreName} · 主动权柄已保留`, 1400);
         this.tweens.add({
           targets: shadow,
           y: -430,
           alpha: 0,
-          scale: 0.68,
-          duration: 720,
+          scale: 0.7,
+          duration: 520,
           ease: "Cubic.In",
           onComplete: () => {
             shadow.destroy();
-            this.showBanner(
-              `黑影夺走${BOSS_NAMES[defeatedKind]}专属强化核心 · 主动权柄已保留`,
-              1500
-            );
             this.startCampaignEncounter(this.campaignEncounterIndex);
           }
         });

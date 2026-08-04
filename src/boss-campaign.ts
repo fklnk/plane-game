@@ -142,7 +142,10 @@ export const MINION_MUTATION_KINDS: readonly CampaignMinionMutation[] = [
 ];
 
 export function bossMutationCandidates(source: CampaignBossKind): CampaignBossKind[] {
-  return BOSS_MUTATION_KINDS.filter((kind) => kind !== source);
+  // 任何 Boss/黑影突变都不得继承最终 boss(黑暗魔神)的独有技能
+  return BOSS_MUTATION_KINDS.filter(
+    (kind) => kind !== source && kind !== "dark_deity"
+  );
 }
 
 export function rollBossMutationKind(

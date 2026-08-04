@@ -46,23 +46,41 @@ export function buildPoolFor(
       (!upgrade.id.startsWith("vampire_") || spec === "vampire") &&
       (!upgrade.id.startsWith("devour_") || spec === "devour") &&
       (!upgrade.id.startsWith("wheelchair_") || spec === "wheelchair") &&
-      // 融合技出池:已拥有任一本流派基础技能(≥1 级)即出现,与万象影袭一致
-      // (先选一个基础技能,后续专属强化中就会出现融合技)
+      // 融合技出池:
+      // - 万象影袭(敏捷):已拥有任一基础技能(突刺/影分身)即出现
+      // - 其余所有流派:需集齐两个基础强化(基础技能全部 ≥1 级)才解锁融合技
       (!config.fusionRequirements[upgrade.id] ||
         (() => {
           const requirements = config.fusionRequirements[upgrade.id]!;
-          return requirements.some((id) => config.levelOf(owner, id) > 0);
+          return upgrade.id === "agile_shadow_lunge"
+            ? requirements.some((id) => config.levelOf(owner, id) > 0)
+            : requirements.every((id) => config.levelOf(owner, id) > 0);
         })()) &&
+      // 基础技能出池(非敏捷流派):
+      // - 未集齐两个基础技能:基础技能照常出(可继续升级)
+      // - 集齐两个基础技能后:后续只出融合技,两个基础技能不再出现(敏捷由下方独立规则控制)
+      (() => {
+        for (const [fusionId, requirements] of Object.entries(
+          config.fusionRequirements
+        )) {
+          if (fusionId === "agile_shadow_lunge") continue;
+          if (requirements.includes(upgrade.id)) {
+            if (requirements.every((id) => config.levelOf(owner, id) > 0)) {
+              return false;
+            }
+          }
+        }
+        return true;
+      })() &&
       // 敏捷进阶规则:
       // - 未选任何基础技能:出突刺 + 影分身,万象影袭不出
       // - 选完突刺/影分身任意一个:基础技能全部不再出现,后续专属只出融合技(首抽即 Lv.2)
-      // - P2 的影分身作为终端升级持续出到上限,同时万象影袭照常可出
+      // - 拥有万象影袭后,P2 的影分身同样不再单独出(由融合技等级统一成长)
       (!upgrade.id.startsWith("agile_") ||
         spec !== "agile" ||
         (() => {
           const lunge = ul.agile_lunge ?? 0;
           const clone = ul.agile_shadow_clone ?? 0;
-          if (owner === 2 && upgrade.id === "agile_shadow_clone") return true;
           if (upgrade.id === "agile_shadow_lunge") return lunge > 0 || clone > 0;
           if (upgrade.id === "agile_lunge") return lunge === 0 && clone === 0;
           if (upgrade.id === "agile_shadow_clone") return lunge === 0 && clone === 0;
