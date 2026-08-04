@@ -452,6 +452,11 @@ export function SpawnDirectorMixin<TBase extends Constructor<Phaser.Scene>>(Base
           } else {
             enemy.disableBody(true, true);
           }
+        } else if (enemy.y < -90 || enemy.x < -180 || enemy.x > WORLD_WIDTH + 180) {
+          // 被击飞/漂移出场外的小兵直接回收:小兵出生点在 y=-80 且始终向下飞行,
+          // 只有被撞击击飞(如重炮/轰炸机向上弹开)或冻在场上空才会停在屏幕外,
+          // 若不回收会永远保持 active,卡住"清空剩余威胁"导致 Boss 永不出现。
+          enemy.disableBody(true, true);
         }
         return true;
       });
