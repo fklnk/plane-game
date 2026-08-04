@@ -296,7 +296,7 @@ app.innerHTML = `
         <div class="tech-card feature-list">
           <div class="feature-row">
             <span class="feature-index">01</span>
-            <div><div class="feature-name">流派融合强化</div><div class="feature-copy">主能力 4 级 + 搭配 2 级合成</div></div>
+            <div><div class="feature-name">流派融合强化</div><div class="feature-copy">先选基础技能 · 融合技自然衔接</div></div>
           </div>
           <div class="feature-row">
             <span class="feature-index">02</span>
@@ -1216,13 +1216,13 @@ function showUpgrade(scene: BattleScene, onComplete?: () => void): void {
     airSupportIds.has(id)
       ? scene.airSupportLevels[id as AirSupportSkillId] ?? 0
       : (scene.upgradesOf(owner)[id] ?? 0);
-  // 融合技出池条件:主能力 4 级 + 搭配能力 2 级(全模式通用)
-  const FUSION_REQUIREMENTS: Record<string, readonly [string, string]> = {
-    power_fusion: ["power_flamethrower", "luck"],
+  // 融合技出池条件:已拥有任一本流派基础技能(≥1 级)即出现,与万象影袭一致
+  const FUSION_REQUIREMENTS: Record<string, readonly string[]> = {
+    power_fusion: ["power_flamethrower"],
     agile_shadow_lunge: ["agile_lunge", "agile_shadow_clone"],
-    defender_fusion: ["defender_thorns", "blade"],
-    vampire_fusion: ["vampire_siphon", "arc"],
-    devour_fusion: ["devour_swallow", "magnetism"],
+    defender_fusion: ["defender_thorns"],
+    vampire_fusion: ["vampire_siphon"],
+    devour_fusion: ["devour_swallow"],
     wheelchair_fusion: ["ram_shockwave", "ram_armor"]
   };
   // 每个玩家按自己的专精/等级独立出池(出池规则抽至 upgrade-system.ts)

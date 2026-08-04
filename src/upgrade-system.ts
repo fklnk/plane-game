@@ -13,7 +13,7 @@ export interface UpgradePoolConfig {
   collisionUpgradeIds: ReadonlySet<string>;
   airSupportIds: ReadonlySet<string>;
   levelOf: (owner: 1 | 2, id: string) => number;
-  fusionRequirements: Record<string, readonly [string, string]>;
+  fusionRequirements: Record<string, readonly string[]>;
 }
 
 // 每个玩家按自己的专精/等级独立出池（满级、互斥、当前流派不可用的强化不进候选）
@@ -46,14 +46,12 @@ export function buildPoolFor(
       (!upgrade.id.startsWith("vampire_") || spec === "vampire") &&
       (!upgrade.id.startsWith("devour_") || spec === "devour") &&
       (!upgrade.id.startsWith("wheelchair_") || spec === "wheelchair") &&
-      // 融合技出池:主能力 4 级 + 搭配能力 2 级(所有模式通用,合成条件见 FUSION_REQUIREMENTS)
+      // 融合技出池:已拥有任一本流派基础技能(≥1 级)即出现,与万象影袭一致
+      // (先选一个基础技能,后续专属强化中就会出现融合技)
       (!config.fusionRequirements[upgrade.id] ||
         (() => {
-          const requirement = config.fusionRequirements[upgrade.id]!;
-          return (
-            config.levelOf(owner, requirement[0]) >= 4 &&
-            config.levelOf(owner, requirement[1]) >= 2
-          );
+          const requirements = config.fusionRequirements[upgrade.id]!;
+          return requirements.some((id) => config.levelOf(owner, id) > 0);
         })()) &&
       // 敏捷进阶规则:
       // - 未选任何基础技能:出突刺 + 影分身,万象影袭不出
