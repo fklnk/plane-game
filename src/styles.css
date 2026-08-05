@@ -2680,6 +2680,44 @@ kbd {
   transform: translate(-50%, 0);
 }
 
+/* 成就解锁提示:游玩画面下方的金色勋章条 */
+.achievement-toast {
+  position: absolute;
+  z-index: 82;
+  left: 50%;
+  bottom: 88px;
+  padding: 10px 20px 9px;
+  transform: translate(-50%, 18px);
+  border: 1px solid rgba(255, 214, 107, 0.55);
+  background: linear-gradient(90deg, rgba(38, 26, 8, 0.94), rgba(10, 14, 26, 0.92));
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: 200ms ease;
+  box-shadow: 0 0 24px rgba(255, 214, 107, 0.18);
+}
+
+.achievement-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.achievement-toast b {
+  display: block;
+  color: #ffd66b;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.achievement-toast small {
+  display: block;
+  margin-top: 3px;
+  color: #c9a86a;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .debug-panel {
   position: absolute;
   z-index: 70;

@@ -98,8 +98,8 @@ export const SHIPS: Record<
     tag: "均衡突击",
     description: "装甲、火力和机动均衡，适合初次进入星渊战场。",
     hp: 100,
-    speed: 400,
-    damage: 1,
+    speed: 390,
+    damage: 1.01,
     passive: "火控同步：连续击杀后短暂提升火力",
     asset: "fighter_balanced"
   },
@@ -107,9 +107,9 @@ export const SHIPS: Record<
     name: "爆破战机",
     tag: "重火力攻击",
     description: "牺牲少量机动换取高额火力，擅长快速拆解精英与 Boss。",
-    hp: 92,
-    speed: 390,
-    damage: 1.2,
+    hp: 91,
+    speed: 380,
+    damage: 1.18,
     passive: "爆燃弹头：导弹和清屏伤害提高 24%",
     asset: "fighter_bomber"
   },
@@ -117,9 +117,9 @@ export const SHIPS: Record<
     name: "闪电战机",
     tag: "高速机动",
     description: "较快移动速度与短技能冷却,适合擦弹和走位。",
-    hp: 81,
-    speed: 410,
-    damage: 0.92,
+    hp: 78,
+    speed: 415,
+    damage: 0.91,
     passive: "闪电协议：主动技能冷却缩短 18%",
     asset: "fighter_lightning"
   },
@@ -128,7 +128,7 @@ export const SHIPS: Record<
     tag: "防御生存",
     description: "厚重护甲和更高生命值，适合稳健推进与双人保护。",
     hp: 135,
-    speed: 360,
+    speed: 355,
     damage: 0.88,
     passive: "复合装甲：所受伤害降低 20%",
     asset: "fighter_guardian"
@@ -158,10 +158,10 @@ export const SPECIALIZATIONS: Record<
     code: "LANCE",
     icon: "▲",
     description: "直线重火力与暴击成长。每次击杀按额外生命上限回复，暴击处决永久提高本局生命上限。",
-    hp: 1,
-    speed: 0.96,
-    damage: 1.18,
-    fireRate: 1,
+    hp: 1.15,
+    speed: 1.1,
+    damage: 1.4,
+    fireRate: 1.15,
     cooldown: 1,
     damageTaken: 1,
     explosionTaken: 1,
@@ -173,14 +173,14 @@ export const SPECIALIZATIONS: Record<
     code: "KALEIDOSCOPE",
     icon: "⌁",
     description: "发射分散摆动的花瓣弹幕，并周期性绽放环形弹雨。完全放弃暴击换取伤害与速度。",
-    hp: 0.9,
-    speed: 1.1,
-    damage: 0.84,
-    fireRate: 1.08,
+    hp: 1,
+    speed: 1.25,
+    damage: 1,
+    fireRate: 1.3,
     cooldown: 0.8,
     damageTaken: 1,
     explosionTaken: 1,
-    scale: 0.94,
+    scale: 0.9,
     trait: "暴击率 → 攻击力 · 暴击效果 → 移速 · 周期性万花弹环(每颗 +0.1% 敌方最大生命)"
   },
   defender: {
@@ -188,31 +188,29 @@ export const SPECIALIZATIONS: Record<
     code: "AEGIS",
     icon: "⬡",
     description: "体型更大、速度更慢，以重甲和大口径炮火强行推进。",
-    hp: 1.2,
-    speed: 0.85,
-    damage: 1.3,
-    fireRate: 0.75,
-    cooldown: 1.08,
-    // 免伤:基础 1/1.2(16.7%)×5/6 加成后约 30.6%;现降低 25% → 受击系数约 0.771(免伤约 22.9%)
-    damageTaken: 37 / 40,
-    explosionTaken: 0.5,
-    scale: 1.15,
-    trait: `爆炸减伤 ${formatRoundedNumberForDisplay(
-      (1 - boostedSpecializationReduction(0.5)) * 100
-    )}% · 击杀不再回血(搭配荆棘护甲靠反伤回血)`
+    hp: 1.4,
+    speed: 1,
+    damage: 1.6,
+    fireRate: 0.9,
+    cooldown: 1.1,
+    // 免伤已移除:防御流派不再有受击/爆炸减免,只靠血棘体系(反伤/血棘反噬)的强度
+    damageTaken: 0.8,
+    explosionTaken: 0.8,
+    scale: 1.2,
+    trait: `击杀不再回血(搭配血棘战甲靠反伤回血)`
   },
   vampire: {
     name: "吸血流派",
     code: "BLOOD ECHO",
     icon: "◉",
     description: "基础属性已全面强化，每次命中都会抽取敌方能量修复机体。",
-    hp: 0.89,
-    speed: 0.89,
-    damage: 0.89,
-    fireRate: 0.89,
-    cooldown: 1.11,
-    damageTaken: 1.11,
-    explosionTaken: 1,
+    hp: 1.05,
+    speed: 1,
+    damage: 1,
+    fireRate: 1,
+    cooldown: 1.1,
+    damageTaken: 0.9,
+    explosionTaken: 0.8,
     scale: 1,
     trait: "每次命中回复 1.2% 已损生命 · 基础减伤同步强化"
   },
@@ -221,13 +219,13 @@ export const SPECIALIZATIONS: Record<
     code: "EVOLUTION",
     icon: "∞",
     description: "基础数值已全面强化，并用持续击杀在本局中无限进化舰体。",
-    hp: 0.9,
-    speed: 0.9,
-    damage: 0.9,
-    fireRate: 0.9,
-    cooldown: 1.08,
-    damageTaken: 1,
-    explosionTaken: 1,
+    hp: 1.05,
+    speed: 1,
+    damage: 1,
+    fireRate: 1,
+    cooldown: 1.1,
+    damageTaken: 0.8,
+    explosionTaken: 0.8,
     scale: 1,
     trait: "成功吞噬：MAX +1.5～6；回复额外生命 1% + 已损生命 2% + 目标最大生命 4% · 后续升级提高体型成长与减伤"
   },
@@ -236,14 +234,14 @@ export const SPECIALIZATIONS: Record<
     code: "JUGGERNAUT",
     icon: "◉",
     description: "关闭基础机炮，以机体作为主武器。每新增 500 最大生命提升攻击；超过 400 最大生命后，Boss 撞击你时伤害 +25%（至少 8% 最大生命）。",
-    hp: 1.12,
-    speed: 0.82,
-    damage: 1.2,
+    hp: 1.3,
+    speed: 1,
+    damage: 1.5,
     fireRate: 0,
     cooldown: 1,
-    damageTaken: 0.6,
-    explosionTaken: 0.6,
-    scale: 1.68,
+    damageTaken: 0.8,
+    explosionTaken: 0.8,
+    scale: 1.7,
     trait: `接触 230ms / Boss 325ms · 每新增 500 MAX HP 攻击 +${formatRoundedNumberForDisplay(
       0.2 * (5 / 6) * 100
     )}% · 每 5 秒回复 ${formatRoundedNumberForDisplay(
@@ -1452,7 +1450,7 @@ export const UPGRADES: UpgradeDefinition[] = [
     kind: "weapon",
     description: (level) => {
       const nextLevel = level === 0 ? 2 : level + 1;
-      return `选取后基础技能不再出现 · 影分身与影步突刺融合升级 · 自动补齐缺失的一半(Lv.1) · 首抽即 Lv.2 · 每级影分身数量 +1(上限 4) · 万象影袭等级同步提升影分身攻击/血量档位 · 释放期间本体与影分身全部无敌且为实体(只挡弹幕不受伤害,影分身至少扛 3 发) · 突刺路径清除敌方弹幕 · 本体扫掠与联动影分身命中各附加目标最大生命 5.6% 额外伤害(普通影分身不参与) · G 键突刺固定释放 4 个影分身同步突进(伤害×4),结束后消失并爆炸 · 范围与伤害随等级提升(联动伤害 +${Math.round(
+      return `选取影步突刺/影分身任一基础技能后,基础技能不再出现 · 影分身与影步突刺融合升级 · 自动补齐缺失的一半(Lv.1) · 首抽即 Lv.2 · 每级影分身数量 +1(上限 4) · 万象影袭等级同步提升影分身攻击/血量档位 · 释放期间本体与影分身全部无敌且为实体(只挡弹幕不受伤害,影分身至少扛 3 发) · 突刺路径清除敌方弹幕 · 本体扫掠与联动影分身命中各附加目标最大生命 5.6% 额外伤害(普通影分身不参与) · G 键突刺固定释放 4 个影分身同步突进(伤害×4),结束后消失并爆炸 · 范围与伤害随等级提升(联动伤害 +${Math.round(
         nextLevel * 220
       )}% · 范围满级为基础 1.9 倍) · 突刺冷却 -${formatRoundedNumberForDisplay(
         nextLevel * 0.75
@@ -1484,12 +1482,12 @@ export const UPGRADES: UpgradeDefinition[] = [
   // === 防御流派专属 ===
   {
     id: "defender_thorns",
-    name: "荆棘护甲",
+    name: "血棘战甲",
     icon: "◈",
     kind: "passive",
     description: () =>
-      `反伤:敌人受到玩家实收伤害 3 倍 + 敌人自身最大生命 1.5% · 玩家回复本次反伤的 10% · 累计反伤到 500 点触发荆棘共鸣`,
-    short: () => `荆棘反伤 · 3 倍返还 + 回血`
+      `反伤:敌人受到玩家实收伤害 3 倍 + 敌人自身最大生命 1.5% · 玩家回复本次反伤的 10%(上限不超过实收伤害) · 累计反伤到 500 点触发血棘共鸣:回复 5% 最大生命 + 5% 已损生命 · 反伤击杀敌人:回复 2% 最大生命 + 永久提高 1.2% 最大生命上限`,
+    short: () => `血棘反伤 · 3 倍返还 + 回血`
   },
   // === 吸血流派专属 ===
   {
@@ -1508,17 +1506,17 @@ export const UPGRADES: UpgradeDefinition[] = [
     icon: "龍",
     kind: "weapon",
     description: (level) =>
-      `选取后基础技能不再出现 · 首抽等级=先选基础技能等级 · 龙息喷火+护航无人机进化为龙焰蜂群 · 释放龙息时一起召唤最多 4 个小无人机(15s 冷却,持续 8s):检索周围 360px 内敌人,优先攻击绝对血量最少者,小型喷火 30 帧/秒结算、可焚毁弹幕、不可暴击,基础伤害 ${level} + 敌人最大生命 0.04% · 龙息伤害 +${35 + level * 15}%(喷火不可暴击) · 喷口每 0.22s 射出金龙火弹 · 龙息冷却 -${level}s`,
+      `集齐两个基础技能后,基础技能不再出池 · 首抽等级=先选基础技能等级 · 龙息喷火+护航无人机进化为龙焰蜂群 · 释放龙息时一起召唤最多 4 个小无人机(15s 冷却,持续 8s):检索周围 360px 内敌人,优先攻击绝对血量最少者,小型喷火 30 帧/秒结算、范围/距离/伤害 ×1.5、可焚毁弹幕、不可暴击,基础伤害 ${level} + 敌人最大生命 0.04%,喷火 30 帧后爆炸(敌人最大生命 2%,可叠加) · 龙息伤害 +${35 + level * 15}%(喷火不可暴击) · 喷口每 0.22s 射出金龙火弹 · 龙息冷却 -${level}s`,
     short: (level) => `龙焰蜂群 · 无人机集群 + 龙息伤害 +${35 + level * 15}%`
   },
   {
     id: "defender_fusion",
-    name: "荆棘星垒",
+    name: "血棘领域",
     icon: "✦",
     kind: "passive",
     description: (level) =>
-      `选取后基础技能不再出现 · 首抽等级=先选基础技能等级 · 荆棘护甲+旋刃进化为星垒 · 反伤提高 ${50 + level * 15}% · 每累计 400 点反伤触发星垒 2.5s:荆棘旋刃环绕,期间受击反伤 AOE(周围 220px 敌人每 250ms 受最大生命 ${2 + level * 0.5}% 伤害,不可暴击) · 荆棘共鸣阈值减半`,
-    short: (level) => `荆棘星垒 AOE · 反伤 +${50 + level * 15}%`
+      `集齐两个基础技能后,基础技能不再出池 · 首抽等级=先选基础技能等级 · 血棘战甲+旋刃进化为星垒 · 反伤提高 ${50 + level * 15}% · 每累计 400 点反伤触发星垒 2.5s:血棘旋刃环绕,期间受击反伤 AOE(周围 220px 敌人每 250ms 受最大生命 ${2 + level * 0.5}% 伤害,不可暴击) · 血棘共鸣阈值减半`,
+    short: (level) => `血棘领域 AOE · 反伤 +${50 + level * 15}%`
   },
   {
     id: "vampire_fusion",
@@ -1526,7 +1524,7 @@ export const UPGRADES: UpgradeDefinition[] = [
     icon: "✱",
     kind: "passive",
     description: (level) =>
-      `选取后基础技能不再出现 · 首抽等级=先选基础技能等级 · 虹吸链+电弧进化为血星网络 · 链子吸血提高 15% · 每 0.5s 链头向最近 2 个敌人分支电弧(每支造成目标最大生命 ${0.5 + level * 0.1}% 伤害并吸血 20%) · 最多 8 条链共享网络`,
+      `集齐两个基础技能后,基础技能不再出池 · 首抽等级=先选基础技能等级 · 虹吸链+电弧进化为血星网络 · 链子吸血提高 15% · 每 0.5s 链头向最近 2 个敌人分支电弧(每支造成目标最大生命 ${0.5 + level * 0.1}% 伤害并吸血 20%) · 最多 8 条链共享网络`,
     short: () => `血星网络电弧分支 · 吸血 +15%`
   },
   {
@@ -1535,7 +1533,7 @@ export const UPGRADES: UpgradeDefinition[] = [
     icon: "◉",
     kind: "passive",
     description: (level) =>
-      `选取后基础技能不再出现 · 首抽等级=先选基础技能等级 · 深渊吞噬+引力滞空航迹进化为星渊巨口 · 吞噬触发星渊巨口 2.5s:黑洞吸附 320px 内敌人并每帧造成最大生命 ${1.5 + level * 0.5}% 伤害 · 吸入的小兵直接吞噬(体型+回血) · 吞噬范围 +25%`,
+      `集齐两个基础技能后,基础技能不再出池 · 首抽等级=先选基础技能等级 · 深渊吞噬+引力滞空航迹进化为星渊巨口 · 吞噬触发星渊巨口 2.5s:黑洞吸附 320px 内敌人并每帧造成最大生命 ${1.5 + level * 0.5}% 伤害 · 吸入的小兵直接吞噬(体型+回血) · 吞噬范围 +25%`,
     short: (level) => `星渊巨口黑洞吸附 · 每帧 ${1.5 + level * 0.5}% 最大生命`
   },
   {
@@ -1544,7 +1542,7 @@ export const UPGRADES: UpgradeDefinition[] = [
     icon: "☄",
     kind: "weapon",
     description: (level) =>
-      `选取后基础技能不再出现 · 首抽等级=先选基础技能等级 · 震击波融合堡垒姿态进化 · 3 键「堡垒姿态」变为「天体碰撞」:1.4s 蓄力后全屏天体坠落,所有敌人受最大生命 ${45 + level * 8}% + ${400 + level * 200} 伤害,玩家 2s 无敌 · 每 ${18 - level}s 一次`,
+      `集齐两个基础技能后,基础技能不再出池 · 首抽等级=先选基础技能等级 · 震击波融合堡垒姿态进化 · 3 键「堡垒姿态」变为「天体碰撞」:1.4s 蓄力后全屏天体坠落,所有敌人受最大生命 ${45 + level * 8}% + ${400 + level * 200} 伤害,玩家 2s 无敌 · 每 ${18 - level}s 一次`,
     short: (level) => `天体碰撞全屏震击 · 蓄力后 ${45 + level * 8}% 最大生命`
   },
   // === 逆航支援协议(原 Boss 击破掉落的强化,削弱后并入通用池,全流派可选) ===

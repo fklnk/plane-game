@@ -76,6 +76,7 @@ import {
   setSelectedLevel,
   setSelectedMode,
   sfx,
+  showAchievementToast,
   showToast,
   stopAdaptiveMusic,
   totalPermanentLevels
@@ -132,7 +133,7 @@ const KEY_ACTION_LABELS: Record<BindableAction, string> = {
   p1_emp: "P1 EMP 清屏",
   p1_overdrive: "P1 超载/破阵冲刺",
   p1_phase_dash: "P1 相位闪避",
-  p1_doctrine: "P1 流派技能(龙息/突刺等)",
+  p1_doctrine: "P1 流派技能(龙息/突刺/血棘反噬等)",
   p1_power: "P1 首领权柄",
   p1_repair: "P1 纳米修复",
   p2_move_up: "P2 上移",
@@ -143,7 +144,7 @@ const KEY_ACTION_LABELS: Record<BindableAction, string> = {
   p2_emp: "P2 EMP 清屏",
   p2_overdrive: "P2 超载",
   p2_laser: "P2 激光切割",
-  p2_doctrine: "P2 流派技能(龙息/突刺等)",
+  p2_doctrine: "P2 流派技能(龙息/突刺/血棘反噬等)",
   p2_repair: "P2 纳米修复",
   p2_phase_dash: "P2 相位闪避",
   surrender: "一键投降"
@@ -299,6 +300,7 @@ app.innerHTML = `
         <div id="ui-root"></div>
         <div id="overlay-root"></div>
         <div class="toast" id="toast"></div>
+        <div class="achievement-toast" id="achievement-toast"></div>
         ${DEBUG ? '<div class="debug-panel" id="debug-panel">DEBUG READY</div>' : ""}
       </section>
       <aside class="side-rail right">
@@ -306,7 +308,7 @@ app.innerHTML = `
         <div class="tech-card feature-list">
           <div class="feature-row">
             <span class="feature-index">01</span>
-            <div><div class="feature-name">流派融合强化</div><div class="feature-copy">集齐基础强化 · 融合技首抽 2 级</div></div>
+            <div><div class="feature-name">流派融合强化</div><div class="feature-copy">集齐基础技能解锁融合技 · 首抽继承基础等级</div></div>
           </div>
           <div class="feature-row">
             <span class="feature-index">02</span>
@@ -723,7 +725,7 @@ function showAbout(): void {
     <section class="screen">
       ${screenHeader("ABOUT / FLIGHT MANUAL", "关于与操作")}
       <div class="about-panel">
-        <div class="about-logo">星渊突击 <small>v0.7.1</small></div>
+        <div class="about-logo">星渊突击 <small>v0.7.7</small></div>
         <p>三类空域协议：星渊征途推进通关、永夜航线分段存币、九渊试炼固定九战终局。</p>
         <div class="key-table">
           <div><kbd>WASD / 方向键</kbd><span>移动战机</span></div>
@@ -731,7 +733,7 @@ function showAbout(): void {
           <div><kbd>1 / 2 / 3</kbd><span>激光、导弹、无人机；撞击流派为破阵冲角、反应装甲、堡垒姿态</span></div>
           <div><kbd>Q</kbd><span>EMP 一键清屏</span></div>
           <div><kbd>E</kbd><span>星核超载；撞击流派为破阵冲刺</span></div>
-          <div><kbd>G</kbd><span>流派专属主动技能：力量龙息喷火、敏捷影步突刺、撞击全速推进</span></div>
+          <div><kbd>G</kbd><span>流派专属主动技能：力量龙息喷火、敏捷影步突刺、撞击全速推进、防御血棘反噬</span></div>
           <div><kbd>V</kbd><span>首领权柄：击破 Boss 后获得，保留到本局结束</span></div>
           <div><kbd>F</kbd><span>相位闪避：位移并短暂无敌</span></div>
           <div><kbd>R</kbd><span>纳米修复：恢复 18% 最大生命</span></div>
@@ -1502,9 +1504,9 @@ function showDoctrineEvolution(scene: BattleScene, onComplete: () => void): void
   overlayRoot.innerHTML = `
     <div class="overlay doctrine-overlay">
       <div class="overlay-panel">
-        <div class="eyebrow">CROSS-DOCTRINE EVOLUTION</div>
+        <div class="eyebrow">BOSS-LEVEL CROSS-DOCTRINE EVOLUTION</div>
         <h2>首领核心已解析</h2>
-        <p>任选一种流派能力。没有职业限制，每次首领战后都能进化。</p>
+        <p>Boss 级强化 · 任选一种流派能力。没有职业限制，每次首领战后都能进化。</p>
         <div class="upgrade-grid">
           ${options
             .map((evolution, index) => {
@@ -1512,7 +1514,7 @@ function showDoctrineEvolution(scene: BattleScene, onComplete: () => void): void
               return `
                 <button class="upgrade-card doctrine-card" data-evolution="${evolution.id}">
                   <span class="upgrade-icon"><span>${evolution.icon}</span></span>
-                  <span class="doctrine-school">${evolution.school}流派</span>
+                  <span class="doctrine-school">BOSS 级 · ${evolution.school}流派</span>
                   <span class="upgrade-level">${level === 0 ? "NEW" : `LV.${level} → ${level + 1}`} · ${index + 1}</span>
                   <h3>${evolution.name}</h3>
                   <p>${evolution.description(level)}</p>
@@ -1521,7 +1523,7 @@ function showDoctrineEvolution(scene: BattleScene, onComplete: () => void): void
             })
             .join("")}
         </div>
-        <div class="evolution-note">击破下一位首领后可再次选择，最高 LV.5</div>
+        <div class="evolution-note">Boss 级强化 · 击破下一位首领后可再次选择，最高 LV.5</div>
       </div>
     </div>
   `;
@@ -2188,7 +2190,7 @@ export class BattleScene extends SpawnDirectorMixin(
   devourSizeLossNextAt2 = 0;
   devourKillCount2 = 0;
   player2OriginalMaxHp = 0;
-  // === 防御流派:荆棘护甲(反伤) ===
+  // === 防御流派:血棘战甲(反伤) ===
   thornsAccumulator = 0;      // 累计反伤(到达 1000 触发回血)
   thornsAccumulator2 = 0;     // P2 反伤累计
   // === 吸血流派:虹吸链(8 条链子主动发射) ===
@@ -2236,12 +2238,10 @@ export class BattleScene extends SpawnDirectorMixin(
   nextBossAttack = 0;
   nextBossScore = 5000;
   nextSpawn = 0;
-  // === 普通战役:航线门流程状态(清兵达标并清场后出现红/蓝/绿三扇门) ===
+  // === 普通战役:航线门流程状态(打完黑影 Boss 后出现红/蓝/绿三扇门) ===
   campaignGates: Phaser.GameObjects.Container[] = [];
   campaignGateUntil = 0;        // 门消失时间(基于 time)
   campaignGatesOpen = false;    // 门流程进行中(防止重复生成/重复触发)
-  campaignHalfGateDone = false; // 本航段半程航线门已给过(阈值 50%),防止重复出现
-  campaignHalfGateSpawned = false; // 本航段半程门已实际生成一次,结算后不再重复生成
   // === 升级选择队列:弹窗忙时先排队,逐个弹出(修复同时吸收大量经验丢三选一) ===
   pendingLevelUps = 0;
   levelUpScheduled = false;
@@ -2406,7 +2406,7 @@ export class BattleScene extends SpawnDirectorMixin(
   nextUsurperDrainAt = 0;
   // 最终 boss(黑暗魔神):定期剥夺玩家技能(含 V 键权柄),冷却后再次剥夺
   nextDarkDeityDisableAt = 0;
-  // Boss 版荆棘反伤(防御流派反击被篡夺):持续期间玩家攻击 Boss 按比例反弹伤害
+  // Boss 版血棘反伤(防御流派反击被篡夺):持续期间玩家攻击 Boss 按比例反弹伤害
   bossThornCounterUntil = 0;
   usurperStolenSkill:
     | "laser"
@@ -2436,6 +2436,11 @@ export class BattleScene extends SpawnDirectorMixin(
   shadowChargingUntil = 0;
   // G 键(流派技能)被 boss/黑影暂时掌控:期间按 G 提示"技能被剥夺",到期自动归还
   gKeyConfiscatedUntil = 0;
+  // 防御流派 G 键「血棘反噬」:持续到期时间与周身光环(P1/P2 独立)
+  defenderVengeanceUntil = 0;
+  defenderVengeanceUntil2 = 0;
+  defenderVengeanceAura?: Phaser.GameObjects.Arc;
+  defenderVengeanceAura2?: Phaser.GameObjects.Arc;
   // 撞击流派撞毁 Boss 的 MAX HP +300 奖励按 P1/P2 各自独立
   bossKilledByCollision = false;
   bossKilledByCollision2 = false;
@@ -4646,8 +4651,8 @@ export class BattleScene extends SpawnDirectorMixin(
     }
   }
 
-  // === 防御流派 G 键主动技能:荆棘波 — 以玩家为中心的圆内清除弹幕 + 一次性范围伤害 ===
-  activateDefenderThornWave(owner: 1 | 2 = 1): void {
+  // === 防御流派 G 键主动技能:血棘反噬 — 6s 内反伤 ×2,每次反伤以攻击者为中心同步范围 AOE ===
+  activateDefenderVengeance(owner: 1 | 2 = 1): void {
     if (this.ended || this.isModal) return;
     const isP2 = owner === 2;
     if (owner === 1 && this.skillsConfiscated) {
@@ -4657,77 +4662,63 @@ export class BattleScene extends SpawnDirectorMixin(
     const ul = this.upgradesOf(owner);
     const thorns = ul.defender_thorns ?? 0;
     if (thorns <= 0) {
-      showToast("流派技能键需要先取得「荆棘护甲」强化");
+      showToast("流派技能键需要先取得「血棘战甲」强化");
       return;
     }
-    const key = isP2 ? "defender-wave-2" : "defender-wave-1";
-    const cooldown = 15000 * this.statsOf(owner).cooldownMultiplier;
+    const key = isP2 ? "defender-vengeance-2" : "defender-vengeance-1";
+    const cooldown = 16000 * this.statsOf(owner).cooldownMultiplier;
     if (this.time.now < (this.skillReadyAt[key] ?? 0)) {
-      cooldownToast("荆棘波", this.skillReadyAt[key] ?? 0, this.time.now);
+      cooldownToast("血棘反噬", this.skillReadyAt[key] ?? 0, this.time.now);
       return;
     }
-    this.skillReadyAt[key] = this.time.now + cooldown;
     const sprite = isP2 ? this.player2 : this.player;
     if (!sprite?.active) return;
-    // 强度 = 荆棘护甲/星垒等级;范围随强度提升但不宜过高(Lv.1 170px ~ Lv.5 250px)
-    const fusion = ul.defender_fusion ?? 0;
-    const intensity = Math.max(thorns, fusion);
-    const radius = 150 + intensity * 20;
-    // 视觉:扩散冲击环
-    const wave = this.add
-      .circle(sprite.x, sprite.y, 30, 0x43ff9a, 0.16)
-      .setStrokeStyle(8, 0x9bffc8, 0.95)
-      .setDepth(16);
-    this.tweens.add({
-      targets: wave,
-      radius,
-      alpha: 0,
-      duration: 420,
-      ease: "Cubic.Out",
-      onComplete: () => wave.destroy()
-    });
-    // 清除圆内敌方弹幕
-    (this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]).forEach((bullet) => {
-      if (!bullet.active) return;
-      if (Phaser.Math.Distance.Between(sprite.x, sprite.y, bullet.x, bullet.y) <= radius) {
-        const spark = this.add
-          .circle(bullet.x, bullet.y, 4, 0x9bffc8, 0.85)
-          .setDepth(17)
-          .setBlendMode(Phaser.BlendModes.ADD);
-        this.tweens.add({
-          targets: spark,
-          scale: 0.1,
-          alpha: 0,
-          duration: 150,
-          onComplete: () => spark.destroy()
-        });
-        bullet.disableBody(true, true);
-      }
-    });
-    // 一次性伤害:每个敌人各自最大生命 5% + 玩家最大生命 10%
-    const playerMaxHp = this.maxHpOf(owner);
-    const dmg = (maxHp: number): number =>
-      Math.max(1, Math.round(maxHp * 0.05 + playerMaxHp * 0.1));
-    for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
-      if (!enemy.active) continue;
-      if (Phaser.Math.Distance.Between(sprite.x, sprite.y, enemy.x, enemy.y) > radius) continue;
-      const maxHp = Number(enemy.getData("maxHp")) || 1;
-      enemy.setData("lastOwner", owner);
-      this.dealDirectDamage(enemy, dmg(maxHp), enemy.x, enemy.y, false, owner);
-      this.burst(enemy.x, enemy.y, 0x43ff9a, 0.5);
+    this.skillReadyAt[key] = this.time.now + cooldown;
+    // 激活 6s:反伤 ×2,每次反伤同步以攻击者为中心范围引爆
+    const aura = this.add
+      .circle(sprite.x, sprite.y, 70, 0x9b18ff, 0.1)
+      .setStrokeStyle(6, 0xff3dbb, 0.85)
+      .setDepth(19);
+    if (isP2) {
+      this.defenderVengeanceAura2?.destroy();
+      this.defenderVengeanceAura2 = aura;
+      this.defenderVengeanceUntil2 = this.time.now + 6000;
+    } else {
+      this.defenderVengeanceAura?.destroy();
+      this.defenderVengeanceAura = aura;
+      this.defenderVengeanceUntil = this.time.now + 6000;
     }
-    for (const part of this.bossParts.getChildren() as Phaser.Physics.Arcade.Image[]) {
-      if (!part.active || !["core", "raid-core"].includes(part.getData("part"))) continue;
-      if (Phaser.Math.Distance.Between(sprite.x, sprite.y, part.x, part.y) > radius) continue;
-      const maxHp = Number(part.getData("maxHp")) || 1;
-      this.damageBossPart(part, dmg(maxHp));
-    }
-    this.burst(sprite.x, sprite.y, 0x43ff9a, 1.6);
-    if (save.settings.screenShake) this.cameras.main.shake(180, 0.008);
-    this.showBanner(isP2 ? "P2 ◆ 荆棘波 · 清除弹幕 + 范围重创" : "◆ 荆棘波 · 清除弹幕 + 范围重创", 900);
+    this.cameras.main.flash(150, 150, 40, 255);
+    this.burst(sprite.x, sprite.y, 0xff3dbb, 2.2);
+    if (save.settings.screenShake) this.cameras.main.shake(200, 0.012);
+    this.showBanner(isP2 ? "P2 ◆ 血棘反噬 · 反伤×2 + 范围引爆 6s" : "◆ 血棘反噬 · 反伤×2 + 范围引爆 6s", 1100);
   }
 
-  // === 防御流派:荆棘护甲 — 受击时反伤给攻击者 ===
+  // === 血棘反噬持续更新:周身光环跟随玩家,到期销毁 ===
+  updateDefenderVengeance(time: number, owner: 1 | 2): void {
+    const isP2 = owner === 2;
+    const aura = isP2 ? this.defenderVengeanceAura2 : this.defenderVengeanceAura;
+    const until = isP2 ? this.defenderVengeanceUntil2 : this.defenderVengeanceUntil;
+    if (time >= until) {
+      aura?.destroy();
+      if (isP2) {
+        this.defenderVengeanceAura2 = undefined;
+        this.defenderVengeanceUntil2 = 0;
+      } else {
+        this.defenderVengeanceAura = undefined;
+        this.defenderVengeanceUntil = 0;
+      }
+      return;
+    }
+    if (!aura?.active) return;
+    const sprite = isP2 ? this.player2 : this.player;
+    if (sprite?.active) {
+      aura.setPosition(sprite.x, sprite.y);
+      aura.setAlpha(0.14 + Math.sin(time * 0.012) * 0.05);
+    }
+  }
+
+  // === 防御流派:血棘战甲 — 受击时反伤给攻击者 ===
   applyThorns(
     damageAmount: number,
     source: Phaser.Physics.Arcade.Image | null,
@@ -4742,12 +4733,15 @@ export class BattleScene extends SpawnDirectorMixin(
     const targetMaxHp = source?.active
       ? ((source.getData("maxHp") as number) ?? (source.getData("hp") as number) ?? 0)
       : 0;
-    // 荆棘星垒(防御融合技):反伤提高 50%+15%/级,累计 400 反伤触发星垒 AOE
+    // 血棘领域(防御融合技):反伤提高 50%+15%/级,累计 400 反伤触发星垒 AOE
     const fusionLevel = this.upgradesOf(owner).defender_fusion ?? 0;
     const reflectMul = fusionLevel > 0 ? 1.5 + fusionLevel * 0.15 : 1;
+    // 血棘反噬(G 键):持续期间反伤 ×2
+    const vengeanceActive =
+      this.time.now < (isP2 ? this.defenderVengeanceUntil2 : this.defenderVengeanceUntil);
     const reflect = Math.max(
       1,
-      Math.round((receivedDamage * 3 + targetMaxHp * 0.015) * reflectMul)
+      Math.round((receivedDamage * 3 + targetMaxHp * 0.015) * reflectMul * (vengeanceActive ? 2 : 1))
     );
     if (isP2) this.thornsAccumulator2 += reflect;
     else this.thornsAccumulator += reflect;
@@ -4756,22 +4750,39 @@ export class BattleScene extends SpawnDirectorMixin(
       if (this.thornStarGauge[owner] >= 400) {
         this.thornStarGauge[owner] = 0;
         this.thornStarUntil[owner] = this.time.now + 2500;
-        this.showBanner(
-          isP2 ? "P2 ✦ 荆棘星垒 · 反伤 AOE 2.5s" : "✦ 荆棘星垒 · 反伤 AOE 2.5s",
-          1000
-        );
+        // 反伤激活不弹字幕横幅
         this.cameras.main.flash(90, 90, 255, 110);
         if (save.settings.screenShake) this.cameras.main.shake(260, 0.014);
       }
     }
-    // 荆棘回流:回复本次反伤的 10%,且不超过本次实收伤害(保证受击必有净损失,不会免疫)
+    // 血棘回流:回复本次反伤的 10%,且不超过本次实收伤害(保证受击必有净损失,不会免疫)
     const healAmount = Math.min(reflect * 0.1, receivedDamage);
-    if (owner === 1) this.healPlayer(healAmount, "荆棘回流");
-    else this.healPlayer2(healAmount, "荆棘回流");
+    if (owner === 1) this.healPlayer(healAmount, "血棘回流");
+    else this.healPlayer2(healAmount, "血棘回流");
     if (source && source.active) {
       source.setData("lastOwner", owner);
       const before = source.getData("hp") ?? 1;
       this.renderThornCounter(source, before - reflect <= 0, owner);
+      // 血棘反噬:以攻击者为中心,周围 200px 的其他敌人同步受等量反伤 AOE
+      if (vengeanceActive) {
+        for (const other of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
+          if (!other.active || other === source) continue;
+          if (Phaser.Math.Distance.Between(source.x, source.y, other.x, other.y) > 200) continue;
+          other.setData("lastOwner", owner);
+          this.dealDirectDamage(other, reflect, other.x, other.y, false, owner);
+        }
+        const ring = this.add
+          .circle(source.x, source.y, 24, 0xff2d8f, 0.12)
+          .setStrokeStyle(5, 0xff3dbb, 0.9)
+          .setDepth(19);
+        this.tweens.add({
+          targets: ring,
+          radius: 200,
+          alpha: 0,
+          duration: 300,
+          onComplete: () => ring.destroy()
+        });
+      }
       if (before - reflect <= 0) {
         // 反死:回 2% 最大生命 + 1.2% 最大生命上限
         const maxHp = this.maxHpOf(owner);
@@ -4800,7 +4811,7 @@ export class BattleScene extends SpawnDirectorMixin(
         this.burst(source.x, source.y, 0xc16cff, 0.5);
       }
     }
-    // 累计 500 触发回血(5% maxHp + 5% 已损);荆棘星垒(defender_fusion)使共鸣阈值减半为 250
+    // 累计 500 触发回血(5% maxHp + 5% 已损);血棘领域(defender_fusion)使共鸣阈值减半为 250
     const resonanceThreshold = fusionLevel > 0 ? 250 : 500;
     if ((isP2 ? this.thornsAccumulator2 : this.thornsAccumulator) >= resonanceThreshold) {
       const maxHp = this.maxHpOf(owner);
@@ -4818,8 +4829,7 @@ export class BattleScene extends SpawnDirectorMixin(
           maxHp
         );
       }
-      this.showBanner(isP2 ? `P2 ◆ 荆棘共鸣 · 累计反伤 ${resonanceThreshold}` : `◆ 荆棘共鸣 · 累计反伤 ${resonanceThreshold}`, 800);
-      // 华丽特效:深紫荆棘爆发
+      // 血棘共鸣触发:反伤累计达标即回血,不弹字幕横幅
       this.triggerSpecialtyFX(0x9b5cff, {
         ring: 0x6a0a3a,
         style: "thorns",
@@ -5135,14 +5145,15 @@ export class BattleScene extends SpawnDirectorMixin(
       .setAlpha(Phaser.Math.Clamp(alpha * (0.68 + pulse * 0.12), 0, 0.86));
   }
 
-  // === 融合技形态(六流派融合:龙焰蜂群/荆棘星垒/血星网络/星渊巨口/天体碰撞/万象影袭) ===
+  // === 融合技形态(六流派融合:龙焰蜂群/血棘领域/血星网络/星渊巨口/天体碰撞/万象影袭) ===
   updateFusions(time: number, owner: 1 | 2): void {
     this.updateThornStar(time, owner);
     this.updateDevourMaw(time, owner);
     this.updateCelestial(time, owner);
+    this.updateDefenderVengeance(time, owner);
   }
 
-  // 荆棘星垒(防御):每累计 400 反伤触发 2.5s,期间反伤 AOE
+  // 血棘领域(防御):每累计 400 反伤触发 2.5s,期间反伤 AOE
   updateThornStar(time: number, owner: 1 | 2): void {
     const fusionLevel = this.upgradesOf(owner).defender_fusion ?? 0;
     if (fusionLevel <= 0) return;
@@ -5497,7 +5508,7 @@ export class BattleScene extends SpawnDirectorMixin(
             return;
           }
           if (specialization === "defender") {
-            this.activateDefenderThornWave();
+            this.activateDefenderVengeance();
             return;
           }
           if (specialization === "power") {
@@ -5539,7 +5550,7 @@ export class BattleScene extends SpawnDirectorMixin(
             return;
           }
           if (spec === "defender") {
-            this.activateDefenderThornWave(2);
+            this.activateDefenderVengeance(2);
             return;
           }
           if (spec === "power") {
@@ -5645,32 +5656,8 @@ export class BattleScene extends SpawnDirectorMixin(
     this.updatePickups();
     this.updateCampaignMysteryFeedback();
     // === 普通战役清兵航段:
-    // 半程(阈值 50%):停止刷兵,清场后先出三扇航线门,选门奖励后继续推进;
-    // 整程(阈值 100%):停止刷兵,清场后直接进入首领降临(不再出第二道门) ===
-    if (
-      this.campaignInterludeActive &&
-      !this.campaignHalfGateDone &&
-      !this.levelCompleteTriggered &&
-      this.score + this.score2 - this.campaignInterludeStartScore >=
-        this.campaignInterludeTarget * 0.5
-    ) {
-      // 半程:立即停止刷兵,清完剩余小兵后开航线门
-      this.campaignHalfGateDone = true;
-      this.nextSpawn = this.time.now + 999999;
-      this.showBanner("◆ 航线门信号锁定 · 清空剩余威胁", 1200);
-    }
-    if (
-      this.campaignInterludeActive &&
-      this.campaignHalfGateDone &&
-      !this.campaignHalfGateSpawned &&
-      !this.campaignGatesOpen &&
-      !this.levelCompleteTriggered &&
-      !(this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).some((enemy) => enemy.active)
-    ) {
-      // 半程门:清场后出现红/蓝/绿三扇随机航线门(每航段只出一次,结算后不再重复)
-      this.campaignHalfGateSpawned = true;
-      this.spawnCampaignGates(time);
-    }
+    // 航线门只由"打完黑影 Boss"触发(见 completeShadowChase),不再与航段清兵进度挂钩;
+    // 整程(阈值 100%):停止刷兵,清场后直接进入首领降临 ===
     if (
       this.campaignInterludeActive &&
       this.campaignGatesOpen &&
@@ -5687,7 +5674,6 @@ export class BattleScene extends SpawnDirectorMixin(
     }
     if (
       this.campaignInterludeActive &&
-      this.campaignHalfGateDone &&
       !this.levelCompleteTriggered &&
       this.score + this.score2 - this.campaignInterludeStartScore >=
         this.campaignInterludeTarget
@@ -7514,8 +7500,11 @@ export class BattleScene extends SpawnDirectorMixin(
       this.comboTimer = 2.5;
       this.rewardCombatStreak();
       const earned = Math.round((enemy.getData("score") ?? 50) * (1 + Math.min(2, this.combo / 100)));
-      if (playVariant === "score_duel" && enemy.getData("lastOwner") === 2) this.score2 += earned;
-      else this.score += earned;
+      // 红门强敌标记 noScore:不计入关卡分数(代币/经验掉落不受影响)
+      if (enemy.getData("noScore") !== true) {
+        if (playVariant === "score_duel" && enemy.getData("lastOwner") === 2) this.score2 += earned;
+        else this.score += earned;
+      }
       // E 键充能:击败敌人获得量削弱 75%(精英 5→1.25,普通 1→0.25)
       this.ultimate = Math.min(
         100,
@@ -7562,7 +7551,7 @@ export class BattleScene extends SpawnDirectorMixin(
   // 按时间折扣发放商店代币,返回实际入账数量(展示文案用返回值,避免"显示全额实际打折")
   // (所有获得来源先统一减少 70% 再减少 20%:总入口 ×0.24,含敌人掉落/里程碑/Boss 奖励/关卡奖励/结局奖励等)
   grantRunTokens(raw: number): number {
-    const granted = Math.round(raw * 0.24 * this.tokenTimeMultiplier());
+    const granted = Math.round(raw * 0.288 * this.tokenTimeMultiplier());
     this.runTokens += granted;
     return granted;
   }
@@ -7706,7 +7695,7 @@ export class BattleScene extends SpawnDirectorMixin(
     this.stats.hp = Math.max(0, this.stats.hp - damage);
     this.playerWasHit = true;
     this.invulnerableUntil = now + 480;
-    // === 防御流派:荆棘护甲 — 百分比伤害按 100 HP 反伤 ===
+    // === 防御流派:血棘战甲 — 百分比伤害按 100 HP 反伤 ===
     this.applyThorns(damage, null);
     this.floatText(this.player.x, this.player.y - 56, `${label} -${damage}`, true);
     this.burst(this.player.x, this.player.y, 0x6d0b8f, 1.6);
@@ -9867,7 +9856,7 @@ export class BattleScene extends SpawnDirectorMixin(
     this.recordWheelchairReactiveAbsorption(preSkillDamage, finalDamage);
     this.playerWasHit = true;
     this.stats.hp = Math.max(0, this.stats.hp - finalDamage);
-    // === 防御流派:荆棘护甲 — 反伤 ===
+    // === 防御流派:血棘战甲 — 反伤 ===
     this.applyThorns(finalDamage, source ?? null);
     if (
       !this.emergencyUsed &&
@@ -11742,7 +11731,7 @@ export class BattleScene extends SpawnDirectorMixin(
       )
     );
     this.player2Hp = Math.max(0, this.player2Hp - finalDamage);
-    // === 防御流派:P2 荆棘护甲反伤 ===
+    // === 防御流派:P2 血棘战甲反伤 ===
     this.applyThorns(finalDamage, null, 2);
     this.player2.setTintFill(0xff4d6d);
     this.time.delayedCall(
@@ -11880,10 +11869,14 @@ export class BattleScene extends SpawnDirectorMixin(
     const rewardSkin = skinReward[id];
     if (rewardSkin && !save.unlockedSkins.includes(rewardSkin)) {
       save.unlockedSkins.push(rewardSkin);
-      showToast(`🏅 解锁皮肤 · ${SKINS[rewardSkin].name}`);
+      showAchievementToast(
+        `获得勋章 · ${achievement.name}`,
+        `解锁皮肤 · ${SKINS[rewardSkin].name}`
+      );
+    } else {
+      showAchievementToast(`获得勋章 · ${achievement.name}`);
     }
     persist();
-    showToast(`🏅 获得勋章：${achievement.name}`);
     sfx("upgrade");
   }
 
@@ -11969,7 +11962,12 @@ export class BattleScene extends SpawnDirectorMixin(
     this.showBanner(`黑影受创 ${escapedAfterDamage}% · 正在向上隐退`, 1500);
     const continueAfterUpgrade = () => {
       if (selectedMode === "campaign") {
-        this.startCampaignInterlude(this.campaignEncounterIndex, chaseNumber);
+        // 打跑黑影后:解析首领核心 → 流派进化三选一,再进入航段与航线门
+        showDoctrineEvolution(this, () => {
+          this.startCampaignInterlude(this.campaignEncounterIndex, chaseNumber);
+          // 打完黑影 Boss:航段开始立即出现三扇航线门(仅前三次黑影追逐后有)
+          this.spawnCampaignGates(this.time.now);
+        });
       } else {
         this.startCampaignEncounter(this.campaignEncounterIndex);
       }
@@ -12040,15 +12038,18 @@ export class BattleScene extends SpawnDirectorMixin(
       ? this.trinityDefeatedKinds
       : (["titan", "mirror", "usurper"] as BossKind[]);
     this.time.delayedCall(1200, () => {
-      // 三神共斗:主动 + 被动放在同一个面板里同时选择,选完后再走一次普通强化
+      // 三神共斗:主动 + 被动放在同一个面板里同时选择,选完后再走普通强化与流派进化
       showTrinityCombinedChoice(this, raidKinds, () => {
         // 三神共斗后再加一次普通强化三选一,让中段奖励更厚
         showUpgrade(this, () => {
-          if (selectedMode === "campaign") {
-            this.startCampaignInterlude(7, 4);
-          } else {
-            this.startCampaignEncounter(7);
-          }
+          // 三神核心解析:流派进化三选一
+          showDoctrineEvolution(this, () => {
+            if (selectedMode === "campaign") {
+              this.startCampaignInterlude(7, 4);
+            } else {
+              this.startCampaignEncounter(7);
+            }
+          });
         });
       });
     });
@@ -12074,8 +12075,6 @@ export class BattleScene extends SpawnDirectorMixin(
     );
     this.campaignInterludeActive = true;
     this.levelCompleteTriggered = false;
-    this.campaignHalfGateDone = false;
-    this.campaignHalfGateSpawned = false;
     this.nextSpawn = 0;
     const entryMessages = [
       "未知航道开放 · 保持火力",
@@ -12088,11 +12087,13 @@ export class BattleScene extends SpawnDirectorMixin(
     );
   }
 
-  // === 普通战役航线门:清兵达标并清场后出现红/蓝/绿三扇随机航线门 ===
+  // === 普通战役航线门:打完黑影 Boss 后出现红/蓝/绿三扇随机航线门 ===
   spawnCampaignGates(time: number): void {
     if (this.campaignGatesOpen || this.campaignGates.length > 0) return;
     this.campaignGatesOpen = true;
     this.campaignGateUntil = time + 12000;
+    // 门出现期间暂停刷兵,选门/超时后由 completeCampaignGate 恢复
+    this.nextSpawn = time + 999999;
     const kinds = (["red", "blue", "green"] as const).slice().sort(() => Math.random() - 0.5);
     const xs = [WORLD_WIDTH * 0.22, WORLD_WIDTH * 0.5, WORLD_WIDTH * 0.78];
     this.campaignGates = kinds.map((kind, index) =>
@@ -12182,15 +12183,23 @@ export class BattleScene extends SpawnDirectorMixin(
     this.cameras.main.flash(120, 200, 255, 255);
     const finishGate = (): void => this.completeCampaignGate();
     if (kind === "red") {
-      // 红门:强敌来袭事件,歼灭强敌(或超时)后才给攻击升级,不立即升级
-      this.showBanner("赤红航线 · 强敌来袭 · 歼灭后攻击升级", 1600);
+      // 红门:强敌来袭事件——大量精英炮艇/轰炸机,歼灭(或超时)后继续推进;
+      // 强敌不计入关卡分数,歼灭后统一结算代币与经验
+      this.showBanner("赤红航线 · 强敌来袭 · 歼灭后继续推进", 1600);
       const elites: Phaser.Physics.Arcade.Image[] = [];
-      const e1 = this.spawnEnemy(this.time.now, "elite_gunship");
-      if (e1) elites.push(e1);
-      this.time.delayedCall(450, () => {
+      const summon = (type: "elite_gunship" | "elite_bomber"): void => {
         if (this.ended) return;
-        const e2 = this.spawnEnemy(this.time.now, "elite_bomber");
-        if (e2) elites.push(e2);
+        const elite = this.spawnEnemy(this.time.now, type);
+        if (elite) {
+          elite.setData("noScore", true);
+          elites.push(elite);
+        }
+      };
+      summon("elite_gunship");
+      summon("elite_bomber");
+      this.time.delayedCall(450, () => {
+        summon("elite_gunship");
+        summon("elite_bomber");
       });
       const gateTimeout = this.time.now + 14000;
       const checkElites = (): void => {
@@ -12199,54 +12208,180 @@ export class BattleScene extends SpawnDirectorMixin(
           this.time.delayedCall(400, checkElites);
           return;
         }
-        this.showBanner("◆ 赤红航线 · 攻击升级解锁", 1000);
-        this.openUpgradePanel(finishGate);
+        // 歼灭奖励:代币 + 经验(关卡分数不增加)
+        const granted = this.grantRunTokens(40);
+        this.spawnExperiencePickup(x, y - 70, 30);
+        this.showBanner(`◆ 赤红航线 · 强敌已清除 ◆ +${granted}`, 1000);
+        finishGate();
       };
       this.time.delayedCall(1200, checkElites);
     } else if (kind === "blue") {
-      // 蓝门:异常事件(随机结果,均为自洽事件)
-      const roll = Phaser.Math.Between(0, 5);
-      if (roll <= 1) {
-        // 经验爆发
-        this.spawnExperiencePickup(x, y - 70, 40);
-        this.spawnExperiencePickup(x + 56, y - 24, 40);
-        this.spawnExperiencePickup(x - 56, y - 24, 40);
-        this.showBanner("深蓝航线 · 经验爆发", 1300);
+      // 蓝门:全新随机事件 4 选 1(命运骰子/空间置换/幽灵炮塔/敌我内讧)
+      const roll = Phaser.Math.Between(0, 3);
+      if (roll === 0) {
+        // === 命运骰子:投掷动画,点数决定厄运(1-2)/命运(3-4)/天命(5-6) ===
+        this.showBanner("深蓝航线 · 命运骰子 · 投掷中", 1400);
+        const dieSize = 84;
+        const die = this.add
+          .rectangle(x, y, dieSize, dieSize, 0x1b2a4a)
+          .setStrokeStyle(5, 0xffd66b, 1)
+          .setDepth(40);
+        const pips = [
+          this.add.circle(x, y, 12, 0xffd66b, 1).setDepth(41),
+          this.add.circle(x + 20, y - 20, 8, 0xffd66b, 0.9).setDepth(41),
+          this.add.circle(x - 20, y + 20, 8, 0xffd66b, 0.9).setDepth(41)
+        ];
+        const rollValue = Phaser.Math.Between(1, 6);
+        const outcome = this.add
+          .text(x, y + dieSize + 28, "", {
+            fontFamily: '"Microsoft YaHei", sans-serif',
+            fontSize: "16px",
+            color: "#ffe9b0",
+            backgroundColor: "#0a1622cc",
+            padding: { x: 10, y: 5 }
+          })
+          .setOrigin(0.5)
+          .setDepth(41);
+        this.tweens.add({
+          targets: [die, ...pips],
+          angle: 900,
+          scaleX: 0.15,
+          scaleY: 0.15,
+          duration: 1000,
+          ease: "Cubic.Out",
+          onComplete: () => {
+            die.destroy();
+            pips.forEach((pip) => pip.destroy());
+            this.cameras.main.flash(140, 255, 220, 120);
+            if (rollValue <= 2) {
+              // 厄运:随机 3 个敌人自爆,玩家受少量伤害
+              const targets = (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[])
+                .filter((enemy) => enemy.active)
+                .sort(() => Math.random() - 0.5)
+                .slice(0, 3);
+              targets.forEach((target) => {
+                if (!target.active) return;
+                this.bigExplosion(target.x, target.y, 0xff6b3d, 1.3);
+                target.disableBody(true, true);
+                this.damagePlayer(Math.max(10, Math.round(this.stats.maxHp * 0.04)), "explosion", "boss");
+              });
+              outcome.setText(`命运点数 ${rollValue} · 厄运 · 随机敌军自爆`);
+            } else if (rollValue <= 4) {
+              // 命运:全场敌方弹幕反转离场
+              (this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]).forEach((bullet) => {
+                if (!bullet.active) return;
+                bullet.setVelocity(bullet.body?.velocity.x ?? 0, -860);
+              });
+              outcome.setText(`命运点数 ${rollValue} · 弹幕反转离场`);
+            } else {
+              // 天命:弹幕反转 + 全场敌人受最大生命 12% 伤害
+              (this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]).forEach((bullet) => {
+                if (!bullet.active) return;
+                bullet.setVelocity(bullet.body?.velocity.x ?? 0, -860);
+              });
+              for (const enemy of this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]) {
+                if (!enemy.active) continue;
+                const maxHp = Number(enemy.getData("maxHp")) || 1;
+                this.dealDirectDamage(enemy, Math.max(1, Math.round(maxHp * 0.12)), enemy.x, enemy.y, false);
+              }
+              outcome.setText(`命运点数 ${rollValue} · 天命 · 弹幕反转 + 全体重创`);
+            }
+            this.time.delayedCall(1200, () => outcome.destroy());
+          }
+        });
+        this.time.delayedCall(2300, finishGate);
+      } else if (roll === 1) {
+        // === 空间置换:全场敌人重新布阵到屏幕顶部,弹幕一并清除 ===
+        (this.enemies.getChildren() as Phaser.Physics.Arcade.Image[]).forEach((enemy) => {
+          if (!enemy.active) return;
+          const nx = Phaser.Math.Between(70, WORLD_WIDTH - 70);
+          enemy.setPosition(nx, Phaser.Math.Between(-80, 160));
+          enemy.setData("originX", nx);
+        });
+        (this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[]).forEach((bullet) => {
+          if (bullet.active) bullet.disableBody(true, true);
+        });
+        this.burst(x, y, 0x9b5cff, 2.0);
+        this.showBanner("深蓝航线 · 空间置换 · 敌阵重组", 1300);
         this.time.delayedCall(900, finishGate);
       } else if (roll === 2) {
-        // 模块注入:随机构筑
-        this.showBanner("深蓝航线 · 模块注入", 1300);
-        this.time.delayedCall(700, () => this.openUpgradePanel(finishGate));
-      } else if (roll === 3) {
-        // 星渊遗物:代币
-        const granted = this.grantRunTokens(60);
-        this.showBanner(`深蓝航线 · 星渊遗物 ◆ +${granted}`, 1300);
-        this.time.delayedCall(900, finishGate);
-      } else if (roll === 4) {
-        // 修复爆发
-        this.healPlayer(this.stats.maxHp * 0.25, "深蓝航线 · 治愈回响");
-        this.showBanner("深蓝航线 · 治愈回响 +25%", 1300);
+        // === 幽灵炮塔:玩家身后 3 个幻影炮塔,3 秒内持续向上射击 ===
+        const phantoms: Phaser.GameObjects.Image[] = [];
+        for (let i = 0; i < 3; i += 1) {
+          const phantom = this.add
+            .image(this.player.x + (i - 1) * 58, this.player.y + 74, this.player.texture.key)
+            .setDisplaySize(this.player.displayWidth * 0.78, this.player.displayHeight * 0.78)
+            .setAlpha(0.55)
+            .setTint(0x9bffc8)
+            .setDepth(17);
+          phantoms.push(phantom);
+        }
+        const phantomUntil = this.time.now + 3000;
+        const phantomFire = (): void => {
+          if (this.ended) return;
+          if (this.time.now >= phantomUntil) {
+            phantoms.forEach((p) => p.active && p.destroy());
+            return;
+          }
+          const dmg = 8 + (this.upgradeLevels.cannon ?? 1) * 2;
+          phantoms.forEach((p) => {
+            if (!p.active) return;
+            const bullet = this.spawnPlayerBullet(p.x, p.y - 18, "playerBullet", dmg, -1000, "gate-phantom");
+            bullet.setTint(0x9bffc8);
+            bullet.setData("owner", 1);
+          });
+          this.time.delayedCall(320, phantomFire);
+        };
+        phantomFire();
+        this.showBanner("深蓝航线 · 幽灵炮塔 · 幻影齐射 3s", 1300);
         this.time.delayedCall(900, finishGate);
       } else {
-        // 危险回响:损失生命换后续构筑
-        this.stats.hp = roundHealth(this.stats.hp - this.stats.maxHp * 0.08, this.stats.maxHp);
-        this.floatText(x, y, "危险回响 · 损失 8% 生命", true);
-        this.cameras.main.flash(160, 255, 40, 60);
-        this.showBanner("深蓝航线 · 危险回响 · 受损后强制构筑", 1400);
-        this.time.delayedCall(800, () => this.openUpgradePanel(finishGate));
+        // === 敌我内讧:2 秒内全场敌人互相攻击(红色连线,每 400ms 对最近敌人造成最大生命 5% 伤害) ===
+        const mutinyUntil = this.time.now + 2000;
+        const tickMutiny = (): void => {
+          if (this.ended) return;
+          if (this.time.now >= mutinyUntil) return;
+          const enemies = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
+          for (const enemy of enemies) {
+            if (!enemy.active) continue;
+            let nearest: Phaser.Physics.Arcade.Image | null = null;
+            let best = Infinity;
+            for (const other of enemies) {
+              if (other === enemy || !other.active) continue;
+              const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
+              if (dist < best) {
+                best = dist;
+                nearest = other;
+              }
+            }
+            if (nearest && best < 280) {
+              const line = this.add
+                .line(0, 0, enemy.x, enemy.y, nearest.x, nearest.y, 0xff3d5a, 0.45)
+                .setDepth(14);
+              this.time.delayedCall(130, () => line.destroy());
+              const maxHp = Number(nearest.getData("maxHp")) || 1;
+              this.dealDirectDamage(nearest, Math.max(1, Math.round(maxHp * 0.05)), nearest.x, nearest.y, false);
+            }
+          }
+          this.time.delayedCall(400, tickMutiny);
+        };
+        tickMutiny();
+        this.burst(x, y, 0xff3d5a, 1.8);
+        this.showBanner("深蓝航线 · 敌我内讧 · 敌军互斗 2s", 1300);
+        this.time.delayedCall(900, finishGate);
       }
     } else {
-      // 绿门:修复护盾事件,1.5s 后再给升级,不立即升级
+      // 绿门:修复护盾事件,选门后不再升级
       this.healPlayer(this.stats.maxHp * 0.3, "翠绿航线 · 修复");
       this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + 2500);
       this.spawnExperiencePickup(x, y - 70, 25);
       this.showBanner("翠绿航线 · 修复 30% + 护盾 2.5s + 经验", 1400);
-      this.time.delayedCall(1500, () => this.openUpgradePanel(finishGate));
+      this.time.delayedCall(900, finishGate);
     }
   }
 
   // 门流程结束(选门奖励/门超时):
-  // 半程航线门 → 关闭后继续刷兵推进;整程已达标 → 完成清兵整备并召唤 Boss
+  // 黑影后航线门 → 关闭后继续刷兵推进;整程已达标 → 完成清兵整备并召唤 Boss
   completeCampaignGate(): void {
     if (this.ended || this.bossActive || !this.campaignInterludeActive) return;
     this.clearCampaignGates();
@@ -13187,9 +13322,9 @@ export class BattleScene extends SpawnDirectorMixin(
     const difficulty = campaignDifficultyForLevel(selectedLevel);
     if (difficulty.id === "hard") rawDamage *= 0.95;
     else if (difficulty.id === "nightmare") rawDamage *= 0.85;
-    // === Boss 版荆棘反伤(防御流派反击被篡夺):玩家攻击 Boss 时按比例反弹(削弱版) ===
+    // === Boss 版血棘反伤(防御流派反击被篡夺):玩家攻击 Boss 时按比例反弹(削弱版) ===
     if (this.time.now < this.bossThornCounterUntil) {
-      this.damagePlayerDark(0, 0.015, "敌方荆棘反伤");
+      this.damagePlayerDark(0, 0.015, "敌方血棘反伤");
     }
     // === 权柄污染:对 Boss 伤害 +10%(usurper 护符) ===
     if (this.usurperBlight) rawDamage *= 1.1;
@@ -15759,7 +15894,7 @@ export class BattleScene extends SpawnDirectorMixin(
       // 篡夺的影分身:4 个紫色影分身散射削弱弹幕
       this.castBossAgileClones(core);
     } else if (stolen === "defender_counter") {
-      // 篡夺的荆棘反击:玩家攻击 Boss 时按比例反弹伤害
+      // 篡夺的血棘反击:玩家攻击 Boss 时按比例反弹伤害
       this.castBossDefenderCounter(core);
     } else if (stolen === "vampire_siphon") {
       // 篡夺的虹吸链:持续抽取玩家生命并回复 Boss
@@ -15926,11 +16061,11 @@ export class BattleScene extends SpawnDirectorMixin(
     this.showBanner("◆ 敌方影分身 · 紫色散射弹幕", 900);
   }
 
-  // Boss 版荆棘反击:防御流派反击被篡夺/夺取后,玩家攻击 Boss 时按比例反弹伤害(削弱版)
+  // Boss 版血棘反击:防御流派反击被篡夺/夺取后,玩家攻击 Boss 时按比例反弹伤害(削弱版)
   castBossDefenderCounter(core: Phaser.Physics.Arcade.Image): void {
     const until = this.time.now + 8000;
     this.bossThornCounterUntil = Math.max(this.bossThornCounterUntil, until);
-    // 放大版荆棘环(花哨)
+    // 放大版血棘环(花哨)
     const ring = this.add
       .circle(core.x, core.y, 180, 0x9b5cff, 0.06)
       .setStrokeStyle(10, 0xc86cff, 0.9)
@@ -15944,7 +16079,7 @@ export class BattleScene extends SpawnDirectorMixin(
       duration: 700,
       onComplete: () => ring.destroy()
     });
-    this.showBanner("◆ 敌方荆棘反伤 · 攻击即被反噬", 1000);
+    this.showBanner("◆ 敌方血棘反伤 · 攻击即被反噬", 1000);
   }
 
   // Boss 版虹吸链:吸血流派虹吸被篡夺/夺取后,从玩家身上持续吸血(削弱伤害)并回复 Boss
@@ -16051,7 +16186,7 @@ export class BattleScene extends SpawnDirectorMixin(
           emp: "EMP",
           agile_fusion: "万象影袭",
           agile_clone: "影分身",
-          defender_counter: "荆棘反击",
+          defender_counter: "血棘反击",
           vampire_siphon: "虹吸链"
         };
         this.showBanner(`◆ 技能篡夺 · 窃取「${stolenNames[stolen]}」持续 5 秒`, 1300);

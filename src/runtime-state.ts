@@ -90,6 +90,17 @@ export function setPersistFailed(value: boolean): void {
 // === 音频(WebAudio 合成,不依赖外部资源) ===
 export let audioContext: AudioContext | null = null;
 export let toastTimer = 0;
+export let achievementToastTimer = 0;
+
+// 成就解锁提示:显示在游戏画面下方(金色勋章条),title 为勋章名,subtitle 为附加奖励(如皮肤)
+export function showAchievementToast(title: string, subtitle = ""): void {
+  const element = document.querySelector<HTMLDivElement>("#achievement-toast");
+  if (!element) return;
+  element.innerHTML = `<b>🏅 ${title}</b>${subtitle ? `<small>${subtitle}</small>` : ""}`;
+  element.classList.add("show");
+  window.clearTimeout(achievementToastTimer);
+  achievementToastTimer = window.setTimeout(() => element.classList.remove("show"), 2600);
+}
 export let musicTimer = 0;
 export let musicStage = -1;
 
